@@ -248,9 +248,15 @@ def clickup_intel():
     for uid in set(list(e_sp) + list(e_tot)):
         sp = max(e_sp[uid].items(), key=lambda x: x[1])[0] if e_sp[uid] else ""
         fo = max(e_fo[uid].items(), key=lambda x: x[1])[0] if e_fo[uid] else ""
+        # ALL spaces/folders this employee has tasks in (employee may belong to
+        # many teams over time — used so every team/dept/client is filterable).
+        teams = sorted(e_sp[uid].keys()) or ["Unassigned"]
+        depts = sorted({_dept_of(s) for s in e_sp[uid].keys()}) or ["Unassigned"]
+        clnts = sorted(e_fo[uid].keys()) or ["Unassigned"]
         emp[uid] = {"department": _dept_of(sp) if sp else "Unassigned", "team": sp or "Unassigned",
                     "client": fo or "Unassigned", "active_tasks": e_act[uid], "total_tasks": e_tot[uid],
-                    "task_status": "Active" if e_act[uid] > 0 else "Idle"}
+                    "task_status": "Active" if e_act[uid] > 0 else "Idle",
+                    "teams": teams, "depts": depts, "clients": clnts}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
                  "total": v["total"], "active_tasks": v["active"]} for fo, v in clients.items()}
     return {"emp": emp, "clients": cdim}
@@ -338,7 +344,10 @@ def load_from_db():
                      "active_tasks": int(info.get("active_tasks", 0)),
                      "total_tasks": int(info.get("total_tasks", 0)),
                      "task_status": info.get("task_status", "Idle"),
-                     "client": info.get("client", "Unassigned")})
+                     "client": info.get("client", "Unassigned"),
+                     "dept_set": info.get("depts", []),
+                     "team_set": info.get("teams", []),
+                     "client_set": info.get("clients", [])})
     members = pd.DataFrame(rows)
     g["revenue"] = g["billable_h"] * g["user_id"].map(rate_map).fillna(40.0)
     return _finalize(members, g)
@@ -355,15 +364,25 @@ def _vals(x):
 
 
 def apply_filters(members, g, f):
+    has_sets = "team_set" in members.columns
     m = members
     for key, col in [("employee", "name"), ("role", "role"), ("status", "status")]:
         vals = _vals(f.get(key))
         if vals:
             m = m[m[col].isin(vals)]
+    # Department / Team / Client by MEMBERSHIP — an employee can belong to many,
+    # so selecting any team/dept/client surfaces everyone who works in it.
+    if has_sets:
+        for key, setcol in [("department", "dept_set"), ("atl", "team_set"), ("client", "client_set")]:
+            vals = _vals(f.get(key))
+            if vals:
+                sv = set(vals)
+                m = m[m[setcol].apply(lambda s: bool(sv & set(s or [])))]
     ids = set(m["user_id"])
     d = g[g["user_id"].isin(ids)]
-    for key, col in [("department", "department"), ("atl", "atl"),
-                     ("client", "client"), ("client_type", "client_type")]:
+    col_keys = [("client_type", "client_type")] if has_sets else \
+        [("department", "department"), ("atl", "atl"), ("client", "client"), ("client_type", "client_type")]
+    for key, col in col_keys:
         vals = _vals(f.get(key))
         if vals:
             d = d[d[col].isin(vals)]
@@ -463,9 +482,6 @@ def health():
 @app.get("/api/filters")
 def filters(department: Optional[str] = None, atl: Optional[str] = None):
     members, g = load()
-    dim = g.groupby("user_id").agg(department=("department", "first"), atl=("atl", "first"),
-                                   client=("client", "first"), client_type=("client_type", "first")).reset_index()
-    dim = dim.merge(members[["user_id", "name"]], on="user_id", how="left")
 
     def srt(vals):
         v = sorted([x for x in set(vals) if x not in (None, "", "—")])
@@ -474,9 +490,51 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None):
         return v
 
     dep_vals, atl_vals = _vals(department), _vals(atl)
+    has_sets = "team_set" in members.columns
+
+    if has_sets:
+        # Every team / department / client an employee touches (not just primary),
+        # so ALL of them are filterable. Cascading scopes teams/employees/clients.
+        all_depts, all_teams, all_clients = set(), set(), set()
+        for _, r in members.iterrows():
+            all_depts.update(r["dept_set"] or [])
+            all_teams.update(r["team_set"] or [])
+            all_clients.update(r["client_set"] or [])
+        teams_scoped = [t for t in all_teams if _dept_of(t) in dep_vals] if dep_vals else list(all_teams)
+
+        def emp_ok(r):
+            if dep_vals and not (set(dep_vals) & set(r["dept_set"] or [])):
+                return False
+            if atl_vals and not (set(atl_vals) & set(r["team_set"] or [])):
+                return False
+            return True
+
+        emp_rows = members[members.apply(emp_ok, axis=1)]
+        employees = sorted(emp_rows["name"].dropna().unique().tolist())
+        if dep_vals:
+            clients_scoped = {c for _, r in members.iterrows()
+                              if (set(dep_vals) & set(r["dept_set"] or []))
+                              for c in (r["client_set"] or [])}
+        else:
+            clients_scoped = all_clients
+        client_types = srt({_client_cat(c) for c in all_clients})
+        return clean({
+            "date_min": g["date_s"].min(), "date_max": g["date_s"].max(),
+            "departments": srt(all_depts),
+            "atls": srt(teams_scoped),
+            "employees": employees,
+            "clients": srt(clients_scoped),
+            "client_types": client_types,
+            "total_members": int(len(members)),
+            "source": "supabase" if db.has_db() else "csv",
+        })
+
+    # CSV fallback (no ClickUp membership) — use the single-column values
+    dim = g.groupby("user_id").agg(department=("department", "first"), atl=("atl", "first"),
+                                   client=("client", "first"), client_type=("client_type", "first")).reset_index()
+    dim = dim.merge(members[["user_id", "name"]], on="user_id", how="left")
     dep_scope = dim[dim["department"].isin(dep_vals)] if dep_vals else dim
     atl_scope = dep_scope[dep_scope["atl"].isin(atl_vals)] if atl_vals else dep_scope
-
     return clean({
         "date_min": g["date_s"].min(), "date_max": g["date_s"].max(),
         "departments": srt(dim["department"]),
