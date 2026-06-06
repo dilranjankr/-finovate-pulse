@@ -50,26 +50,31 @@ body { background: var(--bg); color: var(--ink);
 .chip.demo { color: var(--amber); } .chip.demo .d { background: var(--amber); }
 
 /* filters */
-/* inline pill filter bar */
-.filterbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--r); box-shadow: var(--shadow); padding: 10px 12px; margin-bottom: 12px; }
-.fpill { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 36px; padding: 0 11px;
-  border: 1px solid var(--line); border-radius: 9px; background: #fbfcfe; color: var(--ink-2); font-size: 12.5px; font-weight: 600;
+/* clean filter toolbar */
+.filterbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--r); box-shadow: var(--shadow); padding: 12px 15px; margin-bottom: 14px; }
+.fb-lead { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--ink); letter-spacing: -.1px; padding-left: 2px; }
+.fb-lead svg { color: var(--navy); }
+.fdate { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 13px; border: 1px solid var(--line);
+  border-radius: 10px; background: #fbfcfe; color: var(--ink-2); transition: .15s; }
+.fdate:hover { border-color: #c3c9de; background: #fff; }
+.fdate svg { color: var(--muted); flex-shrink: 0; }
+.fdate input { border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); outline: none; cursor: pointer; width: 100px; padding: 0; }
+.fdate .dsep { color: var(--faint); }
+.fpill { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; color: var(--ink-2); font-size: 12.5px; font-weight: 600;
   cursor: pointer; max-width: 220px; transition: .15s; }
 .fpill:hover { border-color: #c3c9de; background: #fff; }
 .fpill.on { background: var(--accent-soft); border-color: var(--navy); color: var(--navy); }
+.fpill.on .ms-btn > svg { opacity: 1; }
 .fpill > svg { flex-shrink: 0; opacity: .75; }
 .fpill .fpl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .fpill > svg:last-of-type { margin-left: auto; opacity: .5; }
 .fpill select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-family: inherit; }
-.fpill.fdate { max-width: none; cursor: default; gap: 6px; }
-.fpill.fdate input { border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600;
-  color: var(--ink); outline: none; cursor: pointer; width: 104px; padding: 0; }
-.fpill.fdate .dsep { color: var(--muted); }
-.fdiv { width: 1px; height: 22px; background: var(--line); margin: 0 2px; }
-.fclear { display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 13px; margin-left: auto;
+.fdiv { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
+.fclear { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px; margin-left: auto;
   font-family: inherit; font-size: 12.5px; font-weight: 650; color: var(--red); background: #fef2f2; border: 1px solid #f6d4d6;
-  border-radius: 9px; cursor: pointer; transition: .15s; }
+  border-radius: 10px; cursor: pointer; transition: .15s; }
 .fclear:hover { background: #fde6e7; }
 .fclear .fcnt { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 4px;
   font-size: 10.5px; font-weight: 800; color: #fff; background: var(--red); border-radius: 9px; }

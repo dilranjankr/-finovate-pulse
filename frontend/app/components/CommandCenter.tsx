@@ -275,26 +275,27 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* FILTERS — inline pill bar */}
+      {/* FILTERS — clean toolbar */}
       {showFilters && (() => {
         const activeCount = [draft.department, draft.atl, draft.employee, draft.client, draft.client_type].filter(Boolean).length;
         return (
           <div className="filterbar">
-            <div className="fpill fdate" title="Date range">
+            <span className="fb-lead"><Filter size={14} />Filters</span>
+            <span className="fdiv" />
+            <label className="fdate">
               <CalendarDays size={14} />
               <input type="date" value={draft.date_from || ""} onChange={(e) => setField("date_from", e.target.value)} aria-label="From" />
               <span className="dsep">–</span>
               <input type="date" value={draft.date_to || ""} onChange={(e) => setField("date_to", e.target.value)} aria-label="To" />
-            </div>
-            <span className="fdiv" />
+            </label>
             <MultiSelect Icon={Building2} label="Department" value={draft.department} opts={opts?.departments} on={setDept} allLabel="All Departments" />
             <MultiSelect Icon={Network} label="Team" value={draft.atl} opts={opts?.atls} on={setAtl} allLabel="All Teams" />
             <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" />
             <MultiSelect Icon={Briefcase} label="Client" value={draft.client} opts={opts?.clients} on={(v) => setField("client", v)} allLabel="All Clients" />
-            <MultiSelect Icon={Receipt} label="Client Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
+            <MultiSelect Icon={Receipt} label="Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
             {activeCount > 0 && (
               <button className="fclear" onClick={clearFilters} title="Clear all filters">
-                <RotateCcw size={13} />Clear<span className="fcnt">{activeCount}</span>
+                <RotateCcw size={13} />Clear all<span className="fcnt">{activeCount}</span>
               </button>
             )}
           </div>
