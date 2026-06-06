@@ -113,6 +113,18 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } }
 
 .empty-s { padding: 28px 12px; text-align: center; color: var(--muted); font-size: 12.5px; }
+/* hours trend + budget row */
+.row-tb { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; margin-bottom: 14px; align-items: stretch; }
+.budgetcard { display: flex; flex-direction: column; flex: 1; }
+.bc-status { align-self: flex-start; font-size: 11px; font-weight: 700; padding: 4px 11px; border-radius: 6px; }
+.bc-big { font-size: 36px; font-weight: 780; letter-spacing: -1.4px; margin: 16px 0 2px; color: var(--ink); line-height: 1; }
+.bc-big span { display: block; font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: 0; margin-top: 7px; }
+.bc-rows { margin-top: auto; padding-top: 16px; }
+.bc-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); margin-bottom: 6px; }
+.bc-row b { color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
+.bc-track { height: 8px; border-radius: 4px; background: var(--line-2); overflow: hidden; margin-bottom: 12px; }
+.bc-track > span { display: block; height: 100%; border-radius: 4px; }
+@media (max-width: 1100px) { .row-tb { grid-template-columns: 1fr; } }
 /* context-aware performance breakdown */
 .bd-legend2 { display: flex; gap: 14px; font-size: 11px; color: var(--muted); font-weight: 600; }
 .bd-legend2 span { display: inline-flex; align-items: center; gap: 6px; }

@@ -365,6 +365,36 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* HOURS TREND + BUDGET vs ACTUAL */}
+      <div className="row-tb">
+        <div className="panel">
+          <div className="ph"><h3>Hours Trend <span className="hl">billable vs non-billable over time</span></h3></div>
+          <TrendLines data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={280} />
+        </div>
+        <div className="panel">
+          <div className="ph"><h3>Budget vs Actual <span className="hl">capacity · hours</span></h3></div>
+          {(() => {
+            const pct = Math.round((bva.actual / Math.max(1, bva.budget)) * 100);
+            const st = pct >= 100 ? { t: "Over capacity", c: "#d23f43", bg: "#fcecec" }
+              : pct >= 85 ? { t: "On track", c: "#0f9043", bg: "#e8f4ed" }
+                : { t: "Under-utilized", c: "#bd8616", bg: "#f9f1da" };
+            return (
+              <div className="budgetcard">
+                <span className="bc-status" style={{ color: st.c, background: st.bg }}>{st.t}</span>
+                <div className="bc-big num">{pct}%<span>of capacity used</span></div>
+                <div className="bc-rows">
+                  <div className="bc-row"><span>Budget (capacity)</span><b>{n0(bva.budget)}h</b></div>
+                  <div className="bc-track"><span style={{ width: "100%", background: "#cdd4e0" }} /></div>
+                  <div className="bc-row"><span>Actual (tracked)</span><b>{n0(bva.actual)}h</b></div>
+                  <div className="bc-track"><span style={{ width: `${Math.min(100, pct)}%`, background: st.c }} /></div>
+                  <div className="bc-row" style={{ marginTop: 4 }}><span>Variance</span><b style={{ color: st.c }}>{bva.variance >= 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      </div>
+
       {/* CONTEXTUAL OVERVIEW — tasks · clients/projects · activity (adapts to scope) */}
       <div className="sec"><h4>Workload & Activity · {data.context.label}</h4></div>
       <div className="row3">
