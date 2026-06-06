@@ -658,6 +658,14 @@ def command(
         except Exception:
             prev = None
 
+    # Previous-period rows (same filters, shifted window) — for per-group deltas
+    d_prev = None
+    if prev:
+        try:
+            _, d_prev = apply_filters(members, g, {**f, "date_from": prev["from"], "date_to": prev["to"]})
+        except Exception:
+            d_prev = None
+
     def _delta(curv, key):
         if not prev:
             return None
@@ -737,7 +745,7 @@ def command(
                                   "task_status": r.get("task_status") or "Idle",
                                   "client": r.get("client") or "—"})
 
-    columns, table_rows, level, view = _table(f, d, emp, members)
+    columns, table_rows, level, view = _table(f, d, emp, members, d_prev)
 
     live = m["status"].value_counts().to_dict() if not m.empty else {}
     live_activity = {"active": int(live.get("Active", 0)), "idle": int(live.get("Idle", 0)),
@@ -948,7 +956,17 @@ def _task_summary(d, emp, members):
     return [{"name": k, "value": v} for k, v in ts.items()]
 
 
-def _table(f, d, emp, members):
+def _table(f, d, emp, members, d_prev=None):
+    def _ptot(by):
+        if d_prev is None or d_prev.empty:
+            return {}
+        return d_prev.groupby(by)["tracked_h"].sum().to_dict()
+
+    def _trd(cur, prv):
+        if not prv or prv <= 0:
+            return None
+        return round((cur - prv) / prv * 100, 1)
+
     if f.get("employee"):
         row = members[members["name"] == f["employee"]]
         uid = row.iloc[0]["user_id"] if not row.empty else None
@@ -956,26 +974,33 @@ def _table(f, d, emp, members):
             build_tasks_sample(uid, f["employee"], "")
         return ["task", "client", "estimated", "tracked", "status", "due"], rows, "employee", "Tasks"
     if f.get("atl"):
+        pt = _ptot("user_id")
+        nm2uid = dict(zip(members["name"], members["user_id"]))
         gg = emp.sort_values("billable", ascending=False) if not emp.empty else emp
         rows = [{"employee": r["name"], "days": int(r["empdays"]), "billable": round(r["billable"], 1),
                  "non_billable": round(r["non_billable"], 1), "utilization": round(r["utilization"], 0),
                  "activity": round(r["activity"], 0), "grade": r["grade"],
-                 "tasks": int(r.get("active_tasks") or 0), "task_status": r.get("task_status") or "Idle"}
+                 "tasks": int(r.get("active_tasks") or 0), "task_status": r.get("task_status") or "Idle",
+                 "total_trend": _trd(r["billable"] + r["non_billable"], pt.get(nm2uid.get(r["name"]), 0))}
                 for _, r in gg.iterrows()] if not emp.empty else []
         return ["employee", "days", "billable", "non_billable", "utilization", "activity", "grade", "tasks", "task_status"], rows, "atl", "Employees"
     if f.get("department"):
+        pt = _ptot("atl")
         gg = group_metrics(d, "atl") if not d.empty else pd.DataFrame()
         rows = [{"name": r["atl"], "team_size": int(r["people"]), "billable": round(r["billable"], 1),
                  "non_billable": round(r["non_billable"], 1), "total": round(r["total"], 1),
                  "utilization": round(r["utilization"], 0), "activity": round(r["activity"], 0),
-                 "productivity": round(r["productivity"], 0), "grade": r["grade"]}
+                 "productivity": round(r["productivity"], 0), "grade": r["grade"],
+                 "total_trend": _trd(r["total"], pt.get(r["atl"], 0))}
                 for _, r in gg.sort_values("billable", ascending=False).iterrows()] if not (d.empty) else []
         return ["name", "team_size", "billable", "non_billable", "total", "utilization", "activity", "productivity", "grade"], rows, "department", "ATLs / Teams"
+    pt = _ptot("department")
     gg = group_metrics(d, "department") if not d.empty else pd.DataFrame()
     rows = [{"name": r["department"], "team_size": int(r["people"]), "billable": round(r["billable"], 1),
              "non_billable": round(r["non_billable"], 1), "total": round(r["total"], 1),
              "utilization": round(r["utilization"], 0), "activity": round(r["activity"], 0),
-             "productivity": round(r["productivity"], 0), "grade": r["grade"]}
+             "productivity": round(r["productivity"], 0), "grade": r["grade"],
+             "total_trend": _trd(r["total"], pt.get(r["department"], 0))}
             for _, r in gg.sort_values("billable", ascending=False).iterrows()] if not d.empty else []
     return (["name", "team_size", "billable", "non_billable", "total", "utilization", "activity",
              "productivity", "grade"], rows, "company", "Departments")

@@ -155,7 +155,7 @@ export function BreakdownColumns({ rows, height = 300, onPick }: {
 // Single-metric vertical columns — one clean number per group, value labels,
 // click-to-drill. Reused for Hours, Utilization, Activity, etc.
 export function MetricColumns({ rows, height = 280, onPick, unit = "", name = "Value", fmt, colorOf }: {
-  rows: { label: string; value: number }[];
+  rows: { label: string; value: number; trend?: number | null }[];
   height?: number; onPick?: (l: string) => void; unit?: string; name?: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   fmt?: (v: any) => string; colorOf?: (v: number) => string;
@@ -167,7 +167,7 @@ export function MetricColumns({ rows, height = 280, onPick, unit = "", name = "V
     <Sized height={height} defaultWidth={560}>
       {(w, h) => (
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        <BarChart width={w} height={h} data={rows} barCategoryGap="26%" margin={{ top: 24, right: 8, left: -8, bottom: 4 }}
+        <BarChart width={w} height={h} data={rows} barCategoryGap="26%" margin={{ top: 30, right: 8, left: -8, bottom: 4 }}
           onClick={(e: any) => { if (onPick && e && e.activeLabel) onPick(String(e.activeLabel)); }}>
           <defs>
             <linearGradient id="mc-navy" x1="0" y1="0" x2="0" y2="1">
@@ -181,8 +181,17 @@ export function MetricColumns({ rows, height = 280, onPick, unit = "", name = "V
           <Tooltip cursor={{ fill: "rgba(32,48,112,.05)" }} contentStyle={box} formatter={(v) => [f(v) + unit, name]} />
           <Bar isAnimationActive={false} dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={48} cursor="pointer">
             {rows.map((r, i) => <Cell key={i} fill={color(r.value)} />)}
-            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-            <LabelList dataKey="value" position="top" formatter={(v: any) => f(v) + unit} fill="#3a4252" fontSize={11} fontWeight={700} />
+            <LabelList dataKey="value" position="top" content={(p: { x?: string | number; y?: string | number; width?: string | number; index?: number }) => {
+              const cx = Number(p.x ?? 0) + Number(p.width ?? 0) / 2, y = Number(p.y ?? 0), r = rows[p.index ?? 0];
+              if (!r) return null;
+              const tr = r.trend;
+              return (
+                <g>
+                  {tr != null && <text x={cx} y={y - 20} textAnchor="middle" fontSize={9.5} fontWeight={800} fill={tr >= 0 ? "#0f9043" : "#d23f43"}>{tr >= 0 ? "▲" : "▼"}{Math.abs(Math.round(tr))}%</text>}
+                  <text x={cx} y={y - 7} textAnchor="middle" fontSize={11} fontWeight={700} fill="#3a4252">{f(r.value) + unit}</text>
+                </g>
+              );
+            }} />
           </Bar>
         </BarChart>
       )}

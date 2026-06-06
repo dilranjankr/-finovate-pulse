@@ -346,7 +346,8 @@ export default function CommandCenter({
           const label = String(r.name ?? r.employee ?? r.team ?? "—");
           const billable = Number(r.billable || 0);
           const nonbill = Number(r.non_billable || 0);
-          return { label, billable, nonbill, total: billable + nonbill, util: Number(r.utilization || 0) };
+          return { label, billable, nonbill, total: billable + nonbill, util: Number(r.utilization || 0),
+            trend: r.total_trend != null ? Number(r.total_trend) : null };
         }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 14);
         if (rows.length < 1) return null;
         const drill = (l: string) => { if (dim === "Department") setDept(l); else if (dim === "Team") setAtl(l); else openEmployee(l); };
@@ -354,7 +355,7 @@ export default function CommandCenter({
           <div className="row2">
             <div className="panel">
               <div className="ph"><h3>Hours by {dim} <span className="hl">tracked hours · click to drill</span></h3></div>
-              <MetricColumns rows={rows.map((r) => ({ label: r.label, value: r.total }))} unit="h" name="Tracked" height={300} onPick={drill} />
+              <MetricColumns rows={rows.map((r) => ({ label: r.label, value: r.total, trend: r.trend }))} unit="h" name="Tracked" height={300} onPick={drill} />
             </div>
             <div className="panel">
               <div className="ph"><h3>Utilization by {dim} <span className="hl">capacity used %</span></h3></div>
