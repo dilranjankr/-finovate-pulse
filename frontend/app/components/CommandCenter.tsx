@@ -81,9 +81,15 @@ export default function CommandCenter({
   const [raw, setRaw] = useState<RawData | null>(null);
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
   const [aiQ, setAiQ] = useState("");
-  const [aiRes, setAiRes] = useState<AiRes | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [messages, setMessages] = useState<(AiRes & { role: "user" | "ai" })[]>([]);
+  const chatBodyRef = useRef<HTMLDivElement>(null);
   const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
+
+  useEffect(() => {
+    if (chatBodyRef.current) chatBodyRef.current.scrollTop = chatBodyRef.current.scrollHeight;
+  }, [messages, aiBusy, chatOpen]);
 
   async function apply(f: Filters) {
     setLoading(true);
@@ -215,17 +221,18 @@ export default function CommandCenter({
     return { text: `Overview: ${n0(Number(k.total_hours.value))}h tracked · ${n0(Number(k.billable_hours.value))}h billable · ${k.utilization.value}% utilization · grade ${k.avg_grade.value}. Try: "top performers", "lowest utilization team", "billable mix", "overdue tasks", "client health".`, kind: "none" };
   }
   async function ask(q: string) {
-    if (!q.trim() || aiBusy) return;
-    setAiQ(q); setAiRes(null); setAiBusy(true);
+    const question = q.trim();
+    if (!question || aiBusy) return;
+    setAiQ("");
+    setMessages((m) => [...m, { role: "user", text: question, kind: "none" }]);
+    setAiBusy(true);
+    const push = (res: AiRes) => setMessages((m) => [...m, { ...res, role: "ai" }]);
     try {
-      const r = await askAI(q, draft);
-      if (r.ok && r.text) {
-        setAiRes({ text: r.text, kind: r.kind || "none", bars: r.bars, donut: r.donut });
-      } else {
-        setAiRes(runAI(q)); // no Gemini key / error → local engine
-      }
+      const r = await askAI(question, draft);
+      if (r.ok && r.text) push({ text: r.text, kind: r.kind || "none", bars: r.bars, donut: r.donut });
+      else push(runAI(question)); // no Gemini key / error → local engine
     } catch {
-      setAiRes(runAI(q));
+      push(runAI(question));
     } finally {
       setAiBusy(false);
     }
@@ -365,12 +372,13 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* CHARTS ROW */}
-      {/* ACTIVITY HEATMAP (Department × Week) */}
-      <div className="panel" style={{ marginBottom: 12 }}>
-        <div className="ph"><h3>Hours by Department <span className="hl">total tracked hours</span></h3></div>
-        <DeptColumns rows={data.heatmap.rows} height={300} />
-      </div>
+      {/* HOURS BY DEPARTMENT — hidden when scope is a single department (1 bar) */}
+      {data.heatmap.rows.length > 1 && (
+        <div className="panel" style={{ marginBottom: 12 }}>
+          <div className="ph"><h3>Hours by {data.context.level === "company" ? "Department" : "Team"} <span className="hl">total tracked hours</span></h3></div>
+          <DeptColumns rows={data.heatmap.rows} height={300} />
+        </div>
+      )}
 
       {/* CHARTS */}
       <div className="row3a">
@@ -394,38 +402,13 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* ANALYTICS & AI */}
-      <div className="row-ai">
-        <div className="panel">
+      {/* PERFORMANCE MATRIX (hidden when only one employee in scope) */}
+      {data.employees.length > 1 && (
+        <div className="panel" style={{ marginBottom: 12 }}>
           <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · size = billable hrs</span></h3></div>
           <Bubble points={bubble} />
         </div>
-        <div className="panel aipanel">
-          <div className="ph"><h3><Sparkles size={15} style={{ verticalAlign: "-2px", marginRight: 5, color: "var(--navy)" }} />Ask AI</h3><span className="hl" style={{ marginLeft: 0 }}>powered by Gemini · ask anything</span></div>
-          <div className="askrow">
-            <input className="askinput" placeholder="Ask anything… e.g. which team needs attention?" value={aiQ} disabled={aiBusy} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ask(aiQ); }} />
-            <button className="askbtn" onClick={() => ask(aiQ)} disabled={aiBusy}>{aiBusy ? <span className="spin sm" /> : <Send size={14} />}</button>
-          </div>
-          <div className="chipsai">{AI_SUGGESTIONS.map((s) => <span key={s} className="aichip" onClick={() => ask(s)}>{s}</span>)}</div>
-          <div className="airegion">
-            {aiBusy && (
-              <div className="aithinking"><Sparkles size={14} className="aiic" /><span>Thinking…</span></div>
-            )}
-            {!aiBusy && aiRes && (
-              <div className="airesult">
-                <div className="aitext"><Sparkles size={14} className="aiic" /><span>{aiRes.text}</span></div>
-                {aiRes.kind === "bar" && aiRes.bars && aiRes.bars.length > 0 && <div style={{ marginTop: 12 }}><BarList items={aiRes.bars} unit={aiRes.unit || ""} /></div>}
-                {aiRes.kind === "donut" && aiRes.donut && (
-                  <div className="donut-wrap" style={{ marginTop: 6 }}>
-                    <div style={{ width: 128 }}><Donut data={aiRes.donut.data} colors={aiRes.donut.colors} height={150} center={aiRes.donut.center} /></div>
-                    <div className="legend">{aiRes.donut.data.map((d, i) => <div className="li" key={d.name + i}><span className="dot" style={{ background: aiRes.donut!.colors[i % aiRes.donut!.colors.length] }} /><span className="nm">{d.name}</span><span className="vl">{n0(d.value)}</span></div>)}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      )}
 
       {/* PERFORMERS / TASKS / ALERTS */}
       <div className="row-perf3">
@@ -538,6 +521,53 @@ export default function CommandCenter({
       </div>
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · {opts?.total_members} members · Non-billable = internal depts (HR/Admin/Marketing)</div>
+
+      {/* FLOATING AI CHAT */}
+      <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Insight AI" aria-label="Ask AI">
+        {chatOpen ? <X size={20} /> : <Sparkles size={20} />}
+      </button>
+      {chatOpen && (
+        <div className="ai-chat">
+          <div className="ai-chat-h">
+            <div className="ai-chat-title">
+              <span className="ai-chat-ic"><Sparkles size={16} /></span>
+              <div><b>Insight AI</b><span>powered by Gemini · live data</span></div>
+            </div>
+            <button className="ai-chat-x" onClick={() => setChatOpen(false)}><X size={16} /></button>
+          </div>
+          <div className="ai-chat-body" ref={chatBodyRef}>
+            {messages.length === 0 && (
+              <div className="ai-welcome">
+                <span className="ai-welcome-ic"><Sparkles size={22} /></span>
+                <p>Hi! Main aapka operations assistant hoon — team performance, clients, hours, ya koi bhi sawaal poochho. Charts ke saath jawab dunga.</p>
+                <div className="chipsai">{AI_SUGGESTIONS.map((s) => <span key={s} className="aichip" onClick={() => ask(s)}>{s}</span>)}</div>
+              </div>
+            )}
+            {messages.map((m, i) => (m.role === "user" ? (
+              <div className="msg user" key={i}>{m.text}</div>
+            ) : (
+              <div className="msg ai" key={i}>
+                <span className="msg-ic"><Sparkles size={13} /></span>
+                <div className="msg-body">
+                  <div className="msg-text">{m.text}</div>
+                  {m.kind === "bar" && m.bars && m.bars.length > 0 && <div className="msg-chart"><BarList items={m.bars} unit={m.unit || ""} /></div>}
+                  {m.kind === "donut" && m.donut && (
+                    <div className="donut-wrap msg-chart" style={{ marginTop: 8 }}>
+                      <div style={{ width: 110 }}><Donut data={m.donut.data} colors={m.donut.colors} height={130} center={m.donut.center} /></div>
+                      <div className="legend">{m.donut.data.map((d, j) => <div className="li" key={d.name + j}><span className="dot" style={{ background: m.donut!.colors[j % m.donut!.colors.length] }} /><span className="nm">{d.name}</span><span className="vl">{n0(d.value)}</span></div>)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )))}
+            {aiBusy && <div className="msg ai"><span className="msg-ic"><Sparkles size={13} /></span><div className="msg-body"><div className="typing"><span /><span /><span /></div></div></div>}
+          </div>
+          <div className="ai-chat-input">
+            <input placeholder="Ask anything…" value={aiQ} disabled={aiBusy} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ask(aiQ); }} />
+            <button onClick={() => ask(aiQ)} disabled={aiBusy || !aiQ.trim()}>{aiBusy ? <span className="spin sm" /> : <Send size={15} />}</button>
+          </div>
+        </div>
+      )}
 
       {/* MODALS */}
       {modal && (
