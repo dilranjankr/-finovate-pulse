@@ -1,0 +1,30 @@
+# Finovate Pulse — Operations Command Center
+# Deploy on Coolify as a "Docker Compose" resource.
+# Set the variables (DATABASE_URL, GEMINI_API_KEY, NEXT_PUBLIC_API_URL, ...)
+# in the Coolify "Environment Variables" tab — do NOT commit real secrets.
+
+services:
+  backend:
+    build:
+      context: ./backend
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # NEXT_PUBLIC_* is baked at build time — must be the PUBLIC backend URL
+        # the browser will call (e.g. https://api.yourdomain.com).
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    restart: unless-stopped
