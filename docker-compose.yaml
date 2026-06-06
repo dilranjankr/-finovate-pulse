@@ -12,8 +12,10 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
-    ports:
-      - "8000:8000"
+    # 'expose' (not 'ports') — Coolify's proxy routes the backend domain to this
+    # internal port, so it never clashes with Coolify's own host ports.
+    expose:
+      - "8000"
     restart: unless-stopped
 
   frontend:
@@ -23,8 +25,8 @@ services:
         # NEXT_PUBLIC_* is baked at build time — must be the PUBLIC backend URL
         # the browser will call (e.g. https://api.yourdomain.com).
         - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
     depends_on:
       - backend
     restart: unless-stopped
