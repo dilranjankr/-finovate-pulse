@@ -294,38 +294,74 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* KPI BAR (7 cards) */}
-      <div className="kpibar">
-        {PRIMARY.map((m) => {
-          const k: KpiVal | undefined = data.kpis[m.key]; if (!k) return null;
+      {/* KPI BENTO — hero metric + cohesive supporting tiles */}
+      {(() => {
+        const trendEl = (k: KpiVal) => {
           const up = k.trend > 0, dn = k.trend < 0;
-          const trendEl = <div className={`tr ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={12} /> : dn ? <ArrowDown size={12} /> : null}{Math.abs(k.trend)}% <span className="vs">vs last week</span></div>;
-          if (m.type === "gauge") return (
-            <div className="kpi gauge" key={m.key}><div className="lbl">{m.label}</div><div className="gw"><RadialGauge value={Number(k.value)} color={m.color} height={94} /></div>{trendEl}</div>
-          );
-          if (m.type === "grade") return (
-            <div className="kpi gradecard" key={m.key}><div className="lbl">{m.label}</div><div className="gletter" style={{ color: m.color }}>{k.value}</div><div className="gsub">Company Average</div></div>
-          );
-          return (
-            <div className="kpi" key={m.key}>
-              <div className="head"><span className="ic" style={{ background: m.ibg, color: m.ifg }}><m.Icon /></span><div className="lbl">{m.label}</div></div>
-              <div className="val num">{fmtKpi(k.value, k.unit)}</div>{trendEl}
-              {k.spark.length > 1 && <div className="spark"><Sparkline data={k.spark} color={m.color} /></div>}
+          return <div className={`tr ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={12} /> : dn ? <ArrowDown size={12} /> : null}{Math.abs(k.trend)}% <span className="vs">vs last week</span></div>;
+        };
+        const kTotal = data.kpis.total_hours, kBill = data.kpis.billable_hours;
+        const kGrade = data.kpis.avg_grade;
+        const perf = [
+          { label: "Utilization", k: data.kpis.utilization, color: "#27408b" },
+          { label: "Activity", k: data.kpis.activity, color: "#3f72b0" },
+          { label: "Productivity", k: data.kpis.productivity, color: "#1f8a5b" },
+        ].filter((p) => p.k);
+        return (
+          <div className="kpibento">
+            {/* HERO — Total Hours */}
+            {kTotal && (
+              <div className="kpi hero">
+                <div className="head"><span className="ic" style={{ background: "#e9ecf7", color: "#203070" }}><Clock /></span><div className="lbl">Total Hours</div></div>
+                <div className="val num">{fmtKpi(kTotal.value, kTotal.unit)}</div>
+                {trendEl(kTotal)}
+                {kTotal.spark.length > 1 && <div className="spark"><Sparkline data={kTotal.spark} color="#203070" /></div>}
+              </div>
+            )}
+            {/* Billable Hours */}
+            {kBill && (
+              <div className="kpi">
+                <div className="head"><span className="ic" style={{ background: "#e3f3e9", color: "#0f9043" }}><Receipt /></span><div className="lbl">Billable Hours</div></div>
+                <div className="val num">{fmtKpi(kBill.value, kBill.unit)}</div>
+                {trendEl(kBill)}
+                {kBill.spark.length > 1 && <div className="spark"><Sparkline data={kBill.spark} color="#0f9043" /></div>}
+              </div>
+            )}
+            {/* PERFORMANCE — 3 gauges merged into one tidy card */}
+            <div className="kpi perf">
+              <div className="head"><span className="ic" style={{ background: "#eef0f6", color: "#27408b" }}><Gauge /></span><div className="lbl">Performance</div></div>
+              <div className="pmet">
+                {perf.map((p) => (
+                  <div className="pmrow" key={p.label}>
+                    <span className="pml">{p.label}</span>
+                    <span className="pmtrack"><span style={{ width: `${Math.max(0, Math.min(100, Number(p.k.value)))}%`, background: p.color }} /></span>
+                    <span className="pmv">{n0(Number(p.k.value))}%</span>
+                  </div>
+                ))}
+              </div>
             </div>
-          );
-        })}
-        {/* Budget vs Actual */}
-        <div className="kpi budget">
-          <div className="lbl">Budget vs Actual <span style={{ color: "var(--faint)" }}>(Hours)</span></div>
-          <div className="bv">
-            <div className="bvrow"><span style={{ color: "var(--ink-2)" }}>Budget</span><span className="v">{n0(bva.budget)}h</span></div>
-            <div className="track"><span style={{ width: "100%", background: "#203070" }} /></div>
-            <div className="bvrow"><span style={{ color: "var(--ink-2)" }}>Actual</span><span className="v">{n0(bva.actual)}h</span></div>
-            <div className="track"><span style={{ width: `${(bva.actual / bvaMax) * 100}%`, background: "#0f9043" }} /></div>
-            <div className="pct">Utilized {Math.round((bva.actual / Math.max(1, bva.budget)) * 100)}% of budget</div>
+            {/* Avg Grade */}
+            {kGrade && (
+              <div className="kpi gradecard">
+                <div className="lbl">Avg Grade</div>
+                <div className="gletter" style={{ color: "#203070" }}>{kGrade.value}</div>
+                <div className="gsub">Company Average</div>
+              </div>
+            )}
+            {/* Budget vs Actual */}
+            <div className="kpi budget">
+              <div className="lbl">Budget vs Actual <span style={{ color: "var(--faint)" }}>(Hours)</span></div>
+              <div className="bv">
+                <div className="bvrow"><span style={{ color: "var(--ink-2)" }}>Budget</span><span className="v">{n0(bva.budget)}h</span></div>
+                <div className="track"><span style={{ width: "100%", background: "#203070" }} /></div>
+                <div className="bvrow"><span style={{ color: "var(--ink-2)" }}>Actual</span><span className="v">{n0(bva.actual)}h</span></div>
+                <div className="track"><span style={{ width: `${(bva.actual / bvaMax) * 100}%`, background: "#0f9043" }} /></div>
+                <div className="pct">Utilized {Math.round((bva.actual / Math.max(1, bva.budget)) * 100)}% of budget</div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* CHARTS ROW */}
       {/* ACTIVITY HEATMAP (Department × Week) */}
