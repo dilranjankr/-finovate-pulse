@@ -11,7 +11,7 @@ import {
   getFilters, getCommand, getRaw, getEmployee, askAI,
   type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail,
 } from "../lib/api";
-import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns } from "./Charts";
+import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -349,17 +349,18 @@ export default function CommandCenter({
           return { label, billable, nonbill, total: billable + nonbill, util: Number(r.utilization || 0) };
         }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 14);
         if (rows.length < 1) return null;
+        const drill = (l: string) => { if (dim === "Department") setDept(l); else if (dim === "Team") setAtl(l); else openEmployee(l); };
         return (
-          <div className="panel" style={{ marginBottom: 14 }}>
-            <div className="ph">
-              <h3>Performance by {dim} <span className="hl">tracked hours · click to drill</span></h3>
-              <div className="bd-legend2">
-                <span><i style={{ background: "#0f9043" }} />Billable</span>
-                <span><i style={{ background: "#c2c9d6" }} />Non-Billable</span>
-              </div>
+          <div className="row2">
+            <div className="panel">
+              <div className="ph"><h3>Hours by {dim} <span className="hl">tracked hours · click to drill</span></h3></div>
+              <MetricColumns rows={rows.map((r) => ({ label: r.label, value: r.total }))} unit="h" name="Tracked" height={300} onPick={drill} />
             </div>
-            <BreakdownColumns rows={rows} height={320}
-              onPick={(l) => { if (dim === "Department") setDept(l); else if (dim === "Team") setAtl(l); else openEmployee(l); }} />
+            <div className="panel">
+              <div className="ph"><h3>Utilization by {dim} <span className="hl">capacity used %</span></h3></div>
+              <MetricColumns rows={rows.map((r) => ({ label: r.label, value: r.util }))} unit="%" name="Utilization" height={300}
+                fmt={(v) => String(Math.round(Number(v)))} colorOf={utilColor} onPick={drill} />
+            </div>
           </div>
         );
       })()}

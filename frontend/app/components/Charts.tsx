@@ -152,6 +152,44 @@ export function BreakdownColumns({ rows, height = 300, onPick }: {
   );
 }
 
+// Single-metric vertical columns — one clean number per group, value labels,
+// click-to-drill. Reused for Hours, Utilization, Activity, etc.
+export function MetricColumns({ rows, height = 280, onPick, unit = "", name = "Value", fmt, colorOf }: {
+  rows: { label: string; value: number }[];
+  height?: number; onPick?: (l: string) => void; unit?: string; name?: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  fmt?: (v: any) => string; colorOf?: (v: number) => string;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const f = fmt || ((v: any) => { const n = Number(v ?? 0); return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(Math.round(n)); });
+  const color = colorOf || (() => "url(#mc-navy)");
+  return (
+    <Sized height={height} defaultWidth={560}>
+      {(w, h) => (
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <BarChart width={w} height={h} data={rows} barCategoryGap="26%" margin={{ top: 24, right: 8, left: -8, bottom: 4 }}
+          onClick={(e: any) => { if (onPick && e && e.activeLabel) onPick(String(e.activeLabel)); }}>
+          <defs>
+            <linearGradient id="mc-navy" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#27408b" stopOpacity={1} /><stop offset="100%" stopColor="#27408b" stopOpacity={0.72} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="#eef1f6" vertical={false} strokeDasharray="2 4" />
+          <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: "#565d6b", fontWeight: 600 }} tickLine={false}
+            axisLine={{ stroke: "#e6e9f0" }} interval={0} angle={-18} textAnchor="end" height={64} />
+          <YAxis tick={AX} tickLine={false} axisLine={false} width={42} tickFormatter={f} />
+          <Tooltip cursor={{ fill: "rgba(32,48,112,.05)" }} contentStyle={box} formatter={(v) => [f(v) + unit, name]} />
+          <Bar isAnimationActive={false} dataKey="value" radius={[5, 5, 0, 0]} maxBarSize={48} cursor="pointer">
+            {rows.map((r, i) => <Cell key={i} fill={color(r.value)} />)}
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            <LabelList dataKey="value" position="top" formatter={(v: any) => f(v) + unit} fill="#3a4252" fontSize={11} fontWeight={700} />
+          </Bar>
+        </BarChart>
+      )}
+    </Sized>
+  );
+}
+
 // Dead-simple activity view: tracked hours per department as horizontal bars.
 // Easiest to read — name, proportional bar, total hours, and % of company total.
 export function DeptBars({ rows }: {
