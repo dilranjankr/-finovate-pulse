@@ -307,26 +307,28 @@ export default function CommandCenter({
           { label: "Activity", k: data.kpis.activity, color: "#3f72b0" },
           { label: "Productivity", k: data.kpis.productivity, color: "#1f8a5b" },
         ].filter((p) => p.k);
+        // Hours breakdown: total split into billable / non-billable
+        const bBill = dist[0]?.value || 0, bNon = dist[1]?.value || 0;
+        const bTot = bBill + bNon || 1;
+        const bBillPct = (bBill / bTot) * 100, bNonPct = (bNon / bTot) * 100;
         return (
           <div className="kpibento">
-            {/* HERO — Total Hours */}
-            {kTotal && (
-              <div className="kpi hero">
-                <div className="head"><span className="ic" style={{ background: "#e9ecf7", color: "#203070" }}><Clock /></span><div className="lbl">Total Hours</div></div>
-                <div className="val num">{fmtKpi(kTotal.value, kTotal.unit)}</div>
-                {trendEl(kTotal)}
-                {kTotal.spark.length > 1 && <div className="spark"><Sparkline data={kTotal.spark} color="#203070" /></div>}
+            {/* HOURS BREAKDOWN — total split into billable / non-billable */}
+            <div className="kpi hero breakdown">
+              <div className="head"><span className="ic" style={{ background: "#e9ecf7", color: "#203070" }}><Clock /></span><div className="lbl">Total Hours</div></div>
+              <div className="bd-top">
+                <div className="val num">{n0(bTot)}<span className="vu">h</span></div>
+                {kTotal && trendEl(kTotal)}
               </div>
-            )}
-            {/* Billable Hours */}
-            {kBill && (
-              <div className="kpi">
-                <div className="head"><span className="ic" style={{ background: "#e3f3e9", color: "#0f9043" }}><Receipt /></span><div className="lbl">Billable Hours</div></div>
-                <div className="val num">{fmtKpi(kBill.value, kBill.unit)}</div>
-                {trendEl(kBill)}
-                {kBill.spark.length > 1 && <div className="spark"><Sparkline data={kBill.spark} color="#0f9043" /></div>}
+              <div className="bd-bar" title={`${n0(bBill)}h billable · ${n0(bNon)}h non-billable`}>
+                <span className="bd-seg" style={{ width: `${bBillPct}%`, background: "#0f9043" }} />
+                <span className="bd-seg" style={{ width: `${bNonPct}%`, background: "#cdd4e0" }} />
               </div>
-            )}
+              <div className="bd-legend">
+                <div className="bd-li"><span className="dot" style={{ background: "#0f9043" }} /><span className="nm">Billable</span><span className="hh">{n0(bBill)}h</span><span className="pp">{bBillPct.toFixed(0)}%</span></div>
+                <div className="bd-li"><span className="dot" style={{ background: "#cdd4e0" }} /><span className="nm">Non-Billable</span><span className="hh">{n0(bNon)}h</span><span className="pp">{bNonPct.toFixed(0)}%</span></div>
+              </div>
+            </div>
             {/* PERFORMANCE — 3 gauges merged into one tidy card */}
             <div className="kpi perf">
               <div className="head"><span className="ic" style={{ background: "#eef0f6", color: "#27408b" }}><Gauge /></span><div className="lbl">Performance</div></div>
