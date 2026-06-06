@@ -52,9 +52,9 @@ body { background: var(--bg); color: var(--ink);
 /* filters */
 /* flat segmented filter toolbar — sharp, professional */
 .filterbar { display: flex; flex-wrap: wrap; align-items: stretch; background: var(--panel); border: 1px solid var(--line);
-  border-radius: 7px; box-shadow: var(--shadow); padding: 0; margin-bottom: 14px; overflow: hidden; }
+  border-radius: 7px; box-shadow: var(--shadow); padding: 0; margin-bottom: 14px; }
 .fb-lead { display: inline-flex; align-items: center; padding: 0 16px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px;
-  text-transform: uppercase; color: var(--muted); background: #fafbfd; border-right: 1px solid var(--line); }
+  text-transform: uppercase; color: var(--muted); border-right: 1px solid var(--line); border-radius: 7px 0 0 7px; }
 .fdate { display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 15px; border-right: 1px solid var(--line); color: var(--ink-2); }
 .fdate svg { color: var(--muted); flex-shrink: 0; }
 .fdate input { border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); outline: none; cursor: pointer; width: 98px; padding: 0; }
