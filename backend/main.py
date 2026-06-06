@@ -394,6 +394,29 @@ def apply_filters(members, g, f):
         d = d[d["date_s"] >= f["date_from"]]
     if f.get("date_to"):
         d = d[d["date_s"] <= f["date_to"]]
+    # Re-tag grouping dimensions to the active filter, so every chart/table/KPI
+    # reflects the selected department/team/client (not the employee's primary).
+    if has_sets and not d.empty:
+        d = d.copy()
+        for key, setcol, gcol in [("department", "dept_set", "department"),
+                                  ("atl", "team_set", "atl"), ("client", "client_set", "client")]:
+            vals = _vals(f.get(key))
+            if not vals:
+                continue
+            belong = dict(zip(m["user_id"], m[setcol]))
+            chosen = {}
+            for uid in belong:
+                bs = set(belong.get(uid) or [])
+                pk = next((v for v in vals if v in bs), None)
+                if pk:
+                    chosen[uid] = pk
+            mapped = d["user_id"].map(chosen)
+            d[gcol] = mapped.fillna(d[gcol])
+        # client_type follows the (possibly re-tagged) client
+        if _vals(f.get("client")):
+            intel = clickup_intel()
+            cd = intel["clients"]
+            d["client_type"] = d["client"].map(lambda c: (cd.get(c) or {}).get("category", "Project"))
     return m, d
 
 
