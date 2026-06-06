@@ -69,6 +69,11 @@ export interface CommandData {
   project_health: { on_track: number; at_risk: number; delayed: number };
   resource: { capacity: number; availability: number };
   heatmap: { weeks: string[]; rows: { label: string; values: number[]; total: number }[] };
+  period?: {
+    comparable: boolean;
+    current?: { from: string; to: string; days: number | null };
+    previous?: { from: string; to: string; total: number; billable: number; util: number; days: number };
+  };
   source?: string;
 }
 

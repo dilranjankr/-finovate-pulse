@@ -420,6 +420,21 @@ def apply_filters(members, g, f):
     return m, d
 
 
+def _period_headline(members, g, f):
+    """Headline metrics for a given filter window — used for period-over-period."""
+    _, dd = apply_filters(members, g, f)
+    if dd.empty:
+        return {"total": 0.0, "billable": 0.0, "non_billable": 0.0, "util": 0.0, "prod": 0.0, "act": 0.0, "emps": 0}
+    b = float(dd["billable_h"].sum()); nb = float(dd["non_billable_h"].sum()); t = b + nb
+    ed = int(dd["ud"].nunique()); cap = ed * 8
+    tr = float(dd["tracked"].sum())
+    return {"total": t, "billable": b, "non_billable": nb,
+            "util": min(100.0, t / cap * 100) if cap else 0.0,
+            "prod": float(dd["prod_w"].sum() / tr) if tr else 0.0,
+            "act": float(dd["overall_h"].sum() / t * 100) if t else 0.0,
+            "emps": int(dd["user_id"].nunique())}
+
+
 def trend_pct(arr):
     n = len(arr)
     if n < 4:
@@ -620,6 +635,37 @@ def command(
         return {"value": round(v, 1), "trend": trend_pct(series), "spark": spark(series), "unit": unit}
 
     act = float(d["overall_h"].sum() / total * 100) if total else 0.0
+
+    # ---- Period-over-period: same-length window immediately before the current one ----
+    prev = None
+    if date_from and date_to:
+        try:
+            from datetime import datetime, timedelta
+            cf = datetime.strptime(date_from, "%Y-%m-%d")
+            ct = datetime.strptime(date_to, "%Y-%m-%d")
+            dur = (ct - cf).days + 1
+            if dur >= 1:
+                pt = cf - timedelta(days=1)
+                pf = pt - timedelta(days=dur - 1)
+                prev = _period_headline(members, g, {**f, "date_from": pf.strftime("%Y-%m-%d"),
+                                                     "date_to": pt.strftime("%Y-%m-%d")})
+                prev["from"] = pf.strftime("%Y-%m-%d")
+                prev["to"] = pt.strftime("%Y-%m-%d")
+                prev["days"] = dur
+                # No meaningful comparison if the previous window has no data
+                if prev.get("total", 0) <= 0 and prev.get("emps", 0) <= 0:
+                    prev = None
+        except Exception:
+            prev = None
+
+    def _delta(curv, key):
+        if not prev:
+            return None
+        pv = prev.get(key, 0) or 0
+        if pv == 0:
+            return 100.0 if curv > 0 else 0.0
+        return round((curv - pv) / pv * 100, 1)
+
     bill_pct = float(bill / total * 100) if total else 0.0
     avg_hpe = float(total / people) if people else 0.0
     s = (lambda c: daily[c].tolist()) if not empty else (lambda c: [])
@@ -638,6 +684,18 @@ def command(
         "billable_pct": kpi(bill_pct, [], "%"),
         "avg_grade": {"value": avg_grade, "trend": 0, "spark": [], "unit": ""},
     }
+
+    # Replace the spark-based trend with a real previous-period delta when comparable
+    if prev:
+        for kkey, (pkey, curv) in {
+            "billable_hours": ("billable", bill), "non_billable_hours": ("non_billable", nonb),
+            "total_hours": ("total", total), "actual_hours": ("total", total),
+            "utilization": ("util", util), "productivity": ("prod", prod), "activity": ("act", act),
+            "active_employees": ("emps", people),
+        }.items():
+            dv = _delta(curv, pkey)
+            if dv is not None and kkey in kpis:
+                kpis[kkey]["trend"] = dv
 
     hours_distribution = [{"name": "Billable", "value": round(bill, 1)},
                           {"name": "Non-Billable", "value": round(nonb, 1)}]
@@ -782,6 +840,8 @@ def command(
     return clean({
         "context": {"level": level, "view": view, "label": employee or atl or department or "Company (All)"},
         "summary": summary,
+        "period": {"comparable": bool(prev), "current": {"from": date_from, "to": date_to, "days": (prev or {}).get("days")},
+                   "previous": prev} if prev else {"comparable": False},
         "kpis": kpis, "hours_distribution": hours_distribution, "hours_trend": hours_trend,
         "top_clients": top_clients, "task_summary": task_summary,
         "teams": teams, "employees": employees_tbl, "total_employees": int(len(members)),

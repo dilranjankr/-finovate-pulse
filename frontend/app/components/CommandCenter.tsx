@@ -301,6 +301,42 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* KPI STRIP — with period-over-period delta */}
+      {(() => {
+        const cmp = data.period?.comparable;
+        const pv = data.period?.previous;
+        const tile = (label: string, kpiKey: string, unit: string) => {
+          const k = data.kpis[kpiKey]; if (!k) return null;
+          const up = k.trend > 0, dn = k.trend < 0;
+          return (
+            <div className="kt" key={kpiKey}>
+              <div className="kt-l">{label}</div>
+              <div className="kt-v num">{typeof k.value === "string" ? k.value : (unit === "%" ? n1(k.value) + "%" : unit === "h" ? n0(k.value) + "h" : n1(k.value))}</div>
+              {cmp ? (
+                <div className={`kt-d ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={11} /> : dn ? <ArrowDown size={11} /> : null}{Math.abs(k.trend)}%<span className="kt-vs">vs prev</span></div>
+              ) : <div className="kt-d flat"><span className="kt-vs">—</span></div>}
+            </div>
+          );
+        };
+        return (
+          <div className="kpis">
+            {tile("Total Hours", "total_hours", "h")}
+            {tile("Billable Hours", "billable_hours", "h")}
+            {tile("Utilization", "utilization", "%")}
+            {tile("Productivity", "productivity", "%")}
+            {tile("Activity", "activity", "%")}
+            {tile("Avg Grade", "avg_grade", "")}
+            {cmp && pv && (
+              <div className="kt cmp">
+                <div className="kt-l">Compared to</div>
+                <div className="kt-cmpv">{pv.from} → {pv.to}</div>
+                <div className="kt-vs">previous {pv.days}-day period</div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* PERFORMANCE TABLE */}
       <div className="sec"><h4>Performance · {data.context.view}</h4></div>
       <div className="panel hero">
