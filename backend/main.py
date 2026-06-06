@@ -221,14 +221,26 @@ def clickup_intel():
     except Exception:
         return blank
     PRIOS = ("urgent", "high", "normal", "low")
+
+    def _stbucket(s):
+        if any(w in s for w in ("complete", "done", "closed", "finished", "published")):
+            return "completed"
+        if "review" in s:
+            return "review"
+        if "overdue" in s:
+            return "overdue"
+        return "in_progress"
+
     e_sp = defaultdict(lambda: defaultdict(int))
     e_fo = defaultdict(lambda: defaultdict(int))
     e_act = defaultdict(int); e_tot = defaultdict(int)
     e_pri = defaultdict(lambda: defaultdict(int))
+    e_st = defaultdict(lambda: defaultdict(int))
     clients = defaultdict(lambda: {"total": 0, "active": 0})
     for _, r in t.iterrows():
         sp, fo, st, pr = r["sp"], r["fo"], r["st"], r["pr"]
         active = st not in CLOSED_STATUS
+        bucket = _stbucket(st)
         if fo:
             c = clients[fo]; c["total"] += 1; c["active"] += 1 if active else 0
         seen = set()
@@ -248,6 +260,7 @@ def clickup_intel():
                 e_tot[uid] += 1
                 if active: e_act[uid] += 1
                 if pr in PRIOS: e_pri[uid][pr] += 1
+                e_st[uid][bucket] += 1
     emp = {}
     for uid in set(list(e_sp) + list(e_tot)):
         sp = max(e_sp[uid].items(), key=lambda x: x[1])[0] if e_sp[uid] else ""
@@ -261,7 +274,8 @@ def clickup_intel():
                     "client": fo or "Unassigned", "active_tasks": e_act[uid], "total_tasks": e_tot[uid],
                     "task_status": "Active" if e_act[uid] > 0 else "Idle",
                     "teams": teams, "depts": depts, "clients": clnts,
-                    "pri": {p: e_pri[uid].get(p, 0) for p in PRIOS}}
+                    "pri": {p: e_pri[uid].get(p, 0) for p in PRIOS},
+                    "st": {b: e_st[uid].get(b, 0) for b in ("completed", "in_progress", "review", "overdue")}}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
                  "total": v["total"], "active_tasks": v["active"]} for fo, v in clients.items()}
     return {"emp": emp, "clients": cdim}
@@ -353,7 +367,8 @@ def load_from_db():
                      "dept_set": info.get("depts", []),
                      "team_set": info.get("teams", []),
                      "client_set": info.get("clients", []),
-                     "pri": info.get("pri", {"urgent": 0, "high": 0, "normal": 0, "low": 0})})
+                     "pri": info.get("pri", {"urgent": 0, "high": 0, "normal": 0, "low": 0}),
+                     "st": info.get("st", {"completed": 0, "in_progress": 0, "review": 0, "overdue": 0})})
     members = pd.DataFrame(rows)
     g["revenue"] = g["billable_h"] * g["user_id"].map(rate_map).fillna(40.0)
     return _finalize(members, g)
@@ -720,7 +735,7 @@ def command(
                     .head(6).reset_index().rename(columns={"tracked_h": "hours"}).to_dict("records"))
                    if not empty else [])
 
-    task_summary = _task_summary(d, emp, members)
+    task_summary = _task_summary(d, emp, m)
 
     # primary team per employee
     if not empty:
@@ -970,6 +985,16 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
 
 def _task_summary(d, emp, members):
     ts = {"Completed": 0, "In Progress": 0, "Review": 0, "Overdue": 0}
+    # Scope-aware: aggregate per-employee task status for the employees in scope
+    if "st" in members.columns and not members.empty:
+        for _, r in members.iterrows():
+            s = r.get("st") or {}
+            ts["Completed"] += int(s.get("completed", 0))
+            ts["In Progress"] += int(s.get("in_progress", 0))
+            ts["Review"] += int(s.get("review", 0))
+            ts["Overdue"] += int(s.get("overdue", 0))
+        if sum(ts.values()) > 0:
+            return [{"name": k, "value": v} for k, v in ts.items()]
     if db.has_db():
         m = task_meta()["summary"]
         if m:
