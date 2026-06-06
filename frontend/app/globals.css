@@ -272,9 +272,10 @@ body { background: var(--bg); color: var(--ink);
 .exportbtn:hover { background: #dfe3f4; } .exportbtn svg { width: 13px; height: 13px; }
 
 /* sections + grids */
-.sec { display: flex; align-items: center; gap: 9px; margin: 26px 2px 14px; }
-.sec::before { content: ""; width: 3px; height: 14px; background: var(--navy); border-radius: 2px; }
-.sec h4 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .9px; color: var(--ink-2); }
+.sec { display: flex; align-items: center; gap: 11px; margin: 30px 2px 16px; }
+.sec::before { content: ""; width: 4px; height: 17px; background: linear-gradient(180deg, #27408b, #2f6fbf); border-radius: 2px; flex-shrink: 0; }
+.sec h4 { font-size: 13px; font-weight: 750; letter-spacing: -.2px; color: var(--ink); white-space: nowrap; }
+.sec::after { content: ""; flex: 1; height: 1px; background: linear-gradient(90deg, var(--line), transparent); }
 .row3a { display: grid; grid-template-columns: 1.7fr 1fr 1fr; gap: 12px; margin-bottom: 14px; align-items: stretch; }
 .ht2 { display: grid; grid-template-columns: 1.7fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
 .hm-wrap { overflow-x: auto; padding-top: 4px; }
@@ -328,8 +329,8 @@ table.heat .hc { display: inline-flex; align-items: center; justify-content: cen
 .panel > .ph { flex-shrink: 0; }
 .panel > .donut-wrap, .panel > .resbar, .panel > .hm-wrap { margin-top: auto; margin-bottom: auto; }
 .panel.hero { padding: 18px 20px; }
-.panel .ph { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; gap: 10px; }
-.panel h3 { font-size: 14px; font-weight: 680; letter-spacing: -.2px; color: var(--ink); }
+.panel .ph { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; padding-bottom: 13px; gap: 10px; border-bottom: 1px solid var(--line-2); }
+.panel h3 { font-size: 13.5px; font-weight: 700; letter-spacing: -.2px; color: var(--ink); }
 .panel h3 .hl { font-size: 11px; color: var(--faint); font-weight: 500; margin-left: 7px; letter-spacing: 0; }
 .viewall { font-size: 11.5px; color: var(--navy); font-weight: 600; cursor: pointer; user-select: none; }
 .viewall:hover { text-decoration: underline; }

@@ -377,6 +377,8 @@ export default function CommandCenter({
         );
       })()}
 
+      <div className="sec"><h4>Overview · {data.context.label}</h4></div>
+
       {/* CONTEXT-AWARE PERFORMANCE BREAKDOWN */}
       {(() => {
         const dim = data.context.level === "company" ? "Department"
@@ -435,6 +437,8 @@ export default function CommandCenter({
           })()}
         </div>
       </div>
+
+      <div className="sec"><h4>Performance Analysis</h4></div>
 
       {/* PERFORMANCE INSIGHTS — grade distribution + performance matrix */}
       <div className="row2">
@@ -504,6 +508,8 @@ export default function CommandCenter({
           </>
         );
       })()}
+
+      {data.hierarchy && data.hierarchy.links.length > 0 && <div className="sec"><h4>Organisation</h4></div>}
 
       {/* ORG HIERARCHY FLOW — Department → Team → Client */}
       {data.hierarchy && data.hierarchy.links.length > 0 && (
