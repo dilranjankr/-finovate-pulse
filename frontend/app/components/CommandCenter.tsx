@@ -256,7 +256,7 @@ export default function CommandCenter({
         <div className="tb-l">
           <img src="/finovate-logo.png" alt="Finovate" className="brandlogo" />
           <div className="title">
-            <h2><span className="pulse">Pulse</span> · Operations Command Center</h2>
+            <h2><span className="pulse">Insight</span> · Operations Intelligence</h2>
             <div className="s">
               <b>{sm.employees}</b> employees · <b>{sm.departments}</b> depts · <b>{sm.teams}</b> teams · <b>{sm.clients}</b> clients · <b>{sm.active_days}</b> days
             </div>

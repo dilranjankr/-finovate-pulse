@@ -5,8 +5,8 @@ import "./globals.css";
 const geist = Geist({ variable: "--font-sans", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Finovate Pulse — Operations Command Center",
-  description: "Real-time workforce, projects & profitability intelligence",
+  title: "Finovate Insight — Operations Intelligence",
+  description: "Workforce, projects & operations intelligence",
   icons: { icon: "/pulse-logo.svg" },
 };
 
