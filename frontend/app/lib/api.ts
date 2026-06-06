@@ -74,6 +74,8 @@ export interface CommandData {
     current?: { from: string; to: string; days: number | null };
     previous?: { from: string; to: string; total: number; billable: number; util: number; days: number };
   };
+  task_priority?: { urgent: number; high: number; normal: number; low: number };
+  employee_tasks?: { name: string; urgent: number; high: number; normal: number; low: number; total: number; active: number; status: string }[];
   source?: string;
 }
 

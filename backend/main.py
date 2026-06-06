@@ -214,17 +214,20 @@ def clickup_intel():
             first[fn] = uid
     try:
         t = db.q("""SELECT coalesce(space_name,'') sp, coalesce(folder_name,'') fo,
-                           lower(coalesce(status,'')) st, coalesce(assignees,'') asg
+                           lower(coalesce(status,'')) st, coalesce(assignees,'') asg,
+                           lower(coalesce(priority,'')) pr
                     FROM clickup_tasks
                     WHERE coalesce(is_deleted,false)=false AND coalesce(archived,false)=false""")
     except Exception:
         return blank
+    PRIOS = ("urgent", "high", "normal", "low")
     e_sp = defaultdict(lambda: defaultdict(int))
     e_fo = defaultdict(lambda: defaultdict(int))
     e_act = defaultdict(int); e_tot = defaultdict(int)
+    e_pri = defaultdict(lambda: defaultdict(int))
     clients = defaultdict(lambda: {"total": 0, "active": 0})
     for _, r in t.iterrows():
-        sp, fo, st = r["sp"], r["fo"], r["st"]
+        sp, fo, st, pr = r["sp"], r["fo"], r["st"], r["pr"]
         active = st not in CLOSED_STATUS
         if fo:
             c = clients[fo]; c["total"] += 1; c["active"] += 1 if active else 0
@@ -244,6 +247,7 @@ def clickup_intel():
                 if fo: e_fo[uid][fo] += 1
                 e_tot[uid] += 1
                 if active: e_act[uid] += 1
+                if pr in PRIOS: e_pri[uid][pr] += 1
     emp = {}
     for uid in set(list(e_sp) + list(e_tot)):
         sp = max(e_sp[uid].items(), key=lambda x: x[1])[0] if e_sp[uid] else ""
@@ -256,7 +260,8 @@ def clickup_intel():
         emp[uid] = {"department": _dept_of(sp) if sp else "Unassigned", "team": sp or "Unassigned",
                     "client": fo or "Unassigned", "active_tasks": e_act[uid], "total_tasks": e_tot[uid],
                     "task_status": "Active" if e_act[uid] > 0 else "Idle",
-                    "teams": teams, "depts": depts, "clients": clnts}
+                    "teams": teams, "depts": depts, "clients": clnts,
+                    "pri": {p: e_pri[uid].get(p, 0) for p in PRIOS}}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
                  "total": v["total"], "active_tasks": v["active"]} for fo, v in clients.items()}
     return {"emp": emp, "clients": cdim}
@@ -347,7 +352,8 @@ def load_from_db():
                      "client": info.get("client", "Unassigned"),
                      "dept_set": info.get("depts", []),
                      "team_set": info.get("teams", []),
-                     "client_set": info.get("clients", [])})
+                     "client_set": info.get("clients", []),
+                     "pri": info.get("pri", {"urgent": 0, "high": 0, "normal": 0, "low": 0})})
     members = pd.DataFrame(rows)
     g["revenue"] = g["billable_h"] * g["user_id"].map(rate_map).fillna(40.0)
     return _finalize(members, g)
@@ -845,7 +851,27 @@ def command(
             hrows.append({"label": dep, "values": vals, "total": round(float(dep_tot[dep]), 0)})
         heatmap = {"weeks": ["W" + w.split("-W")[1] for w in wk], "rows": hrows}
 
+    # Task "grade" (priority) per employee + overall, for the current scope
+    task_priority = {"urgent": 0, "high": 0, "normal": 0, "low": 0}
+    employee_tasks = []
+    if not m.empty and "pri" in m.columns:
+        for _, r in m.iterrows():
+            p = r.get("pri") or {}
+            pu = int(p.get("urgent", 0)); ph = int(p.get("high", 0))
+            pn = int(p.get("normal", 0)); pl = int(p.get("low", 0))
+            tot = pu + ph + pn + pl
+            task_priority["urgent"] += pu; task_priority["high"] += ph
+            task_priority["normal"] += pn; task_priority["low"] += pl
+            if tot > 0 or int(r.get("active_tasks", 0)) > 0:
+                employee_tasks.append({
+                    "name": r["name"], "urgent": pu, "high": ph, "normal": pn, "low": pl,
+                    "total": tot, "active": int(r.get("active_tasks", 0)),
+                    "status": r.get("task_status", "Idle")})
+        employee_tasks.sort(key=lambda x: (-(x["urgent"] * 3 + x["high"] * 2 + x["normal"]), -x["total"]))
+        employee_tasks = employee_tasks[:60]
+
     return clean({
+        "task_priority": task_priority, "employee_tasks": employee_tasks,
         "context": {"level": level, "view": view, "label": employee or atl or department or "Company (All)"},
         "summary": summary,
         "period": {"comparable": bool(prev), "current": {"from": date_from, "to": date_to, "days": (prev or {}).get("days")},

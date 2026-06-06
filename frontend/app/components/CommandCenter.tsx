@@ -436,36 +436,60 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* CONTEXTUAL OVERVIEW — tasks · clients/projects · activity (adapts to scope) */}
-      <div className="sec"><h4>Workload & Activity · {data.context.label}</h4></div>
-      <div className="row3">
-        <div className="panel">
-          <div className="ph"><h3>Task Status <span className="hl">{n0(taskTotal)} tasks</span></h3></div>
-          <div className="donut-wrap">
-            <div style={{ width: 128 }}><Donut data={data.task_summary} colors={TASKCOL} height={150} center={{ value: n0(taskTotal), label: "Tasks" }} /></div>
-            <div className="legend">{data.task_summary.map((t, i) => (
-              <div className="li" key={t.name}><span className="dot" style={{ background: TASKCOL[i % TASKCOL.length] }} /><span className="nm">{t.name}</span><span className="vl">{n0(t.value)}</span><span className="pc">{taskTotal ? Math.round((t.value / taskTotal) * 100) : 0}%</span></div>
-            ))}</div>
-          </div>
-        </div>
-        <div className="panel">
-          <div className="ph"><h3>Top Clients &amp; Projects <span className="hl">by tracked hours</span></h3></div>
-          {data.top_clients.length > 0
-            ? <BarList items={data.top_clients.map((c) => ({ label: c.client, value: c.hours }))} unit="h" />
-            : <div className="empty-s">No client data in scope</div>}
-        </div>
-        <div className="panel">
-          <div className="ph"><h3>Workforce Activity <span className="hl">{sm.employees} people</span></h3></div>
-          <div className="donut-wrap">
-            <div style={{ width: 128 }}><Donut data={[{ name: "Active", value: data.live_activity.active }, { name: "Idle", value: data.live_activity.idle }, { name: "Offline", value: data.live_activity.offline }]} colors={["#0f9043", "#bd8616", "#8a93a3"]} height={150} center={{ value: String(data.live_activity.active + data.live_activity.idle + data.live_activity.offline), label: "People" }} /></div>
-            <div className="legend">
-              <div className="li"><span className="dot" style={{ background: "#0f9043" }} /><span className="nm">Active</span><span className="vl">{data.live_activity.active}</span></div>
-              <div className="li"><span className="dot" style={{ background: "#bd8616" }} /><span className="nm">Idle</span><span className="vl">{data.live_activity.idle}</span></div>
-              <div className="li"><span className="dot" style={{ background: "#8a93a3" }} /><span className="nm">Offline</span><span className="vl">{data.live_activity.offline}</span></div>
+      {/* TASKS — priority ("grade") breakdown + per-employee */}
+      <div className="sec"><h4>Tasks · {data.context.label}</h4></div>
+      {(() => {
+        const tp = data.task_priority || { urgent: 0, high: 0, normal: 0, low: 0 };
+        const priData = [{ name: "Urgent", value: tp.urgent }, { name: "High", value: tp.high }, { name: "Normal", value: tp.normal }, { name: "Low", value: tp.low }];
+        const priTotal = tp.urgent + tp.high + tp.normal + tp.low;
+        const PRICOL = ["#d23f43", "#df8327", "#2f6fbf", "#9aa3b2"];
+        const empTasks = data.employee_tasks || [];
+        const cell = (v: number, cls: string) => v > 0 ? <span className={`prbadge ${cls}`}>{v}</span> : <span className="prdash">—</span>;
+        return (
+          <>
+            <div className="row2">
+              <div className="panel">
+                <div className="ph"><h3>Task Priority <span className="hl">the &ldquo;grade&rdquo; of work · {n0(priTotal)} tasks</span></h3></div>
+                <div className="donut-wrap">
+                  <div style={{ width: 140 }}><Donut data={priData} colors={PRICOL} height={172} center={{ value: n0(priTotal), label: "Tasks" }} /></div>
+                  <div className="legend">{priData.map((t, i) => (
+                    <div className="li" key={t.name}><span className="dot" style={{ background: PRICOL[i] }} /><span className="nm">{t.name}</span><span className="vl">{n0(t.value)}</span><span className="pc">{priTotal ? Math.round((t.value / priTotal) * 100) : 0}%</span></div>
+                  ))}</div>
+                </div>
+              </div>
+              <div className="panel">
+                <div className="ph"><h3>Task Status <span className="hl">{n0(taskTotal)} tasks</span></h3></div>
+                <div className="donut-wrap">
+                  <div style={{ width: 140 }}><Donut data={data.task_summary} colors={TASKCOL} height={172} center={{ value: n0(taskTotal), label: "Tasks" }} /></div>
+                  <div className="legend">{data.task_summary.map((t, i) => (
+                    <div className="li" key={t.name}><span className="dot" style={{ background: TASKCOL[i % TASKCOL.length] }} /><span className="nm">{t.name}</span><span className="vl">{n0(t.value)}</span><span className="pc">{taskTotal ? Math.round((t.value / taskTotal) * 100) : 0}%</span></div>
+                  ))}</div>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>
+            <div className="panel" style={{ marginBottom: 14 }}>
+              <div className="ph"><h3>Tasks by Employee <span className="hl">which priority (grade) of tasks each person handles · click for detail</span></h3></div>
+              <div className="scrollwrap" style={{ maxHeight: 430 }}>
+                <table>
+                  <thead><tr><th className="l">Employee</th><th>Urgent</th><th>High</th><th>Normal</th><th>Low</th><th>Total Tasks</th><th>Active</th><th className="l">Status</th></tr></thead>
+                  <tbody>
+                    {empTasks.map((e) => (
+                      <tr key={e.name} className="click" onClick={() => openEmployee(e.name)}>
+                        <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname clk">{e.name}</span></span></td>
+                        <td>{cell(e.urgent, "u")}</td><td>{cell(e.high, "h")}</td><td>{cell(e.normal, "n")}</td><td>{cell(e.low, "l")}</td>
+                        <td className="num" style={{ fontWeight: 750 }}>{e.total}</td>
+                        <td className="num">{e.active}</td>
+                        <td className="l"><span className={`stt ${e.status}`}><span className="d" />{e.status}</span></td>
+                      </tr>
+                    ))}
+                    {empTasks.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No task data in scope</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* PERFORMANCE TABLE */}
       <div className="sec"><h4>Performance · {data.context.view}</h4></div>
