@@ -337,6 +337,46 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* CLIENT-FIRST VIEW — teams + people working on the selected client */}
+      {draft.client && (() => {
+        const cl = data.clients_summary.find((c) => c.client === draft.client);
+        const teams = [...data.teams].sort((a, b) => b.total - a.total).slice(0, 8);
+        const maxT = Math.max(1, ...teams.map((t) => t.total));
+        const emps = [...data.employees].sort((a, b) => b.billable - a.billable).slice(0, 10);
+        return (
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3><Briefcase size={15} style={{ verticalAlign: "-2px", marginRight: 6, color: "var(--navy)" }} />Client · {draft.client}
+              <span className="hl">{cl?.category || "—"} · {n0(distTotal)}h tracked · {cl?.active_tasks || 0} active tasks · {data.employees.length} people</span></h3></div>
+            <div className="cov-grid">
+              <div className="cov-col">
+                <div className="cov-sub">Teams on this client <b>{data.teams.length}</b></div>
+                {teams.map((t) => (
+                  <div className="cov-team clk" key={t.team} onClick={() => setAtl(t.team)}>
+                    <span className="cov-nm" title={t.team}>{t.team}</span>
+                    <span className="cov-bar"><span style={{ width: `${(t.total / maxT) * 100}%` }} /></span>
+                    <span className="cov-h num">{n0(t.total)}h</span>
+                    <span className="cov-p">{t.team_size}p</span>
+                  </div>
+                ))}
+                {teams.length === 0 && <div className="empty-s">No team data</div>}
+              </div>
+              <div className="cov-col">
+                <div className="cov-sub">People on this client <b>{data.employees.length}</b></div>
+                {emps.map((e) => (
+                  <div className="cov-emp clk" key={e.name} onClick={() => openEmployee(e.name)}>
+                    <span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                    <div className="cov-einfo"><div className="nm">{e.name}</div><div className="tm">{e.team}</div></div>
+                    <span className="cov-eh num">{n0(e.billable)}h</span>
+                    <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
+                  </div>
+                ))}
+                {emps.length === 0 && <div className="empty-s">No people data</div>}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* CONTEXT-AWARE PERFORMANCE BREAKDOWN */}
       {(() => {
         const dim = data.context.level === "company" ? "Department"

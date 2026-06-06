@@ -113,6 +113,24 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } }
 
 .empty-s { padding: 28px 12px; text-align: center; color: var(--muted); font-size: 12.5px; }
+/* client-first view */
+.cov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
+.cov-sub { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 12px; }
+.cov-sub b { color: var(--navy); margin-left: 5px; }
+.cov-team { display: grid; grid-template-columns: 150px 1fr 56px 34px; align-items: center; gap: 11px; padding: 7px 0; font-size: 12.5px; border-radius: 6px; }
+.cov-team.clk { cursor: pointer; } .cov-team.clk:hover { background: #fafbfd; }
+.cov-team .cov-nm { font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cov-team .cov-bar { height: 8px; border-radius: 4px; background: var(--line-2); overflow: hidden; }
+.cov-team .cov-bar > span { display: block; height: 100%; border-radius: 4px; background: linear-gradient(90deg, #203070, #2f6fbf); }
+.cov-team .cov-h { text-align: right; font-weight: 750; color: var(--ink); }
+.cov-team .cov-p { text-align: right; color: var(--muted); font-weight: 600; font-size: 11px; }
+.cov-emp { display: grid; grid-template-columns: 30px 1fr auto auto; align-items: center; gap: 11px; padding: 6px 6px; border-radius: 7px; }
+.cov-emp.clk { cursor: pointer; } .cov-emp.clk:hover { background: #fafbfd; }
+.cov-emp .cov-einfo { min-width: 0; }
+.cov-emp .cov-einfo .nm { font-size: 12.5px; font-weight: 650; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cov-emp .cov-einfo .tm { font-size: 10.5px; color: var(--muted); }
+.cov-emp .cov-eh { font-weight: 750; font-size: 12px; color: var(--green); }
+@media (max-width: 860px) { .cov-grid { grid-template-columns: 1fr; gap: 20px; } }
 /* hours trend + budget row */
 .row-tb { display: grid; grid-template-columns: 1.6fr 1fr; gap: 14px; margin-bottom: 14px; align-items: stretch; }
 .budgetcard { display: flex; flex-direction: column; flex: 1; }
