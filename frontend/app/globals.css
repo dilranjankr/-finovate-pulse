@@ -22,8 +22,8 @@
   --red-bg: #fcecec;
   --amber: #bd8616;
   --amber-bg: #f9f1da;
-  --r: 13px;
-  --r-sm: 9px;
+  --r: 10px;
+  --r-sm: 6px;
   --shadow: 0 1px 2px rgba(16, 24, 40, .04);
   --shadow-md: 0 6px 20px rgba(16, 24, 40, .07);
 }
@@ -50,43 +50,38 @@ body { background: var(--bg); color: var(--ink);
 .chip.demo { color: var(--amber); } .chip.demo .d { background: var(--amber); }
 
 /* filters */
-/* clean filter toolbar */
-.filterbar { display: flex; flex-wrap: wrap; gap: 9px; align-items: center; background: var(--panel); border: 1px solid var(--line);
-  border-radius: var(--r); box-shadow: var(--shadow); padding: 12px 15px; margin-bottom: 14px; }
-.fb-lead { display: inline-flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 700; color: var(--ink); letter-spacing: -.1px; padding-left: 2px; }
-.fb-lead svg { color: var(--navy); }
-.fdate { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 13px; border: 1px solid var(--line);
-  border-radius: 10px; background: #fbfcfe; color: var(--ink-2); transition: .15s; }
-.fdate:hover { border-color: #c3c9de; background: #fff; }
+/* flat segmented filter toolbar — sharp, professional */
+.filterbar { display: flex; flex-wrap: wrap; align-items: stretch; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 7px; box-shadow: var(--shadow); padding: 0; margin-bottom: 14px; overflow: hidden; }
+.fb-lead { display: inline-flex; align-items: center; padding: 0 16px; font-size: 10.5px; font-weight: 800; letter-spacing: 1.2px;
+  text-transform: uppercase; color: var(--muted); background: #fafbfd; border-right: 1px solid var(--line); }
+.fdate { display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 15px; border-right: 1px solid var(--line); color: var(--ink-2); }
 .fdate svg { color: var(--muted); flex-shrink: 0; }
-.fdate input { border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); outline: none; cursor: pointer; width: 100px; padding: 0; }
+.fdate input { border: none; background: transparent; font-family: inherit; font-size: 12px; font-weight: 600; color: var(--ink); outline: none; cursor: pointer; width: 98px; padding: 0; }
 .fdate .dsep { color: var(--faint); }
-.fpill { position: relative; display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px;
-  border: 1px solid var(--line); border-radius: 10px; background: #fbfcfe; color: var(--ink-2); font-size: 12.5px; font-weight: 600;
-  cursor: pointer; max-width: 220px; transition: .15s; }
-.fpill:hover { border-color: #c3c9de; background: #fff; }
-.fpill.on { background: var(--accent-soft); border-color: var(--navy); color: var(--navy); }
-.fpill.on .ms-btn > svg { opacity: 1; }
-.fpill > svg { flex-shrink: 0; opacity: .75; }
+.fpill { position: relative; display: inline-flex; align-items: stretch; height: 44px; border-right: 1px solid var(--line);
+  background: transparent; color: var(--ink-2); font-size: 12.5px; font-weight: 600; cursor: pointer; max-width: 230px; transition: background .12s; }
+.fpill:hover { background: #f6f7fb; }
+.fpill.on { color: var(--navy); }
+.fpill.on::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--navy); }
+.fpill > svg { flex-shrink: 0; opacity: .7; }
 .fpill .fpl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fpill > svg:last-of-type { margin-left: auto; opacity: .5; }
 .fpill select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-family: inherit; }
-.fdiv { width: 1px; height: 20px; background: var(--line); margin: 0 3px; }
-.fclear { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 14px; margin-left: auto;
-  font-family: inherit; font-size: 12.5px; font-weight: 650; color: var(--red); background: #fef2f2; border: 1px solid #f6d4d6;
-  border-radius: 10px; cursor: pointer; transition: .15s; }
-.fclear:hover { background: #fde6e7; }
+.fclear { display: inline-flex; align-items: center; gap: 7px; height: 44px; padding: 0 16px; margin-left: auto;
+  font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: .2px; color: var(--red); background: transparent;
+  border: none; border-left: 1px solid var(--line); cursor: pointer; transition: background .12s; }
+.fclear:hover { background: #fef2f2; }
 .fclear .fcnt { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 4px;
-  font-size: 10.5px; font-weight: 800; color: #fff; background: var(--red); border-radius: 9px; }
+  font-size: 10px; font-weight: 800; color: #fff; background: var(--red); border-radius: 3px; }
 /* multi-select filter dropdown */
 .fpill.ms { padding: 0; cursor: default; }
-.ms-btn { display: flex; align-items: center; gap: 7px; height: 100%; width: 100%; padding: 0 11px; background: transparent;
+.ms-btn { display: flex; align-items: center; gap: 8px; height: 100%; width: 100%; padding: 0 15px; background: transparent;
   border: none; font-family: inherit; font-size: 12.5px; font-weight: 600; color: inherit; cursor: pointer; }
 .ms-btn .fpl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ms-btn > svg { flex-shrink: 0; opacity: .75; }
-.ms-btn > svg:last-child { margin-left: auto; opacity: .5; }
-.ms-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 230px; max-width: 290px;
-  background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-md); padding: 6px; }
+.ms-btn > svg { flex-shrink: 0; opacity: .7; }
+.ms-btn > svg:last-child { margin-left: auto; opacity: .45; }
+.ms-menu { position: absolute; top: calc(100% + 1px); left: 0; z-index: 50; min-width: 230px; max-width: 290px;
+  background: #fff; border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow-md); padding: 6px; }
 .ms-search { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--line-2); margin-bottom: 4px; }
 .ms-search svg { color: var(--muted); flex-shrink: 0; }
 .ms-search input { border: none; outline: none; font-family: inherit; font-size: 12.5px; width: 100%; background: transparent; color: var(--ink); }

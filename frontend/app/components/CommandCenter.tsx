@@ -280,10 +280,9 @@ export default function CommandCenter({
         const activeCount = [draft.department, draft.atl, draft.employee, draft.client, draft.client_type].filter(Boolean).length;
         return (
           <div className="filterbar">
-            <span className="fb-lead"><Filter size={14} />Filters</span>
-            <span className="fdiv" />
+            <span className="fb-lead">FILTERS</span>
             <label className="fdate">
-              <CalendarDays size={14} />
+              <CalendarDays size={13} />
               <input type="date" value={draft.date_from || ""} onChange={(e) => setField("date_from", e.target.value)} aria-label="From" />
               <span className="dsep">–</span>
               <input type="date" value={draft.date_to || ""} onChange={(e) => setField("date_to", e.target.value)} aria-label="To" />
