@@ -168,6 +168,18 @@ def _dept_of(space: str) -> str:
     return s or "Other"
 
 
+def _team_of(space: str) -> str:
+    """Team = the part of the ClickUp space AFTER ' - ' (e.g. 'Operations - Titans' -> 'Titans').
+    Spaces without a ' - ' divider fall back to the department name."""
+    if " - " in space:
+        t = space.split(" - ", 1)[1]
+        for suf in ["- Ledger Labs-", " Ledger Labs", " LedgerLabs", " Clients"]:
+            t = t.replace(suf, "")
+        t = t.replace("-", " ").strip()
+        return t or _dept_of(space)
+    return _dept_of(space)
+
+
 CLOSED_STATUS = {"closed", "complete", "completed", "finished", "published",
                  "cancelled", "canceled", "done", "archived"}
 
@@ -236,7 +248,7 @@ def clickup_intel():
     for uid in set(list(e_sp) + list(e_tot)):
         sp = max(e_sp[uid].items(), key=lambda x: x[1])[0] if e_sp[uid] else ""
         fo = max(e_fo[uid].items(), key=lambda x: x[1])[0] if e_fo[uid] else ""
-        emp[uid] = {"department": _dept_of(sp) if sp else "Unassigned", "team": sp or "Unassigned",
+        emp[uid] = {"department": _dept_of(sp) if sp else "Unassigned", "team": _team_of(sp) if sp else "Unassigned",
                     "client": fo or "Unassigned", "active_tasks": e_act[uid], "total_tasks": e_tot[uid],
                     "task_status": "Active" if e_act[uid] > 0 else "Idle"}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
