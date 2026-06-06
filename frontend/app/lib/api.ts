@@ -76,6 +76,7 @@ export interface CommandData {
   };
   task_priority?: { urgent: number; high: number; normal: number; low: number };
   employee_tasks?: { name: string; urgent: number; high: number; normal: number; low: number; total: number; active: number; status: string }[];
+  hierarchy?: { nodes: { name: string; layer?: number }[]; links: { source: number; target: number; value: number }[] };
   source?: string;
 }
 

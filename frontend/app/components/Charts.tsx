@@ -6,6 +6,7 @@ import {
   BarChart, Bar, PieChart, Pie, Cell, Legend, LabelList,
   RadialBarChart, RadialBar, PolarAngleAxis,
   ScatterChart, Scatter, ZAxis,
+  Sankey, Layer, Rectangle,
 } from "recharts";
 
 type BubblePt = { x: number; y: number; z: number; name: string; color: string };
@@ -147,6 +148,40 @@ export function BreakdownColumns({ rows, height = 300, onPick }: {
             <LabelList dataKey="total" position="top" formatter={lbl} fill="#3a4252" fontSize={11.5} fontWeight={750} />
           </Bar>
         </BarChart>
+      )}
+    </Sized>
+  );
+}
+
+// Org hierarchy flow — Sankey: Department -> Team -> Client (hours = flow width).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SankeyNode({ x, y, width, height, index, payload }: any) {
+  const c = payload.layer === 0 ? "#203070" : payload.layer === 1 ? "#2f6fbf" : "#0f9043";
+  const right = payload.layer === 2;
+  const nm = String(payload.name);
+  const label = nm.length > 24 ? nm.slice(0, 22) + "…" : nm;
+  return (
+    <Layer key={`n${index}`}>
+      <Rectangle x={x} y={y} width={width} height={Math.max(height, 2)} fill={c} fillOpacity={0.92} radius={2} />
+      <text x={right ? x - 8 : x + width + 8} y={y + height / 2} textAnchor={right ? "end" : "start"}
+        dominantBaseline="middle" fontSize={10.5} fontWeight={600} fill="#2a3142"
+        stroke="#fff" strokeWidth={3} paintOrder="stroke">{label}</text>
+    </Layer>
+  );
+}
+export function SankeyFlow({ data, height = 470 }: {
+  data: { nodes: { name: string; layer?: number }[]; links: { source: number; target: number; value: number }[] }; height?: number;
+}) {
+  if (!data.nodes.length || !data.links.length) return <div className="empty-s">Not enough data for the org flow</div>;
+  return (
+    <Sized height={height} defaultWidth={900}>
+      {(w, h) => (
+        <Sankey width={w} height={h} data={data} nodePadding={16} nodeWidth={12} iterations={64}
+          margin={{ top: 12, right: 140, bottom: 12, left: 14 }}
+          link={{ stroke: "#aab3d0", strokeOpacity: 0.32 }} node={<SankeyNode />}>
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <Tooltip contentStyle={box} formatter={(v: any) => [`${Number(v).toLocaleString()} h`, "Tracked"]} />
+        </Sankey>
       )}
     </Sized>
   );

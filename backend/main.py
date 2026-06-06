@@ -885,8 +885,33 @@ def command(
         employee_tasks.sort(key=lambda x: (-(x["urgent"] * 3 + x["high"] * 2 + x["normal"]), -x["total"]))
         employee_tasks = employee_tasks[:60]
 
+    # Hierarchy flow (Sankey): Department -> Team -> Client (top clients), hours = flow
+    hierarchy = {"nodes": [], "links": []}
+    if not empty:
+        dt = d.groupby(["department", "atl"])["tracked_h"].sum().reset_index()
+        top_cl = list(d.groupby("client")["tracked_h"].sum().sort_values(ascending=False).head(10).index)
+        tc = d[d["client"].isin(top_cl)].groupby(["atl", "client"])["tracked_h"].sum().reset_index()
+        depts = sorted(dt["department"].unique().tolist())
+        teams = sorted(pd.unique(pd.concat([dt["atl"], tc["atl"]])).tolist())
+        clnts = [c for c in top_cl if c in set(tc["client"])]
+        d_idx = {n: i for i, n in enumerate(depts)}
+        t_idx = {n: len(depts) + i for i, n in enumerate(teams)}
+        c_idx = {n: len(depts) + len(teams) + i for i, n in enumerate(clnts)}
+        nodes = ([{"name": n, "layer": 0} for n in depts]
+                 + [{"name": n, "layer": 1} for n in teams]
+                 + [{"name": n, "layer": 2} for n in clnts])
+        links = []
+        for _, r in dt.iterrows():
+            if float(r["tracked_h"]) > 0:
+                links.append({"source": d_idx[r["department"]], "target": t_idx[r["atl"]], "value": round(float(r["tracked_h"]), 1)})
+        for _, r in tc.iterrows():
+            if r["atl"] in t_idx and r["client"] in c_idx and float(r["tracked_h"]) > 0:
+                links.append({"source": t_idx[r["atl"]], "target": c_idx[r["client"]], "value": round(float(r["tracked_h"]), 1)})
+        hierarchy = {"nodes": nodes, "links": links}
+
     return clean({
         "task_priority": task_priority, "employee_tasks": employee_tasks,
+        "hierarchy": hierarchy,
         "context": {"level": level, "view": view, "label": employee or atl or department or "Company (All)"},
         "summary": summary,
         "period": {"comparable": bool(prev), "current": {"from": date_from, "to": date_to, "days": (prev or {}).get("days")},

@@ -11,7 +11,7 @@ import {
   getFilters, getCommand, getRaw, getEmployee, askAI,
   type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail,
 } from "../lib/api";
-import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns } from "./Charts";
+import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -436,6 +436,20 @@ export default function CommandCenter({
         </div>
       </div>
 
+      {/* PERFORMANCE INSIGHTS — grade distribution + performance matrix */}
+      <div className="row2">
+        <div className="panel">
+          <div className="ph"><h3>Grade Distribution <span className="hl">employees by grade</span></h3></div>
+          <GradeBars data={data.grade_distribution} height={260} />
+        </div>
+        <div className="panel">
+          <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · size = billable hrs</span></h3></div>
+          {bubble.length > 1
+            ? <Bubble points={bubble} height={260} />
+            : <div className="empty-s">Select a broader scope to compare people</div>}
+        </div>
+      </div>
+
       {/* TASKS — priority ("grade") breakdown + per-employee */}
       <div className="sec"><h4>Tasks · {data.context.label}</h4></div>
       {(() => {
@@ -490,6 +504,21 @@ export default function CommandCenter({
           </>
         );
       })()}
+
+      {/* ORG HIERARCHY FLOW — Department → Team → Client */}
+      {data.hierarchy && data.hierarchy.links.length > 0 && (
+        <div className="panel" style={{ marginBottom: 14 }}>
+          <div className="ph">
+            <h3>Organisation Flow <span className="hl">Department → Team → Client · width = tracked hours</span></h3>
+            <div className="bd-legend2">
+              <span><i style={{ background: "#203070" }} />Dept</span>
+              <span><i style={{ background: "#2f6fbf" }} />Team</span>
+              <span><i style={{ background: "#0f9043" }} />Client</span>
+            </div>
+          </div>
+          <SankeyFlow data={data.hierarchy} height={480} />
+        </div>
+      )}
 
       {/* PERFORMANCE TABLE */}
       <div className="sec"><h4>Performance · {data.context.view}</h4></div>
