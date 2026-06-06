@@ -377,6 +377,37 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* CONTEXTUAL OVERVIEW — tasks · clients/projects · activity (adapts to scope) */}
+      <div className="sec"><h4>Workload & Activity · {data.context.label}</h4></div>
+      <div className="row3">
+        <div className="panel">
+          <div className="ph"><h3>Task Status <span className="hl">{n0(taskTotal)} tasks</span></h3></div>
+          <div className="donut-wrap">
+            <div style={{ width: 128 }}><Donut data={data.task_summary} colors={TASKCOL} height={150} center={{ value: n0(taskTotal), label: "Tasks" }} /></div>
+            <div className="legend">{data.task_summary.map((t, i) => (
+              <div className="li" key={t.name}><span className="dot" style={{ background: TASKCOL[i % TASKCOL.length] }} /><span className="nm">{t.name}</span><span className="vl">{n0(t.value)}</span><span className="pc">{taskTotal ? Math.round((t.value / taskTotal) * 100) : 0}%</span></div>
+            ))}</div>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="ph"><h3>Top Clients &amp; Projects <span className="hl">by tracked hours</span></h3></div>
+          {data.top_clients.length > 0
+            ? <BarList items={data.top_clients.map((c) => ({ label: c.client, value: c.hours }))} unit="h" />
+            : <div className="empty-s">No client data in scope</div>}
+        </div>
+        <div className="panel">
+          <div className="ph"><h3>Workforce Activity <span className="hl">{sm.employees} people</span></h3></div>
+          <div className="donut-wrap">
+            <div style={{ width: 128 }}><Donut data={[{ name: "Active", value: data.live_activity.active }, { name: "Idle", value: data.live_activity.idle }, { name: "Offline", value: data.live_activity.offline }]} colors={["#0f9043", "#bd8616", "#8a93a3"]} height={150} center={{ value: String(data.live_activity.active + data.live_activity.idle + data.live_activity.offline), label: "People" }} /></div>
+            <div className="legend">
+              <div className="li"><span className="dot" style={{ background: "#0f9043" }} /><span className="nm">Active</span><span className="vl">{data.live_activity.active}</span></div>
+              <div className="li"><span className="dot" style={{ background: "#bd8616" }} /><span className="nm">Idle</span><span className="vl">{data.live_activity.idle}</span></div>
+              <div className="li"><span className="dot" style={{ background: "#8a93a3" }} /><span className="nm">Offline</span><span className="vl">{data.live_activity.offline}</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* PERFORMANCE TABLE */}
       <div className="sec"><h4>Performance · {data.context.view}</h4></div>
       <div className="panel hero">

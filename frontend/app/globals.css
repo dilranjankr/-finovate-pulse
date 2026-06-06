@@ -112,6 +112,7 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 1150px) { .kpis { grid-template-columns: repeat(3, 1fr); } .kt { border-bottom: 1px solid var(--line); } }
 @media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } }
 
+.empty-s { padding: 28px 12px; text-align: center; color: var(--muted); font-size: 12.5px; }
 /* context-aware performance breakdown */
 .bd-legend2 { display: flex; gap: 14px; font-size: 11px; color: var(--muted); font-weight: 600; }
 .bd-legend2 span { display: inline-flex; align-items: center; gap: 6px; }
