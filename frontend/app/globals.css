@@ -73,6 +73,28 @@ body { background: var(--bg); color: var(--ink);
 .fclear:hover { background: #fde6e7; }
 .fclear .fcnt { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 4px;
   font-size: 10.5px; font-weight: 800; color: #fff; background: var(--red); border-radius: 9px; }
+/* multi-select filter dropdown */
+.fpill.ms { padding: 0; cursor: default; }
+.ms-btn { display: flex; align-items: center; gap: 7px; height: 100%; width: 100%; padding: 0 11px; background: transparent;
+  border: none; font-family: inherit; font-size: 12.5px; font-weight: 600; color: inherit; cursor: pointer; }
+.ms-btn .fpl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-btn > svg { flex-shrink: 0; opacity: .75; }
+.ms-btn > svg:last-child { margin-left: auto; opacity: .5; }
+.ms-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 50; min-width: 230px; max-width: 290px;
+  background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow-md); padding: 6px; }
+.ms-search { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--line-2); margin-bottom: 4px; }
+.ms-search svg { color: var(--muted); flex-shrink: 0; }
+.ms-search input { border: none; outline: none; font-family: inherit; font-size: 12.5px; width: 100%; background: transparent; color: var(--ink); }
+.ms-opts { max-height: 264px; overflow-y: auto; display: flex; flex-direction: column; }
+.ms-opt { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 7px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
+.ms-opt:hover { background: var(--line-2); }
+.ms-opt input { accent-color: var(--navy); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; margin: 0; }
+.ms-opt .ms-lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ms-opt.all { font-weight: 600; color: var(--navy); }
+.ms-opt.all.on { background: var(--accent-soft); }
+.ms-empty { padding: 12px; text-align: center; color: var(--muted); font-size: 12px; }
+.ms-foot { display: flex; align-items: center; justify-content: space-between; padding: 8px 9px 3px; margin-top: 4px; border-top: 1px solid var(--line-2); font-size: 11px; color: var(--muted); }
+.ms-foot button { border: none; background: none; color: var(--red); font-family: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer; }
 
 /* chips */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }

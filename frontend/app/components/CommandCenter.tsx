@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import {
   ArrowUp, ArrowDown, CheckCircle2, ChevronRight, ChevronDown, Search, X, Download, Filter,
   AlertTriangle, Activity, ListTodo, FileWarning, Coffee, Clock, Receipt,
@@ -280,11 +280,11 @@ export default function CommandCenter({
               <input type="date" value={draft.date_to || ""} onChange={(e) => setField("date_to", e.target.value)} aria-label="To" />
             </div>
             <span className="fdiv" />
-            <FilterPill Icon={Building2} label="Department" value={draft.department} opts={opts?.departments} on={setDept} allLabel="All Departments" />
-            <FilterPill Icon={Network} label="Team / ATL" value={draft.atl} opts={opts?.atls} on={setAtl} allLabel="All Teams" />
-            <FilterPill Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" />
-            <FilterPill Icon={Briefcase} label="Client" value={draft.client} opts={opts?.clients} on={(v) => setField("client", v)} allLabel="All Clients" />
-            <FilterPill Icon={Receipt} label="Client Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
+            <MultiSelect Icon={Building2} label="Department" value={draft.department} opts={opts?.departments} on={setDept} allLabel="All Departments" />
+            <MultiSelect Icon={Network} label="Team" value={draft.atl} opts={opts?.atls} on={setAtl} allLabel="All Teams" />
+            <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" />
+            <MultiSelect Icon={Briefcase} label="Client" value={draft.client} opts={opts?.clients} on={(v) => setField("client", v)} allLabel="All Clients" />
+            <MultiSelect Icon={Receipt} label="Client Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
             {activeCount > 0 && (
               <button className="fclear" onClick={clearFilters} title="Clear all filters">
                 <RotateCcw size={13} />Clear<span className="fcnt">{activeCount}</span>
@@ -671,20 +671,53 @@ function Sel({ label, value, opts, on }: { label: string; value?: string; opts?:
   );
 }
 
-function FilterPill({ Icon, label, value, opts, on, allLabel }: {
+function MultiSelect({ Icon, label, value, opts, on, allLabel }: {
   Icon: React.ComponentType<{ size?: number }>; label: string; value?: string;
   opts?: string[]; on: (v: string) => void; allLabel?: string;
 }) {
-  const active = !!value;
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const selected = (value || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const active = selected.length > 0;
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) { setOpen(false); setQ(""); } };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const toggle = (o: string) => {
+    const set = new Set(selected);
+    if (set.has(o)) set.delete(o); else set.add(o);
+    on([...set].join(","));
+  };
+  const list = (opts || []).filter((o) => o.toLowerCase().includes(q.toLowerCase()));
+  const display = !active ? label : selected.length === 1 ? selected[0] : `${label} · ${selected.length}`;
   return (
-    <div className={`fpill${active ? " on" : ""}`} title={active ? `${label}: ${value}` : label}>
-      <Icon size={14} />
-      <span className="fpl">{active ? value : label}</span>
-      <ChevronDown size={13} />
-      <select value={value || ""} onChange={(e) => on(e.target.value)} aria-label={label}>
-        <option value="">{allLabel || `All ${label}`}</option>
-        {(opts || []).map((o) => <option key={o} value={o}>{o}</option>)}
-      </select>
+    <div className={`fpill ms${active ? " on" : ""}`} ref={ref}>
+      <button type="button" className="ms-btn" onClick={() => setOpen((o) => !o)} title={active ? `${label}: ${selected.join(", ")}` : label}>
+        <Icon size={14} />
+        <span className="fpl">{display}</span>
+        <ChevronDown size={13} />
+      </button>
+      {open && (
+        <div className="ms-menu">
+          {(opts || []).length > 8 && (
+            <div className="ms-search"><Search size={13} /><input autoFocus placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          )}
+          <div className="ms-opts">
+            <div className={`ms-opt all${active ? "" : " on"}`} onClick={() => { on(""); }}>{allLabel || `All ${label}`}</div>
+            {list.map((o) => (
+              <label className="ms-opt" key={o}>
+                <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
+                <span className="ms-lbl">{o}</span>
+              </label>
+            ))}
+            {list.length === 0 && <div className="ms-empty">No matches</div>}
+          </div>
+          {active && <div className="ms-foot"><span>{selected.length} selected</span><button onClick={() => on("")}>Clear</button></div>}
+        </div>
+      )}
     </div>
   );
 }

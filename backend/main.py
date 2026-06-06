@@ -248,7 +248,7 @@ def clickup_intel():
     for uid in set(list(e_sp) + list(e_tot)):
         sp = max(e_sp[uid].items(), key=lambda x: x[1])[0] if e_sp[uid] else ""
         fo = max(e_fo[uid].items(), key=lambda x: x[1])[0] if e_fo[uid] else ""
-        emp[uid] = {"department": _dept_of(sp) if sp else "Unassigned", "team": _team_of(sp) if sp else "Unassigned",
+        emp[uid] = {"department": _dept_of(sp) if sp else "Unassigned", "team": sp or "Unassigned",
                     "client": fo or "Unassigned", "active_tasks": e_act[uid], "total_tasks": e_tot[uid],
                     "task_status": "Active" if e_act[uid] > 0 else "Idle"}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
@@ -347,17 +347,26 @@ def load_from_db():
 # =================================================================
 # FILTERS
 # =================================================================
+def _vals(x):
+    """Accept a single value or a comma-separated multi-select list."""
+    if not x:
+        return []
+    return [v.strip() for v in str(x).split(",") if v.strip()]
+
+
 def apply_filters(members, g, f):
     m = members
     for key, col in [("employee", "name"), ("role", "role"), ("status", "status")]:
-        if f.get(key):
-            m = m[m[col] == f[key]]
+        vals = _vals(f.get(key))
+        if vals:
+            m = m[m[col].isin(vals)]
     ids = set(m["user_id"])
     d = g[g["user_id"].isin(ids)]
     for key, col in [("department", "department"), ("atl", "atl"),
                      ("client", "client"), ("client_type", "client_type")]:
-        if f.get(key):
-            d = d[d[col] == f[key]]
+        vals = _vals(f.get(key))
+        if vals:
+            d = d[d[col].isin(vals)]
     if f.get("billable") == "Billable":
         d = d[d["billable"]]
     elif f.get("billable") == "Non-Billable":
@@ -464,8 +473,9 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None):
             v = [x for x in v if x != "Unassigned"] + ["Unassigned"]
         return v
 
-    dep_scope = dim[dim["department"] == department] if department else dim
-    atl_scope = dep_scope[dep_scope["atl"] == atl] if atl else dep_scope
+    dep_vals, atl_vals = _vals(department), _vals(atl)
+    dep_scope = dim[dim["department"].isin(dep_vals)] if dep_vals else dim
+    atl_scope = dep_scope[dep_scope["atl"].isin(atl_vals)] if atl_vals else dep_scope
 
     return clean({
         "date_min": g["date_s"].min(), "date_max": g["date_s"].max(),
