@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
-  BarChart, Bar, PieChart, Pie, Cell, Legend,
+  BarChart, Bar, PieChart, Pie, Cell, Legend, LabelList,
   RadialBarChart, RadialBar, PolarAngleAxis,
   ScatterChart, Scatter, ZAxis,
 } from "recharts";
@@ -107,6 +107,44 @@ export function DeptColumns({ rows, height = 300 }: {
           <Bar isAnimationActive={false} dataKey="hours" radius={[7, 7, 0, 0]} maxBarSize={56}
             label={{ position: "top", fontSize: 11, fill: "#3a4252", fontWeight: 700, formatter: lbl }}>
             {data.map((_, i) => <Cell key={i} fill={`url(#${gid(i)})`} />)}
+          </Bar>
+        </BarChart>
+      )}
+    </Sized>
+  );
+}
+
+// Context-aware breakdown — vertical stacked columns (billable + non-billable),
+// value labels, click-to-drill. Power-BI style and works at every drill level.
+export function BreakdownColumns({ rows, height = 300, onPick }: {
+  rows: { label: string; billable: number; nonbill: number; total: number; util: number }[];
+  height?: number; onPick?: (label: string) => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lbl = (v: any) => { const n = Number(v ?? 0); return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(Math.round(n)); };
+  return (
+    <Sized height={height} defaultWidth={760}>
+      {(w, h) => (
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <BarChart width={w} height={h} data={rows} barCategoryGap="28%" margin={{ top: 26, right: 8, left: -6, bottom: 4 }}
+          onClick={(e: any) => { if (onPick && e && e.activeLabel) onPick(String(e.activeLabel)); }}>
+          <defs>
+            <linearGradient id="bdg-b" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#0f9043" stopOpacity={1} /><stop offset="100%" stopColor="#0f9043" stopOpacity={0.78} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="#eef1f6" vertical={false} strokeDasharray="2 4" />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#565d6b", fontWeight: 600 }} tickLine={false}
+            axisLine={{ stroke: "#e6e9f0" }} interval={0} angle={-18} textAnchor="end" height={70} />
+          <YAxis tick={AX} tickLine={false} axisLine={false} width={46} tickFormatter={lbl} />
+          <Tooltip cursor={{ fill: "rgba(32,48,112,.05)" }} contentStyle={box}
+            formatter={(v, _n, p) => {
+              const r = (p?.payload || {}) as { billable?: number; nonbill?: number };
+              return [`${Number(v).toLocaleString()} h  ·  ${Math.round(r.billable || 0)}h billable / ${Math.round(r.nonbill || 0)}h non-bill`, "Tracked"];
+            }} />
+          <Bar isAnimationActive={false} dataKey="total" radius={[5, 5, 0, 0]} maxBarSize={56} cursor="pointer">
+            {rows.map((r, i) => <Cell key={i} fill={r.nonbill > r.billable ? "#c2c9d6" : "url(#bdg-b)"} />)}
+            <LabelList dataKey="total" position="top" formatter={lbl} fill="#3a4252" fontSize={11.5} fontWeight={750} />
           </Bar>
         </BarChart>
       )}

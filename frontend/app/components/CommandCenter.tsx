@@ -11,7 +11,7 @@ import {
   getFilters, getCommand, getRaw, getEmployee, askAI,
   type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail,
 } from "../lib/api";
-import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns } from "./Charts";
+import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -349,30 +349,17 @@ export default function CommandCenter({
           return { label, billable, nonbill, total: billable + nonbill, util: Number(r.utilization || 0) };
         }).filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 14);
         if (rows.length < 1) return null;
-        const max = Math.max(1, ...rows.map((r) => r.total));
         return (
           <div className="panel" style={{ marginBottom: 14 }}>
             <div className="ph">
-              <h3>Performance by {dim} <span className="hl">tracked hours · billable vs non-billable</span></h3>
+              <h3>Performance by {dim} <span className="hl">tracked hours · click to drill</span></h3>
               <div className="bd-legend2">
                 <span><i style={{ background: "#0f9043" }} />Billable</span>
-                <span><i style={{ background: "#cdd4e0" }} />Non-Billable</span>
+                <span><i style={{ background: "#c2c9d6" }} />Non-Billable</span>
               </div>
             </div>
-            <div className="bd2">
-              {rows.map((r) => (
-                <div className="bd2-row clk" key={r.label}
-                  onClick={() => { if (dim === "Department") setDept(r.label); else if (dim === "Team") setAtl(r.label); else openEmployee(r.label); }}>
-                  <span className="bd2-nm" title={r.label}>{r.label}</span>
-                  <span className="bd2-track">
-                    <span className="bd2-bill" style={{ width: `${(r.billable / max) * 100}%` }} />
-                    <span className="bd2-non" style={{ width: `${(r.nonbill / max) * 100}%` }} />
-                  </span>
-                  <span className="bd2-tot num">{n0(r.total)}h</span>
-                  <span className="bd2-util" style={{ color: utilColor(r.util) }}>{n0(r.util)}%</span>
-                </div>
-              ))}
-            </div>
+            <BreakdownColumns rows={rows} height={320}
+              onPick={(l) => { if (dim === "Department") setDept(l); else if (dim === "Team") setAtl(l); else openEmployee(l); }} />
           </div>
         );
       })()}
