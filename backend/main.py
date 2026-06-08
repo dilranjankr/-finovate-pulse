@@ -1011,11 +1011,13 @@ def command(
 _NB_SQL = r"(^|[^a-z0-9])nb([^a-z0-9]|$)"
 
 
-def _tracked_breakdown(uids, date_from, date_to, limit=12):
-    """Tracked hours per Hubstaff project and per task, each split into
-    billable vs non-billable (NB marker on task summary or project name)."""
+def _tracked_breakdown(uids, date_from, date_to):
+    """Aggregate tracked hours split two ways: time logged on a task vs only on
+    a project (no task), and billable vs non-billable (NB marker)."""
+    blank = {"total_h": 0.0, "task_h": 0.0, "project_only_h": 0.0,
+             "billable_h": 0.0, "non_billable_h": 0.0}
     if not db.has_db() or not uids:
-        return {"by_project": [], "by_task": []}
+        return blank
     where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)"]
     params = {"uids": list(uids), "nb": _NB_SQL}
     if date_from:
@@ -1024,28 +1026,27 @@ def _tracked_breakdown(uids, date_from, date_to, limit=12):
         where.append("a.date <= :dt"); params["dt"] = date_to
     nb_expr = ("CASE WHEN trim(coalesce(ht.summary,'')) ~* :nb "
                "OR trim(coalesce(p.name,'')) ~* :nb THEN a.tracked ELSE 0 END")
-    base = (" FROM hubstaff_activities a "
-            " LEFT JOIN hubstaff_projects p ON p.id = a.project_id "
-            " LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id "
-            " WHERE " + " AND ".join(where))
-
-    def _q(label_expr):
-        df = db.q(f"SELECT {label_expr} g, sum(a.tracked) t, sum({nb_expr}) nb "
-                  f"{base} GROUP BY 1 ORDER BY 2 DESC LIMIT {limit}", params)
-        out = []
-        for _, r in df.iterrows():
-            tot = float(r["t"] or 0); nb = float(r["nb"] or 0)
-            out.append({"name": r["g"], "total": round(tot / SEC, 1),
-                        "billable": round(max(0.0, tot - nb) / SEC, 1),
-                        "non_billable": round(nb / SEC, 1)})
-        return out
-
     try:
-        return {"by_project": _q("coalesce(nullif(p.name,''),'No project')"),
-                "by_task": _q("coalesce(nullif(ht.summary,''),'No task')")}
+        df = db.q(f"""
+            SELECT sum(a.tracked) total,
+                   sum(CASE WHEN a.task_id IS NOT NULL THEN a.tracked ELSE 0 END) task_sec,
+                   sum(CASE WHEN a.task_id IS NULL THEN a.tracked ELSE 0 END) proj_sec,
+                   sum({nb_expr}) nb_sec
+            FROM hubstaff_activities a
+            LEFT JOIN hubstaff_projects p ON p.id = a.project_id
+            LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
+            WHERE {" AND ".join(where)}
+        """, params)
     except Exception as e:  # noqa
         print("breakdown failed:", e)
-        return {"by_project": [], "by_task": []}
+        return blank
+    r = df.iloc[0]
+    tot = float(r["total"] or 0); task = float(r["task_sec"] or 0)
+    proj = float(r["proj_sec"] or 0); nb = float(r["nb_sec"] or 0)
+    return {"total_h": round(tot / SEC, 1), "task_h": round(task / SEC, 1),
+            "project_only_h": round(proj / SEC, 1),
+            "billable_h": round(max(0.0, tot - nb) / SEC, 1),
+            "non_billable_h": round(nb / SEC, 1)}
 
 
 @app.get("/api/breakdown")

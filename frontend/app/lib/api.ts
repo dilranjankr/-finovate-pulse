@@ -174,8 +174,10 @@ export function defaultRange(opts: FilterOptions): { date_from: string; date_to:
   return { date_from: calc < opts.date_min ? opts.date_min : calc, date_to: to };
 }
 
-export interface BreakdownRow { name: string; total: number; billable: number; non_billable: number; }
-export interface BreakdownData { by_project: BreakdownRow[]; by_task: BreakdownRow[]; }
+export interface BreakdownData {
+  total_h: number; task_h: number; project_only_h: number;
+  billable_h: number; non_billable_h: number;
+}
 export async function getBreakdown(f: Filters): Promise<BreakdownData> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });

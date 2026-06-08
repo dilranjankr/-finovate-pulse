@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import {
   ArrowUp, ArrowDown, ChevronDown, Search, Filter, CalendarDays,
-  Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X, ListTodo,
+  Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, defaultRange,
@@ -99,26 +99,6 @@ export default function CommandCenter({
   const prod = Number(k.productivity?.value || 0);
   const act = Number(k.activity?.value || 0);
 
-  // stacked billable/non-billable bars for the tracked-hours breakdown
-  const renderBars = (rows: { name: string; total: number; billable: number; non_billable: number }[]) => {
-    if (!rows || rows.length === 0) return <div className="empty-s">No data in scope</div>;
-    const max = Math.max(1, ...rows.map((r) => r.total));
-    return rows.map((r) => {
-      const bilW = r.total ? (r.billable / r.total) * 100 : 0;
-      return (
-        <div className="brk-row" key={r.name}>
-          <span className="brk-nm" title={r.name}>{r.name}</span>
-          <span className="brk-track">
-            <span className="brk-fill" style={{ width: `${(r.total / max) * 100}%` }}>
-              <span className="bil" style={{ width: `${bilW}%` }} />
-              <span className="nbil" style={{ width: `${100 - bilW}%` }} />
-            </span>
-          </span>
-          <span className="brk-h num">{n0(r.total)}h</span>
-        </div>
-      );
-    });
-  };
 
   return (
     <div className="page">
@@ -210,22 +190,27 @@ export default function CommandCenter({
           : <>Pick a date range to compare against the previous equal-length period</>}
       </div>
 
-      {/* TRACKED HOURS — billable vs non-billable, per project & per task */}
-      {bd && (bd.by_project.length > 0 || bd.by_task.length > 0) && (
-        <div className="panel brk-panel">
-          <div className="ph">
-            <h3>Tracked Hours — Billable vs Non-Billable <span className="hl">where the time went · per project &amp; per task</span></h3>
-            <div className="brk-legend"><span><i className="d bil" />Billable</span><span><i className="d nbil" />Non-Billable</span></div>
-          </div>
-          <div className="brk-grid">
-            <div className="brk-col">
-              <div className="brk-h2"><Briefcase size={13} />By Project</div>
-              {renderBars(bd.by_project)}
-            </div>
-            <div className="brk-col">
-              <div className="brk-h2"><ListTodo size={13} />By Task</div>
-              {renderBars(bd.by_task)}
-            </div>
+      {/* TRACKED TIME — two donuts: task vs project, and billable vs non-billable */}
+      {bd && bd.total_h > 0 && (
+        <div className="panel">
+          <div className="ph"><h3>Tracked Time Breakdown <span className="hl">how time was logged · and billable split</span></h3></div>
+          <div className="dn2-grid">
+            <Donut2
+              title="Time logging"
+              segs={[
+                { label: "On a task", value: bd.task_h, color: "#203070" },
+                { label: "Project only (no task)", value: bd.project_only_h, color: "#cdd4e0" },
+              ]}
+              centerLabel="on tasks"
+            />
+            <Donut2
+              title="Billable split"
+              segs={[
+                { label: "Billable", value: bd.billable_h, color: "#0f9043" },
+                { label: "Non-Billable", value: bd.non_billable_h, color: "#d8dde6" },
+              ]}
+              centerLabel="billable"
+            />
           </div>
         </div>
       )}
@@ -274,6 +259,36 @@ export default function CommandCenter({
           </div>
         );
       })()}
+    </div>
+  );
+}
+
+function Donut2({ title, segs, centerLabel }: {
+  title: string; segs: { label: string; value: number; color: string }[]; centerLabel: string;
+}) {
+  const total = segs.reduce((s, x) => s + x.value, 0) || 1;
+  let acc = 0;
+  const stops = segs.map((s) => {
+    const start = (acc / total) * 100; acc += s.value; const end = (acc / total) * 100;
+    return `${s.color} ${start}% ${end}%`;
+  }).join(", ");
+  const mainPct = Math.round((segs[0].value / total) * 100);
+  return (
+    <div className="dn2-cell">
+      <div className="dn2-ring" style={{ background: `conic-gradient(${stops})` }}>
+        <div className="dn2-hole"><b className="num">{mainPct}%</b><span>{centerLabel}</span></div>
+      </div>
+      <div className="dn2-info">
+        <div className="dn2-t">{title}</div>
+        {segs.map((s) => (
+          <div className="dn2-lg" key={s.label}>
+            <span className="d" style={{ background: s.color }} />
+            <span className="l">{s.label}</span>
+            <b className="num">{n0(s.value)}h</b>
+            <i>{Math.round((s.value / total) * 100)}%</i>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
