@@ -8,7 +8,7 @@ import {
   ListChecks, CheckSquare, Gauge, Sparkles, Send, RotateCcw,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getRaw, getEmployee, askAI, getUnassigned,
+  getFilters, getCommand, getRaw, getEmployee, askAI, getUnassigned, defaultRange,
   type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail, type UnassignedData,
 } from "../lib/api";
 import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow, ComboColumns, RadarCompare } from "./Charts";
@@ -72,7 +72,7 @@ export default function CommandCenter({
 }: { initialOpts: FilterOptions | null; initialData: CommandData | null }) {
   const [opts, setOpts] = useState<FilterOptions | null>(initialOpts);
   const [draft, setDraft] = useState<Filters>(
-    initialOpts ? { date_from: initialOpts.date_min, date_to: initialOpts.date_max } : {}
+    initialOpts ? defaultRange(initialOpts) : {}
   );
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
@@ -103,7 +103,7 @@ export default function CommandCenter({
   function setField(key: keyof Filters, v: string) { const next = { ...draft, [key]: v || undefined }; setDraft(next); apply(next); }
   function setDept(v: string) { const next = { ...draft, department: v || undefined, atl: undefined, employee: undefined }; setDraft(next); refetchOpts({ department: v || undefined }); apply(next); }
   function setAtl(v: string) { const next = { ...draft, atl: v || undefined, employee: undefined }; setDraft(next); refetchOpts({ department: draft.department, atl: v || undefined }); apply(next); }
-  function clearFilters() { const base: Filters = opts ? { date_from: opts.date_min, date_to: opts.date_max } : {}; setDraft(base); refetchOpts({}); apply(base); }
+  function clearFilters() { const base: Filters = opts ? defaultRange(opts) : {}; setDraft(base); refetchOpts({}); apply(base); }
   function drill(row: Record<string, unknown>) {
     const lvl = data?.context.level;
     if (lvl === "company") setDept(String(row.name));

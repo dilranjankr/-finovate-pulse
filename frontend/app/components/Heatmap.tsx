@@ -15,7 +15,7 @@ export default function MatrixHeatmap({ weeks, rows, base = "32,48,112" }: { wee
         <thead>
           <tr>
             <th className="l">Department</th>
-            {weeks.map((w) => <th key={w}>{w}</th>)}
+            {weeks.map((w, i) => <th key={i}>{w}</th>)}
             <th>Total</th>
           </tr>
         </thead>

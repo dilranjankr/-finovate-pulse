@@ -164,6 +164,16 @@ export async function askAI(question: string, f: Filters): Promise<AskResult> {
   return r.json();
 }
 
+// Default visible window: last 90 days up to the latest data date (not the full
+// multi-year history, which is unreadable and collides weekly-heatmap keys).
+export function defaultRange(opts: FilterOptions): { date_from: string; date_to: string } {
+  const to = opts.date_max;
+  const d = new Date(to + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() - 89);
+  const calc = d.toISOString().slice(0, 10);
+  return { date_from: calc < opts.date_min ? opts.date_min : calc, date_to: to };
+}
+
 export async function getCommand(f: Filters): Promise<CommandData> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => {
