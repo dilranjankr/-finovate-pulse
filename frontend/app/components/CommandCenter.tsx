@@ -147,6 +147,16 @@ export default function CommandCenter({
   const chTotal = ch.active + ch.at_risk + ch.inactive;
   const phTotal = ph.on_track + ph.at_risk + ph.delayed;
 
+  // context-aware visibility — show only what's relevant for the selected filter level
+  const lvl = data.context.level;               // company | department | atl | employee
+  const isCompany = lvl === "company";
+  const isDept = lvl === "department";
+  const isTeam = lvl === "atl";
+  const isEmp = lvl === "employee";
+  const hasClient = !!draft.client;
+  const multiTeam = isCompany || isDept;        // multiple teams exist → team comparison makes sense
+  const showHeatmap = isCompany || isDept;      // dept×week / team×week — too sparse below this
+
   const bubble = data.employees.map((e) => ({
     x: e.utilization, y: e.productivity, z: Math.max(e.billable, 1), name: e.name,
     color: e.grade.startsWith("A") ? "#0f9043" : e.grade.startsWith("B") ? "#2f6fbf" : e.grade.startsWith("C") ? "#bd8616" : "#d23f43",
@@ -391,13 +401,63 @@ export default function CommandCenter({
         );
       })()}
 
-      <div className="sec"><h4>Overview · {data.context.label}</h4></div>
+      {/* EMPLOYEE PROFILE — who this person is, where they sit, what they work on */}
+      {isEmp && (() => {
+        const e = data.employees[0];
+        if (!e) return null;
+        const dept = e.team.includes(" - ") ? e.team.split(" - ")[0] : data.context.label;
+        const cls = [...data.clients_summary].sort((a, b) => b.hours - a.hours);
+        const tp = data.task_priority || { urgent: 0, high: 0, normal: 0, low: 0 };
+        return (
+          <>
+            <div className="sec"><h4>Profile · {e.name}</h4></div>
+            <div className="panel" style={{ marginBottom: 14 }}>
+              <div className="prof">
+                <div className="prof-id">
+                  <span className="avatar lg" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                  <div className="prof-meta">
+                    <div className="prof-nm">{e.name} <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></div>
+                    <div className="prof-sub"><Network size={12} />{e.team}<span className="prof-dot">·</span><Building2 size={12} />{dept}</div>
+                    <div className="prof-sub"><span className={`stt ${e.task_status}`}><span className="d" />{e.task_status} · {e.active_tasks} active tasks</span></div>
+                  </div>
+                </div>
+                <div className="prof-stats">
+                  <div className="ps"><div className="l">Billable</div><div className="v num">{n0(e.billable)}h</div></div>
+                  <div className="ps"><div className="l">Utilization</div><div className="v num">{n0(e.utilization)}%</div></div>
+                  <div className="ps"><div className="l">Activity</div><div className="v num">{n0(e.activity)}%</div></div>
+                  <div className="ps"><div className="l">Productivity</div><div className="v num">{n0(e.productivity)}%</div></div>
+                  <div className="ps"><div className="l">Active Days</div><div className="v num">{e.days}</div></div>
+                  <div className="ps"><div className="l">Avg / Day</div><div className="v num">{n1(e.avg_day)}h</div></div>
+                </div>
+              </div>
+              <div className="prof-split">
+                <div className="prof-block">
+                  <div className="prof-bh"><Briefcase size={13} />Clients worked on <b>{cls.length}</b></div>
+                  {cls.slice(0, 8).map((c) => (
+                    <div className="prof-cl clk" key={c.client} onClick={() => setField("client", c.client)}>
+                      <span className={`cat ${c.category}`}>{c.category?.[0] || "?"}</span>
+                      <span className="prof-clnm" title={c.client}>{c.client}</span>
+                      <span className="num">{n0(c.hours)}h</span>
+                    </div>
+                  ))}
+                  {cls.length === 0 && <div className="empty-s">No client mapping</div>}
+                </div>
+                <div className="prof-block">
+                  <div className="prof-bh"><ListChecks size={13} />Task workload <b>{tp.urgent + tp.high + tp.normal + tp.low}</b></div>
+                  <div className="prof-pri"><span className="prbadge u">{tp.urgent}</span>Urgent</div>
+                  <div className="prof-pri"><span className="prbadge h">{tp.high}</span>High</div>
+                  <div className="prof-pri"><span className="prbadge n">{tp.normal}</span>Normal</div>
+                  <div className="prof-pri"><span className="prbadge l">{tp.low}</span>Low</div>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
-      {/* CONTEXT-AWARE PERFORMANCE BREAKDOWN */}
-      {(() => {
-        const dim = data.context.level === "company" ? "Department"
-          : data.context.level === "department" ? "Team"
-            : data.context.level === "atl" ? "Employee" : "Employee";
+      {/* CONTEXT-AWARE PERFORMANCE BREAKDOWN — hidden at employee level (single bar = no signal) */}
+      {!isEmp && (() => {
+        const dim = isCompany ? "Department" : isDept ? "Team" : "Employee";
         const rows = data.table.rows.map((r) => {
           const label = String(r.name ?? r.employee ?? r.team ?? "—");
           const billable = Number(r.billable || 0);
@@ -408,19 +468,46 @@ export default function CommandCenter({
         if (rows.length < 1) return null;
         const drill = (l: string) => { if (dim === "Department") setDept(l); else if (dim === "Team") setAtl(l); else openEmployee(l); };
         return (
+          <>
+            <div className="sec"><h4>Overview · {data.context.label}</h4></div>
+            <div className="panel" style={{ marginBottom: 14 }}>
+              <div className="ph"><h3>Hours &amp; Utilization by {dim} <span className="hl">tracked hours (bars) + utilization % (line) · click to drill</span></h3></div>
+              <ComboColumns rows={rows.map((r) => ({ label: r.label, hours: r.total, util: r.util }))} height={350} onPick={drill} />
+            </div>
+          </>
+        );
+      })()}
+
+      {/* CLIENTS IN SCOPE — which clients this dept/team serves + Fixed/Hourly hours */}
+      {(isDept || isTeam) && !hasClient && (() => {
+        const cls = [...data.clients_summary].filter((c) => c.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 12);
+        if (cls.length < 1) return null;
+        const maxH = Math.max(1, ...cls.map((c) => c.hours));
+        return (
           <div className="panel" style={{ marginBottom: 14 }}>
-            <div className="ph"><h3>Hours &amp; Utilization by {dim} <span className="hl">tracked hours (bars) + utilization % (line) · click to drill</span></h3></div>
-            <ComboColumns rows={rows.map((r) => ({ label: r.label, hours: r.total, util: r.util }))} height={350} onPick={drill} />
+            <div className="ph"><h3>Clients in {isDept ? "this Department" : "this Team"} <span className="hl">hours per client · Fixed / Hourly · click to focus</span></h3></div>
+            <div className="cl-scope">
+              {cls.map((c) => (
+                <div className="cl-row clk" key={c.client} onClick={() => setField("client", c.client)}>
+                  <span className={`cat ${c.category}`}>{c.category || "—"}</span>
+                  <span className="cl-nm" title={c.client}>{c.client}</span>
+                  <span className="cl-bar"><span style={{ width: `${(c.hours / maxH) * 100}%`, background: c.category === "Fixed" ? "#2f6fbf" : "#0f9043" }} /></span>
+                  <span className="cl-h num">{n0(c.hours)}h</span>
+                  <span className="cl-t">{c.active_tasks}/{c.total_tasks} tasks</span>
+                </div>
+              ))}
+            </div>
           </div>
         );
       })()}
 
       {/* HOURS TREND + BUDGET vs ACTUAL */}
-      <div className="row-tb">
+      <div className={isEmp ? "" : "row-tb"}>
         <div className="panel">
           <div className="ph"><h3>Hours Trend <span className="hl">billable vs non-billable over time</span></h3></div>
           <TrendLines data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={280} />
         </div>
+        {!isEmp && (
         <div className="panel">
           <div className="ph"><h3>Budget vs Actual <span className="hl">tracked vs capacity · target = budget</span></h3></div>
           {(() => {
@@ -453,11 +540,14 @@ export default function CommandCenter({
             );
           })()}
         </div>
+        )}
       </div>
 
-      <div className="sec"><h4>Performance Analysis</h4></div>
-
-      {/* PERFORMANCE INSIGHTS — grade distribution + performance matrix */}
+      {/* PERFORMANCE ANALYSIS — needs multiple people to compare; hidden at employee level */}
+      {!isEmp && (
+        <div className="sec"><h4>Performance Analysis</h4></div>
+      )}
+      {!isEmp && (
       <div className="row2">
         <div className="panel">
           <div className="ph"><h3>Grade Distribution <span className="hl">employees by grade</span></h3></div>
@@ -470,9 +560,10 @@ export default function CommandCenter({
             : <div className="empty-s">Select a broader scope to compare people</div>}
         </div>
       </div>
+      )}
 
-      {/* TEAM COMPARISON — radar + utilization ranking */}
-      {teamRadar.length > 1 && (
+      {/* TEAM COMPARISON — radar + utilization ranking (multi-team levels only) */}
+      {multiTeam && teamRadar.length > 1 && (
         <div className="row2">
           <div className="panel">
             <div className="ph"><h3>Team Comparison <span className="hl">top teams · utilization · activity · productivity · billable %</span></h3></div>
@@ -516,6 +607,7 @@ export default function CommandCenter({
                 </div>
               </div>
             </div>
+            {!isEmp && (
             <div className="panel" style={{ marginBottom: 14 }}>
               <div className="ph"><h3>Tasks by Employee <span className="hl">which priority (grade) of tasks each person handles · click for detail</span></h3></div>
               <div className="scrollwrap" style={{ maxHeight: 430 }}>
@@ -538,13 +630,14 @@ export default function CommandCenter({
                 </table>
               </div>
             </div>
+            )}
           </>
         );
       })()}
 
       {/* ACTIVITY HEATMAP — Department × Week (tracked hours, darker = busier) */}
-      {data.heatmap && data.heatmap.rows.length > 0 && <div className="sec"><h4>Activity Heatmap</h4></div>}
-      {data.heatmap && data.heatmap.rows.length > 0 && (
+      {showHeatmap && data.heatmap && data.heatmap.rows.length > 0 && <div className="sec"><h4>Activity Heatmap</h4></div>}
+      {showHeatmap && data.heatmap && data.heatmap.rows.length > 0 && (
         <div className="panel" style={{ marginBottom: 14 }}>
           <div className="ph"><h3>Activity Heatmap <span className="hl">tracked hours · {data.context.level === "company" ? "department" : "team"} × week · darker = busier</span></h3></div>
           <MatrixHeatmap weeks={data.heatmap.weeks} rows={data.heatmap.rows} />
