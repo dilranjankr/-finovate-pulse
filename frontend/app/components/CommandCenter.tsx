@@ -4,7 +4,6 @@ import { useState, useRef, useEffect } from "react";
 import {
   ArrowUp, ArrowDown, ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock,
-  Gauge, Activity, Zap, Award,
 } from "lucide-react";
 import {
   getFilters, getCommand, defaultRange,
@@ -55,23 +54,24 @@ export default function CommandCenter({
     return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
   };
 
-  // a single stat card: icon + value + label + delta
-  const statCard = (label: string, key: string, unit: string, Icon: React.ComponentType<{ size?: number }>, tint: string) => {
-    const kv = data.kpis[key]; if (!kv) return null;
-    const val = typeof kv.value === "string"
-      ? kv.value
-      : unit === "%" ? n1(kv.value) + "%" : unit === "h" ? n0(kv.value) + "h" : n1(kv.value);
+  // a circular gauge ring: arc filled to `pct`, value in the centre
+  const thr = (v: number, hi: number, mid: number) => (v >= hi ? "#0f9043" : v >= mid ? "#bd8616" : "#d23f43");
+  const ringCard = (label: string, key: string, pct: number, display: string, color: string, deltaKey?: string) => {
+    const fill = Math.max(0, Math.min(100, pct));
     return (
-      <div className="kcard" key={key}>
-        <div className="kcard-top">
-          <span className="kcard-ic" style={{ background: `${tint}1a`, color: tint }}><Icon size={15} /></span>
-          {deltaChip(key)}
+      <div className="kring" key={key}>
+        <div className="kring-arc" style={{ background: `conic-gradient(${color} 0 ${fill}%, var(--line-2) ${fill}% 100%)` }}>
+          <div className="kring-hole"><b className="num" style={{ color }}>{display}</b></div>
         </div>
-        <div className="kcard-big num">{val}</div>
-        <div className="kcard-lbl">{label}</div>
+        <div className="kring-foot"><span className="kring-lbl">{label}</span>{deltaKey ? deltaChip(deltaKey) : null}</div>
       </div>
     );
   };
+  const GR_PCT: Record<string, number> = { "A+": 96, A: 86, "B+": 78, B: 68, C: 52, D: 32 };
+  const gradeStr = String(k.avg_grade?.value ?? "—");
+  const grColor = gradeStr.startsWith("A") ? "#0f9043" : gradeStr.startsWith("B") ? "#2f6fbf" : gradeStr.startsWith("C") ? "#bd8616" : "#d23f43";
+  const util = Number(k.utilization?.value || 0);
+  const prod = Number(k.productivity?.value || 0);
 
   return (
     <div className="page">
@@ -124,33 +124,30 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* KPI CARDS */}
+      {/* KPI — Total Hours card + gauge rings */}
       <div className="kcards">
-        {/* Featured: Total Hours + billable/non-billable donut */}
+        {/* Featured: Total Hours + billable/non-billable */}
         <div className="kcard kcard-feat">
           <div className="kcard-top">
             <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
             <span className="kcard-lbl">Total Hours</span>
             {deltaChip("total_hours")}
           </div>
-          <div className="kfeat-body">
-            <div className="kfeat-l">
-              <div className="kfeat-big num">{n0(total)}<span>h</span></div>
-              <div className="kfeat-rows">
-                <div className="kfr"><span className="dot bil" /><span className="l">Billable</span><b>{n0(billable)}h</b><i>{billPct}%</i></div>
-                <div className="kfr"><span className="dot nbil" /><span className="l">Non-Billable</span><b>{n0(nonbill)}h</b><i>{100 - billPct}%</i></div>
-              </div>
-            </div>
-            <div className="kdonut" style={{ background: `conic-gradient(#0f9043 0 ${billPct}%, #dbe0e8 ${billPct}% 100%)` }}>
-              <div className="kdonut-hole"><b className="num">{billPct}%</b><span>billable</span></div>
-            </div>
+          <div className="kfeat-big num">{n0(total)}<span>h</span></div>
+          <div className="kfeat-bar">
+            <span className="bil" style={{ width: `${billPct}%` }} />
+            <span className="nbil" style={{ width: `${100 - billPct}%` }} />
+          </div>
+          <div className="kfeat-rows">
+            <div className="kfr"><span className="dot bil" /><span className="l">Billable</span><b>{n0(billable)}h</b><i>{billPct}%</i></div>
+            <div className="kfr"><span className="dot nbil" /><span className="l">Non-Billable</span><b>{n0(nonbill)}h</b><i>{100 - billPct}%</i></div>
           </div>
         </div>
 
-        {statCard("Utilization", "utilization", "%", Gauge, "#203070")}
-        {statCard("Productivity", "productivity", "%", Zap, "#0f9043")}
-        {statCard("Activity", "activity", "%", Activity, "#2f6fbf")}
-        {statCard("Avg Grade", "avg_grade", "", Award, "#7b3fc0")}
+        {ringCard("Utilization", "ring-util", util, n1(util) + "%", thr(util, 75, 60), "utilization")}
+        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", thr(prod, 70, 50), "productivity")}
+        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "#0f9043", "billable_hours")}
+        {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, grColor)}
       </div>
 
       {cmp && pv && (
