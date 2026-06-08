@@ -195,19 +195,19 @@ body { background: var(--bg); color: var(--ink);
 .thd-card.kclk { cursor: pointer; }
 .thd-card.kclk:hover { box-shadow: 0 4px 14px rgba(20,30,60,.07); text-decoration: none; }
 .thd-head h3 { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
-.thd-body { display: flex; align-items: center; gap: 16px; margin-top: auto; }
-.thd-chart { position: relative; width: 100px; height: 100px; flex-shrink: 0; }
+.thd-body { display: flex; align-items: center; gap: 14px; margin-top: auto; }
+.thd-chart { position: relative; width: 124px; height: 124px; flex-shrink: 0; }
 .ringchart { width: 100%; height: 100%; display: block; }
-.rc-pct { fill: #fff; font-size: 15px; font-weight: 750; }
+.rc-pct { fill: #fff; font-size: 14px; font-weight: 750; }
 .thd-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; pointer-events: none; }
-.thd-center b { font-size: 19px; font-weight: 800; letter-spacing: -.8px; color: var(--ink); line-height: 1; }
-.thd-center span { font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-top: 2px; }
+.thd-center b { font-size: 23px; font-weight: 800; letter-spacing: -.9px; color: var(--ink); line-height: 1; }
+.thd-center span { font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-top: 3px; }
 .thd-leg { flex: 1; min-width: 0; }
-.thd-lg { display: flex; align-items: center; gap: 9px; padding: 7px 0; font-size: 12.5px; color: var(--ink-2); }
+.thd-lg { display: flex; align-items: center; gap: 7px; padding: 5px 0; font-size: 10.5px; color: var(--muted); }
 .thd-lg + .thd-lg { border-top: 1px solid var(--line-2); }
-.thd-lg .d { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.thd-lg .d { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
 .thd-lg .l { font-weight: 550; }
-.thd-lg b { margin-left: auto; font-size: 14px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
+.thd-lg b { margin-left: auto; font-size: 12px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
 @media (max-width: 1100px) { .kpi-row { grid-template-columns: 1fr 1fr 1fr; } .thd-card { grid-column: span 3; } .thd-body { justify-content: center; } }
 @media (max-width: 640px) { .kpi-row { grid-template-columns: 1fr 1fr; } .thd-card { grid-column: span 2; } }
 /* KPI detail modal: per-employee bar */
