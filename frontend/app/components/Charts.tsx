@@ -7,6 +7,7 @@ import {
   RadialBarChart, RadialBar, PolarAngleAxis,
   ScatterChart, Scatter, ZAxis,
   Sankey, Layer, Rectangle,
+  ComposedChart, Line,
 } from "recharts";
 
 type BubblePt = { x: number; y: number; z: number; name: string; color: string };
@@ -182,6 +183,45 @@ export function SankeyFlow({ data, height = 470 }: {
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           <Tooltip contentStyle={box} formatter={(v: any) => [`${Number(v).toLocaleString()} h`, "Tracked"]} />
         </Sankey>
+      )}
+    </Sized>
+  );
+}
+
+// Combo: Hours (bars, left axis) + Utilization % (line, right axis) per group.
+// One clean, understandable chart — volume and efficiency together. Click to drill.
+export function ComboColumns({ rows, height = 340, onPick }: {
+  rows: { label: string; hours: number; util: number }[];
+  height?: number; onPick?: (l: string) => void;
+}) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hl = (v: any) => { const n = Number(v ?? 0); return n >= 1000 ? (n / 1000).toFixed(1) + "k" : String(Math.round(n)); };
+  return (
+    <Sized height={height} defaultWidth={760}>
+      {(w, h) => (
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        <ComposedChart width={w} height={h} data={rows} barCategoryGap="30%" margin={{ top: 28, right: 4, left: -6, bottom: 4 }}
+          onClick={(e: any) => { if (onPick && e && e.activeLabel) onPick(String(e.activeLabel)); }}>
+          <defs>
+            <linearGradient id="cc-h" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#27408b" stopOpacity={1} /><stop offset="100%" stopColor="#27408b" stopOpacity={0.62} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid stroke="#eef1f6" vertical={false} strokeDasharray="2 4" />
+          <XAxis dataKey="label" tick={{ fontSize: 10.5, fill: "#565d6b", fontWeight: 600 }} tickLine={false}
+            axisLine={{ stroke: "#e6e9f0" }} interval={0} angle={-18} textAnchor="end" height={68} />
+          <YAxis yAxisId="h" tick={AX} tickLine={false} axisLine={false} width={42} tickFormatter={hl} />
+          <YAxis yAxisId="u" orientation="right" domain={[0, 100]} tick={AX} tickLine={false} axisLine={false} width={36} tickFormatter={(v) => v + "%"} />
+          <Tooltip cursor={{ fill: "rgba(32,48,112,.05)" }} contentStyle={box}
+            formatter={(v, n) => (n === "util" ? [`${Math.round(Number(v))}%`, "Utilization"] : [`${Number(v).toLocaleString()} h`, "Tracked Hours"])} />
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 11.5, color: "#565d6b", paddingTop: 8 }}
+            formatter={(val) => (val === "util" ? "Utilization %" : "Tracked Hours")} />
+          <Bar yAxisId="h" isAnimationActive={false} dataKey="hours" fill="url(#cc-h)" radius={[5, 5, 0, 0]} maxBarSize={52} cursor="pointer">
+            <LabelList dataKey="hours" position="top" formatter={hl} fill="#3a4252" fontSize={10.5} fontWeight={700} />
+          </Bar>
+          <Line yAxisId="u" isAnimationActive={false} type="monotone" dataKey="util" stroke="#e08a1e" strokeWidth={2.6}
+            dot={{ r: 3.5, fill: "#e08a1e", strokeWidth: 0 }} activeDot={{ r: 5 }} />
+        </ComposedChart>
       )}
     </Sized>
   );

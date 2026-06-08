@@ -11,7 +11,7 @@ import {
   getFilters, getCommand, getRaw, getEmployee, askAI,
   type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail,
 } from "../lib/api";
-import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow } from "./Charts";
+import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow, ComboColumns } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -399,16 +399,9 @@ export default function CommandCenter({
         if (rows.length < 1) return null;
         const drill = (l: string) => { if (dim === "Department") setDept(l); else if (dim === "Team") setAtl(l); else openEmployee(l); };
         return (
-          <div className="row2">
-            <div className="panel">
-              <div className="ph"><h3>Hours by {dim} <span className="hl">tracked hours · click to drill</span></h3></div>
-              <MetricColumns rows={rows.map((r) => ({ label: r.label, value: r.total, trend: r.trend }))} unit="h" name="Tracked" height={300} onPick={drill} />
-            </div>
-            <div className="panel">
-              <div className="ph"><h3>Utilization by {dim} <span className="hl">capacity used %</span></h3></div>
-              <MetricColumns rows={rows.map((r) => ({ label: r.label, value: r.util }))} unit="%" name="Utilization" height={300}
-                fmt={(v) => String(Math.round(Number(v)))} colorOf={utilColor} onPick={drill} />
-            </div>
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3>Hours &amp; Utilization by {dim} <span className="hl">tracked hours (bars) + utilization % (line) · click to drill</span></h3></div>
+            <ComboColumns rows={rows.map((r) => ({ label: r.label, hours: r.total, util: r.util }))} height={350} onPick={drill} />
           </div>
         );
       })()}
