@@ -199,9 +199,11 @@ def _client_cat(folder: str) -> str:
     return "Project"
 
 
-# Non-billable task marker: task name STARTS with "NB" followed by -, _ or space
-# e.g. "NB - Training", "NB-Inbox Management", "NB_Research".
-_NB_RE = re.compile(r"^\s*nb[\s\-_]", re.I)
+# Non-billable task marker: task name STARTS with the token "NB" (followed by a
+# non-alphanumeric separator or end) — e.g. "NB - Training", "NB-Inbox", "NB_x",
+# "NB : Research". "NBClickUp" is NOT a marker.
+_NB_RE = re.compile(r"^\s*nb(?![a-z0-9])", re.I)
+# Postgres equivalent (used on hubstaff_tasks.summary): trim() + ~* '^nb([^a-z0-9]|$)'
 
 
 def _is_nb(name: str) -> bool:
@@ -340,15 +342,20 @@ def load_from_db():
           SUM(COALESCE(a.billable,0)) AS billable_sec,
           -- This project's activities table has no per-row "productivity" score,
           -- so we proxy it with activity (overall/tracked): prod_w/tracked -> activity %.
-          SUM(COALESCE(a.overall,0) * 100) AS prod_w
+          SUM(COALESCE(a.overall,0) * 100) AS prod_w,
+          -- Non-billable seconds: time on tasks whose Hubstaff task name (summary)
+          -- starts with the "NB" marker. Linked via activities.task_id.
+          SUM(CASE WHEN trim(COALESCE(ht.summary,'')) ~* '^nb([^a-z0-9]|$)'
+                   THEN COALESCE(a.tracked,0) ELSE 0 END) AS nb_sec
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
         LEFT JOIN hubstaff_clients cl ON cl.id = p.client_id
+        LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
         WHERE COALESCE(a.tracked,0) > 0
         GROUP BY 1,2,3,4,5,6,7
     """)
     g["date_s"] = pd.to_datetime(g["date_s"]).dt.strftime("%Y-%m-%d")
-    for c in ["tracked", "overall", "billable_sec", "prod_w"]:
+    for c in ["tracked", "overall", "billable_sec", "prod_w", "nb_sec"]:
         g[c] = pd.to_numeric(g[c], errors="coerce").fillna(0)
     g["billable"] = g["billable"].astype(bool)
     g["tracked_h"] = g["tracked"] / SEC
@@ -365,16 +372,15 @@ def load_from_db():
     g["client"] = g["user_id"].map(lambda u: (omap.get(u) or {}).get("client") or "Unassigned")
     g["client_type"] = g["client"].map(lambda c: (cdim.get(c) or {}).get("category", "Project"))
 
-    # Billable vs Non-Billable from the NB task marker. Hubstaff time isn't tagged
-    # per task, so we use each employee's NB ratio (ClickUp tracked hours on
-    # "NB-…" tasks / their total ClickUp tracked hours) to split their Hubstaff
-    # hours. A task named "NB - …" / "NB_…" is non-billable.
-    nbr = {uid: float((info or {}).get("nb_ratio", 0.0)) for uid, info in omap.items()}
-    g["nb_ratio"] = g["user_id"].map(nbr).fillna(0.0).clip(0.0, 1.0)
-    g["non_billable_h"] = g["tracked_h"] * g["nb_ratio"]
-    g["billable_h"] = g["tracked_h"] * (1.0 - g["nb_ratio"])
-    g["billable_sec"] = g["tracked"] * (1.0 - g["nb_ratio"])
-    g["billable"] = g["nb_ratio"] < 0.5
+    # Billable vs Non-Billable straight from the NB task marker on the Hubstaff
+    # task (activities.task_id -> hubstaff_tasks.summary, computed as nb_sec in the
+    # query above). Time on "NB - …" tasks is non-billable; time with no linked
+    # task (no task_id) defaults to billable.
+    g["nb_sec"] = g[["nb_sec", "tracked"]].min(axis=1).clip(lower=0)
+    g["non_billable_h"] = g["nb_sec"] / SEC
+    g["billable_h"] = (g["tracked"] - g["nb_sec"]).clip(lower=0) / SEC
+    g["billable_sec"] = (g["tracked"] - g["nb_sec"]).clip(lower=0)
+    g["billable"] = g["nb_sec"] < (g["tracked"] * 0.5)
 
     # members (user-level)
     mem = db.q("""
