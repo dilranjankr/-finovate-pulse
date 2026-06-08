@@ -170,18 +170,16 @@ body { background: var(--bg); color: var(--ink);
 .kring.kclk:hover, .kcard.kclk:hover { text-decoration: none; }
 .kpi-cmp { margin: 2px 0 14px; font-size: 11.5px; color: var(--muted); font-weight: 550; }
 
-/* image-style KPI cards: tinted top + icon badge, white body */
-.kc2-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 14px; margin-bottom: 12px; }
-.kc2 { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden;
-  box-shadow: 0 1px 2px rgba(20,30,60,.04); transition: box-shadow .16s, transform .16s; }
+/* KPI metric cards — clean, consistent white cards */
+.kc2-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 12px; }
+.kc2 { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px;
+  box-shadow: 0 1px 2px rgba(20,30,60,.03); display: flex; flex-direction: column; transition: box-shadow .15s; }
 .kc2.kclk { cursor: pointer; }
-.kc2.kclk:hover { box-shadow: 0 8px 22px rgba(20,30,60,.10); transform: translateY(-2px); text-decoration: none; }
-.kc2-top { height: 86px; display: flex; align-items: center; justify-content: center; }
-.kc2-badge { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center;
-  color: #fff; box-shadow: 0 5px 12px rgba(20,30,60,.16); }
-.kc2-body { padding: 15px 18px 17px; }
-.kc2-lbl { font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.kc2-val { font-size: 29px; font-weight: 800; letter-spacing: -1.1px; color: var(--ink); margin: 7px 0 9px; line-height: 1; }
+.kc2.kclk:hover { box-shadow: 0 4px 14px rgba(20,30,60,.07); text-decoration: none; }
+.kc2-head { display: flex; align-items: center; gap: 9px; }
+.kc2-ic { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.kc2-lbl { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+.kc2-val { font-size: 26px; font-weight: 780; letter-spacing: -1px; color: var(--ink); margin: auto 0 8px; line-height: 1; }
 .kc2-delta { display: flex; align-items: center; gap: 5px; font-size: 12px; }
 .kc2-delta b { font-weight: 750; font-variant-numeric: tabular-nums; }
 .kc2-delta span { color: var(--muted); font-weight: 550; }
@@ -193,13 +191,13 @@ body { background: var(--bg); color: var(--ink);
 /* Total Hours donut card (Traffic-Sources style) + metric grid */
 .kpi-wrap { display: grid; grid-template-columns: 330px 1fr; gap: 14px; margin-bottom: 12px; align-items: stretch; }
 .kc2-grid-4 { grid-template-columns: 1fr 1fr; margin-bottom: 0; }
-.thd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 17px 18px 8px;
-  box-shadow: 0 1px 2px rgba(20,30,60,.04); display: flex; flex-direction: column; transition: box-shadow .16s, transform .16s; }
+.thd-card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px 17px 8px;
+  box-shadow: 0 1px 2px rgba(20,30,60,.03); display: flex; flex-direction: column; transition: box-shadow .15s; }
 .thd-card.kclk { cursor: pointer; }
-.thd-card.kclk:hover { box-shadow: 0 8px 22px rgba(20,30,60,.10); transform: translateY(-2px); text-decoration: none; }
+.thd-card.kclk:hover { box-shadow: 0 4px 14px rgba(20,30,60,.07); text-decoration: none; }
 .thd-head { display: flex; align-items: center; justify-content: space-between; }
-.thd-head h3 { font-size: 15px; font-weight: 750; color: var(--ink); }
-.thd-arrow { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.thd-head h3 { font-size: 14px; font-weight: 750; color: var(--ink); }
+.thd-arrow { width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 7px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .thd-chart { position: relative; width: 190px; height: 190px; margin: 6px auto 8px; }
 .ringchart { width: 100%; height: 100%; display: block; }
 .rc-pct { fill: #fff; font-size: 14px; font-weight: 750; }
@@ -227,8 +225,8 @@ body { background: var(--bg); color: var(--ink);
 /* tracked time — task vs project (Won/Lost-style cards + donut) */
 .wl-grid { display: grid; grid-template-columns: 1fr 280px; gap: 28px; align-items: center; }
 .wl-cards { display: flex; flex-direction: column; gap: 14px; }
-.wl-card { display: flex; align-items: center; gap: 15px; border: 1px solid var(--line); border-radius: 13px; padding: 15px 17px; background: var(--panel); }
-.wl-badge { width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+.wl-card { display: flex; align-items: center; gap: 15px; border: 1px solid var(--line); border-radius: 9px; padding: 14px 16px; background: var(--panel); }
+.wl-badge { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .wl-info { min-width: 0; }
 .wl-lbl { font-size: 14px; font-weight: 650; color: var(--ink); }
 .wl-val { font-size: 27px; font-weight: 800; letter-spacing: -1px; color: var(--ink); line-height: 1; margin: 4px 0 8px; }

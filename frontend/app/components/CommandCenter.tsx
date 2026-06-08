@@ -73,18 +73,17 @@ export default function CommandCenter({
   const kpiCard = (key: string, label: string, value: string, colorKey: string, Icon: React.ComponentType<{ size?: number }>, deltaKey?: string, onClick?: () => void) => {
     const c = KPICOL[colorKey];
     const t = deltaKey ? (data.kpis[deltaKey]?.trend ?? 0) : null;
+    const dColor = t !== null && t > 0 ? "#0f9043" : t !== null && t < 0 ? "#d23f43" : "var(--muted)";
     return (
       <div className={`kc2${onClick ? " kclk" : ""}`} key={key} onClick={onClick}>
-        <div className="kc2-top" style={{ background: c.tint }}>
-          <span className="kc2-badge" style={{ background: c.badge }}><Icon size={22} /></span>
+        <div className="kc2-head">
+          <span className="kc2-ic" style={{ background: c.tint, color: c.badge }}><Icon size={16} /></span>
+          <span className="kc2-lbl">{label}</span>
         </div>
-        <div className="kc2-body">
-          <div className="kc2-lbl">{label}</div>
-          <div className="kc2-val num">{value}</div>
-          {cmp && t !== null
-            ? <div className="kc2-delta"><Clock size={13} style={{ color: c.badge }} /><b style={{ color: c.badge }}>{t > 0 ? "+" : ""}{t}%</b><span>vs last {pv?.days}d</span></div>
-            : <div className="kc2-delta dash"><span>—</span></div>}
-        </div>
+        <div className="kc2-val num">{value}</div>
+        {cmp && t !== null
+          ? <div className="kc2-delta" style={{ color: dColor }}><Clock size={12} /><b>{t > 0 ? "+" : ""}{t}%</b><span>vs last {pv?.days}d</span></div>
+          : <div className="kc2-delta dash"><span>—</span></div>}
       </div>
     );
   };
