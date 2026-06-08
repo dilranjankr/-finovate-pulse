@@ -79,7 +79,10 @@ export default function CommandCenter({
             {sub ? <span>{sub}</span> : null}
           </div>
         </div>
-        <div className="kring-foot"><span className="kring-lbl">{label}</span>{deltaKey ? deltaChip(deltaKey) : null}</div>
+        <div className="kring-foot">
+          <span className="kring-lbl">{label}</span>
+          {deltaKey && cmp ? <span className="kring-trend">{deltaChip(deltaKey)}<em>vs last {pv?.days}d</em></span> : null}
+        </div>
       </div>
     );
   };
@@ -148,7 +151,7 @@ export default function CommandCenter({
           <div className="kcard-top">
             <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
             <span className="kcard-lbl">Total Hours</span>
-            {deltaChip("total_hours")}
+            {cmp ? <span className="kcard-trend">{deltaChip("total_hours")}<em>vs last {pv?.days}d</em></span> : null}
           </div>
           <div className="kfeat-num"><b className="num">{n0(total)}</b><span>hrs tracked</span></div>
           <div className="kfeat-bar">

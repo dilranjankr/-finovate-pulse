@@ -158,9 +158,14 @@ body { background: var(--bg); color: var(--ink);
 .kring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .kring-center b { font-size: 19px; font-weight: 790; letter-spacing: -.6px; font-variant-numeric: tabular-nums; line-height: 1; }
 .kring-center span { font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .3px; color: var(--faint); margin-top: 2px; }
-.kring-foot { display: flex; align-items: center; gap: 7px; }
+.kring-foot { display: flex; flex-direction: column; align-items: center; gap: 6px; }
 .kring-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+.kring-trend { display: inline-flex; align-items: center; gap: 5px; }
+.kring-trend em { font-style: normal; font-size: 9.5px; font-weight: 600; color: var(--faint); }
 .kring-foot .kchip { margin-left: 0; padding: 2px 6px; font-size: 10px; }
+.kcard-trend { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; }
+.kcard-trend .kchip { margin-left: 0; }
+.kcard-trend em { font-style: normal; font-size: 10px; font-weight: 600; color: var(--faint); }
 .kring.kclk, .kcard.kclk { cursor: pointer; }
 .kring.kclk:hover, .kcard.kclk:hover { text-decoration: none; }
 .kpi-cmp { margin: 2px 0 14px; font-size: 11.5px; color: var(--muted); font-weight: 550; }
