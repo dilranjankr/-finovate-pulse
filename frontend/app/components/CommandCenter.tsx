@@ -260,7 +260,7 @@ export default function CommandCenter({
               <div className="tb-grp">
                 <div className="tb-h up">▲ Top 5</div>
                 {topClients.map((c, i) => (
-                  <div className="tb-row" key={c.client}>
+                  <div className="tb-row" key={c.client + i}>
                     <span className="tb-rank">{i + 1}</span>
                     <span className="dot" style={{ background: clColor(c.category) }} />
                     <span className="tb-nm" title={c.client}>{c.client}</span>
@@ -272,7 +272,7 @@ export default function CommandCenter({
                 <div className="tb-grp">
                   <div className="tb-h down">▼ Bottom 5</div>
                   {botClients.map((c, i) => (
-                    <div className="tb-row" key={c.client}>
+                    <div className="tb-row" key={c.client + i}>
                       <span className="tb-rank">{i + 1}</span>
                       <span className="dot" style={{ background: clColor(c.category) }} />
                       <span className="tb-nm" title={c.client}>{c.client}</span>
@@ -312,7 +312,7 @@ export default function CommandCenter({
             <div className="tb-grp">
               <div className="tb-h up">▲ Top 3</div>
               {data.top3.map((e, i) => (
-                <div className="tb-row perf" key={e.name}>
+                <div className="tb-row perf" key={e.name + i}>
                   <span className="tb-rank">{i + 1}</span>
                   <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
                   <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
@@ -324,7 +324,7 @@ export default function CommandCenter({
             <div className="tb-grp">
               <div className="tb-h down">▼ Bottom 3</div>
               {data.bottom3.map((e, i) => (
-                <div className="tb-row perf" key={e.name}>
+                <div className="tb-row perf" key={e.name + i}>
                   <span className="tb-rank">{i + 1}</span>
                   <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
                   <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
@@ -345,10 +345,10 @@ export default function CommandCenter({
           <table className="ec-table">
             <thead><tr><th className="l">Employee</th><th>Grade</th><th>Billable</th><th className="l">Clients</th></tr></thead>
             <tbody>
-              {empClients.map((e) => {
+              {empClients.map((e, i) => {
                 const cls = e.clients || [];
                 return (
-                  <tr key={e.name}>
+                  <tr key={e.name + i}>
                     <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span><span className="tname">{e.name}</span><span className="ec-team">{e.team}</span></span></span></td>
                     <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
                     <td className="num">{n0(e.billable)}h</td>
@@ -448,7 +448,7 @@ export default function CommandCenter({
                   <thead><tr><th className="l">#</th><th className="l">Employee</th><th className="l">Team</th><th>Grade</th><th className="l">{detail.label}</th></tr></thead>
                   <tbody>
                     {rows.map((r, i) => (
-                      <tr key={r.name}>
+                      <tr key={r.name + i}>
                         <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
                         <td className="l tname">{r.name}</td>
                         <td className="l" style={{ color: "var(--muted)" }}>{r.team}</td>
