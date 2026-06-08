@@ -199,15 +199,15 @@ def _client_cat(folder: str) -> str:
     return "Project"
 
 
-# Non-billable task marker: task name STARTS with the token "NB" (followed by a
-# non-alphanumeric separator or end) — e.g. "NB - Training", "NB-Inbox", "NB_x",
-# "NB : Research". "NBClickUp" is NOT a marker.
-_NB_RE = re.compile(r"^\s*nb(?![a-z0-9])", re.I)
-# Postgres equivalent (used on hubstaff_tasks.summary): trim() + ~* '^nb([^a-z0-9]|$)'
+# Non-billable marker: the token "NB" anywhere in the task or project name,
+# bounded by non-alphanumerics — e.g. "NB - Training", "NB-Inbox",
+# ".../ NB Tasks - Synergy". "Inbox"/"NBClickUp" are NOT markers.
+_NB_RE = re.compile(r"(?<![a-z0-9])nb(?![a-z0-9])", re.I)
+# Postgres equivalent (task summary / project name): ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
 
 
 def _is_nb(name: str) -> bool:
-    return bool(_NB_RE.match(name or ""))
+    return bool(_NB_RE.search(name or ""))
 
 
 @lru_cache(maxsize=1)
@@ -343,9 +343,12 @@ def load_from_db():
           -- This project's activities table has no per-row "productivity" score,
           -- so we proxy it with activity (overall/tracked): prod_w/tracked -> activity %.
           SUM(COALESCE(a.overall,0) * 100) AS prod_w,
-          -- Non-billable seconds: time on tasks whose Hubstaff task name (summary)
-          -- starts with the "NB" marker. Linked via activities.task_id.
-          SUM(CASE WHEN trim(COALESCE(ht.summary,'')) ~* '^nb([^a-z0-9]|$)'
+          -- Non-billable seconds: time whose Hubstaff TASK name (summary) or
+          -- PROJECT name carries the "NB" marker. task_id is often null but
+          -- project_id is almost always present, so the project name catches the
+          -- "NB Tasks - …" projects that activities without a task fall under.
+          SUM(CASE WHEN trim(COALESCE(ht.summary,'')) ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
+                     OR trim(COALESCE(p.name,'')) ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
                    THEN COALESCE(a.tracked,0) ELSE 0 END) AS nb_sec
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
