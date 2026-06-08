@@ -52,7 +52,9 @@ export default function CommandCenter({
     const t = data.kpis[key]?.trend || 0;
     if (!cmp) return null;
     const up = t > 0, dn = t < 0;
-    return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
+    const pvw = data.period?.previous;
+    const tip = pvw ? `${t > 0 ? "+" : ""}${t}% vs previous ${pvw.days} days (${pvw.from} → ${pvw.to})` : "vs previous period";
+    return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`} title={tip}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
   };
 
   // distinct brand colour per metric so the rings are easy to tell apart
@@ -65,7 +67,7 @@ export default function CommandCenter({
     const fill = Math.max(0, Math.min(100, pct));
     const R = 31, C = 2 * Math.PI * R, off = C * (1 - fill / 100);
     return (
-      <div className={`kring${onClick ? " clk" : ""}`} key={key} onClick={onClick}>
+      <div className={`kring${onClick ? " kclk" : ""}`} key={key} onClick={onClick}>
         <div className="kring-wrap">
           <svg width="82" height="82" viewBox="0 0 82 82">
             <circle cx="41" cy="41" r={R} fill="none" stroke="var(--line-2)" strokeWidth="7.5" />
@@ -142,7 +144,7 @@ export default function CommandCenter({
       {/* KPI — Total Hours card + gauge rings */}
       <div className="kcards">
         {/* Featured: Total Hours + billable/non-billable */}
-        <div className="kcard kcard-feat clk" onClick={openMetric("Total Hours", "#203070", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
+        <div className="kcard kcard-feat kclk" onClick={openMetric("Total Hours", "#203070", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
           <div className="kcard-top">
             <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
             <span className="kcard-lbl">Total Hours</span>
@@ -172,9 +174,11 @@ export default function CommandCenter({
         {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, "", grColor)}
       </div>
 
-      {cmp && pv && (
-        <div className="kpi-cmp">vs previous {pv.days}-day period · {pv.from} → {pv.to}</div>
-      )}
+      <div className="kpi-cmp">
+        {cmp && pv
+          ? <>▲▼ compares current <b>{pv.days} days</b> ({draft.date_from} → {draft.date_to}) vs previous <b>{pv.days} days</b> ({pv.from} → {pv.to})</>
+          : <>Pick a date range to compare against the previous equal-length period</>}
+      </div>
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 
