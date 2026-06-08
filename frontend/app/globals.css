@@ -173,13 +173,14 @@ body { background: var(--bg); color: var(--ink);
 /* KPI metric cards — clean, consistent white cards */
 .kc2-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 12px; }
 .kc2 { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 15px 16px;
-  box-shadow: 0 1px 2px rgba(20,30,60,.03); display: flex; flex-direction: column; transition: box-shadow .15s; }
+  box-shadow: 0 1px 2px rgba(20,30,60,.03); display: flex; flex-direction: column; justify-content: space-between; gap: 10px;
+  transition: box-shadow .15s; }
 .kc2.kclk { cursor: pointer; }
 .kc2.kclk:hover { box-shadow: 0 4px 14px rgba(20,30,60,.07); text-decoration: none; }
 .kc2-head { display: flex; align-items: center; gap: 9px; }
 .kc2-ic { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .kc2-lbl { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
-.kc2-val { font-size: 26px; font-weight: 780; letter-spacing: -1px; color: var(--ink); margin: auto 0 8px; line-height: 1; }
+.kc2-val { font-size: 26px; font-weight: 780; letter-spacing: -1px; color: var(--ink); margin: 0; line-height: 1; }
 .kc2-delta { display: flex; align-items: center; gap: 5px; font-size: 12px; }
 .kc2-delta b { font-weight: 750; font-variant-numeric: tabular-nums; }
 .kc2-delta span { color: var(--muted); font-weight: 550; }
