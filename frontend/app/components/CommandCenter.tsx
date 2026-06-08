@@ -292,11 +292,6 @@ export default function CommandCenter({
             <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" />
             <MultiSelect Icon={Briefcase} label="Client" value={draft.client} opts={opts?.clients} on={(v) => setField("client", v)} allLabel="All Clients" />
             <MultiSelect Icon={Receipt} label="Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
-            <div className="fbill">
-              {[["", "All"], ["Billable", "Billable"], ["Non-Billable", "Non-Bill"]].map(([v, lbl]) => (
-                <button key={v || "all"} className={(draft.billable || "") === v ? "on" : ""} onClick={() => setField("billable", v)}>{lbl}</button>
-              ))}
-            </div>
             {activeCount > 0 && (
               <button className="fclear" onClick={clearFilters} title="Clear all filters">
                 <RotateCcw size={13} />Clear all<span className="fcnt">{activeCount}</span>
