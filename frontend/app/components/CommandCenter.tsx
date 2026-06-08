@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
-  TrendingUp, Gauge, Activity, Zap, Award, Tag,
+  Gauge, Activity, Zap, Award, Tag, ArrowRight,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, defaultRange,
@@ -50,6 +50,7 @@ export default function CommandCenter({
 
   const total = Number(k.total_hours?.value || 0);
   const billable = Number(k.billable_hours?.value || 0);
+  const nonbill = Number(k.non_billable_hours?.value || 0);
   const util = Number(k.utilization?.value || 0);
   const prod = Number(k.productivity?.value || 0);
   const act = Number(k.activity?.value || 0);
@@ -140,19 +141,28 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* KPI CARDS — tinted top + icon badge, value + delta */}
-      <div className="kc2-grid">
-        {kpiCard("k-total", "Total Hours", n0(total) + "h", "green", TrendingUp, "total_hours",
-          openMetric("Total Hours", "#16a34a", "Total tracked time from Hubstaff = Billable + Non-Billable. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h"))}
-        {kpiCard("k-bill", "Billable Hours", n0(billable) + "h", "teal", Receipt, "billable_hours",
-          openMetric("Billable hours", "#0d9488", "Tracked time on tasks/projects NOT marked “NB”. NB-marked work is non-billable.", (e) => e.billable, (v) => n0(v) + "h"))}
-        {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
-          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%"))}
-        {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
-          openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
-        {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
-          openMetric("Productivity", "#e8930c", "Time-weighted activity score (0–100). Equals Activity in this project (no separate Hubstaff score).", (e) => e.productivity, (v) => n1(v) + "%"))}
-        {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
+      {/* KPI — Total Hours donut card + metric cards */}
+      <div className="kpi-wrap">
+        <div className="thd-card kclk" onClick={openMetric("Total Hours", "#16a34a", "Total tracked time from Hubstaff = Billable + Non-Billable. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
+          <div className="thd-head"><h3>Total Hours</h3><span className="thd-arrow"><ArrowRight size={16} /></span></div>
+          <div className="thd-chart">
+            <RingChart segs={[{ label: "Billable", value: billable, color: "#16a34a" }, { label: "Non-Billable", value: nonbill, color: "#8b5cf6" }]} />
+            <div className="thd-center"><b className="num">{n0(total)}</b><span>total hrs</span></div>
+          </div>
+          <div className="thd-leg">
+            <div className="thd-lg"><span className="d" style={{ background: "#16a34a" }} /><span className="l">Billable</span><b className="num">{n0(billable)}h</b></div>
+            <div className="thd-lg"><span className="d" style={{ background: "#8b5cf6" }} /><span className="l">Non-Billable</span><b className="num">{n0(nonbill)}h</b></div>
+          </div>
+        </div>
+        <div className="kc2-grid kc2-grid-4">
+          {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
+            openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%"))}
+          {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
+            openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
+          {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
+            openMetric("Productivity", "#e8930c", "Time-weighted activity score (0–100). Equals Activity in this project (no separate Hubstaff score).", (e) => e.productivity, (v) => n1(v) + "%"))}
+          {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
+        </div>
       </div>
 
       <div className="kpi-cmp">
@@ -245,6 +255,35 @@ export default function CommandCenter({
         );
       })()}
     </div>
+  );
+}
+
+function RingChart({ segs }: { segs: { label: string; value: number; color: string }[] }) {
+  const total = segs.reduce((s, x) => s + x.value, 0) || 1;
+  const R = 70, SW = 30, C = 2 * Math.PI * R;
+  let acc = 0;
+  const arcs = segs.map((s, i) => {
+    const frac = s.value / total; const dash = frac * C;
+    const arc = (
+      <circle key={i} cx="100" cy="100" r={R} fill="none" stroke={s.color} strokeWidth={SW}
+        strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-acc * C} />
+    );
+    acc += frac; return arc;
+  });
+  let a2 = 0;
+  const labels = segs.map((s, i) => {
+    const frac = s.value / total; const mid = a2 + frac / 2; a2 += frac;
+    const th = mid * 2 * Math.PI;
+    const x = 100 + R * Math.sin(th), y = 100 - R * Math.cos(th);
+    return Math.round(frac * 100) >= 6
+      ? <text key={i} x={x} y={y} className="rc-pct" textAnchor="middle" dominantBaseline="central">{Math.round(frac * 100)}%</text>
+      : null;
+  });
+  return (
+    <svg viewBox="0 0 200 200" className="ringchart">
+      <g transform="rotate(-90 100 100)">{arcs}</g>
+      {labels}
+    </svg>
   );
 }
 
