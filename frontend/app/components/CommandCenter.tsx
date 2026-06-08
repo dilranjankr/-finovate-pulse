@@ -3,11 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import {
   ArrowUp, ArrowDown, ChevronDown, Search, Filter, CalendarDays,
-  Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
+  Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X, ListTodo,
 } from "lucide-react";
 import {
-  getFilters, getCommand, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow,
+  getFilters, getCommand, getBreakdown, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData,
 } from "../lib/api";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
@@ -22,9 +22,15 @@ export default function CommandCenter({
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
+  const [bd, setBd] = useState<BreakdownData | null>(null);
+
+  useEffect(() => {
+    if (initialOpts) getBreakdown(defaultRange(initialOpts)).then(setBd).catch(() => setBd(null));
+  }, [initialOpts]);
 
   async function apply(f: Filters) {
     setLoading(true);
+    getBreakdown(f).then(setBd).catch(() => setBd(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
   }
   async function refetchOpts(scope: { department?: string; atl?: string }) {
@@ -92,6 +98,27 @@ export default function CommandCenter({
   const util = Number(k.utilization?.value || 0);
   const prod = Number(k.productivity?.value || 0);
   const act = Number(k.activity?.value || 0);
+
+  // stacked billable/non-billable bars for the tracked-hours breakdown
+  const renderBars = (rows: { name: string; total: number; billable: number; non_billable: number }[]) => {
+    if (!rows || rows.length === 0) return <div className="empty-s">No data in scope</div>;
+    const max = Math.max(1, ...rows.map((r) => r.total));
+    return rows.map((r) => {
+      const bilW = r.total ? (r.billable / r.total) * 100 : 0;
+      return (
+        <div className="brk-row" key={r.name}>
+          <span className="brk-nm" title={r.name}>{r.name}</span>
+          <span className="brk-track">
+            <span className="brk-fill" style={{ width: `${(r.total / max) * 100}%` }}>
+              <span className="bil" style={{ width: `${bilW}%` }} />
+              <span className="nbil" style={{ width: `${100 - bilW}%` }} />
+            </span>
+          </span>
+          <span className="brk-h num">{n0(r.total)}h</span>
+        </div>
+      );
+    });
+  };
 
   return (
     <div className="page">
@@ -182,6 +209,26 @@ export default function CommandCenter({
           ? <>▲▼ compares current <b>{pv.days} days</b> ({draft.date_from} → {draft.date_to}) vs previous <b>{pv.days} days</b> ({pv.from} → {pv.to})</>
           : <>Pick a date range to compare against the previous equal-length period</>}
       </div>
+
+      {/* TRACKED HOURS — billable vs non-billable, per project & per task */}
+      {bd && (bd.by_project.length > 0 || bd.by_task.length > 0) && (
+        <div className="panel brk-panel">
+          <div className="ph">
+            <h3>Tracked Hours — Billable vs Non-Billable <span className="hl">where the time went · per project &amp; per task</span></h3>
+            <div className="brk-legend"><span><i className="d bil" />Billable</span><span><i className="d nbil" />Non-Billable</span></div>
+          </div>
+          <div className="brk-grid">
+            <div className="brk-col">
+              <div className="brk-h2"><Briefcase size={13} />By Project</div>
+              {renderBars(bd.by_project)}
+            </div>
+            <div className="brk-col">
+              <div className="brk-h2"><ListTodo size={13} />By Task</div>
+              {renderBars(bd.by_task)}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 

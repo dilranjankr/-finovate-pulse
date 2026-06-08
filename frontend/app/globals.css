@@ -179,6 +179,23 @@ body { background: var(--bg); color: var(--ink);
   border-radius: 9px; padding: 10px 13px; margin: 4px 0 14px; }
 .calc-note b { font-size: 10.5px; font-weight: 750; letter-spacing: .4px; text-transform: uppercase; color: var(--navy); }
 .calc-note span { font-size: 12.5px; line-height: 1.5; color: var(--ink-2); }
+
+/* tracked-hours breakdown (billable vs non-billable, per project & task) */
+.brk-panel .ph { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.brk-legend { display: flex; gap: 16px; font-size: 11.5px; font-weight: 600; color: var(--ink-2); }
+.brk-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.brk-legend .d { width: 10px; height: 10px; border-radius: 3px; }
+.brk-legend .d.bil { background: #0f9043; } .brk-legend .d.nbil { background: #d8dde6; }
+.brk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 30px; }
+.brk-h2 { display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 750; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+.brk-h2 svg { color: var(--navy); }
+.brk-row { display: grid; grid-template-columns: 168px 1fr 56px; align-items: center; gap: 12px; padding: 5px 0; font-size: 12px; }
+.brk-nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); font-weight: 600; }
+.brk-track { height: 16px; border-radius: 5px; background: var(--line-2); overflow: hidden; }
+.brk-fill { display: flex; height: 100%; border-radius: 5px; overflow: hidden; min-width: 3px; }
+.brk-fill .bil { background: #0f9043; height: 100%; } .brk-fill .nbil { background: #d8dde6; height: 100%; }
+.brk-h { text-align: right; font-weight: 750; color: var(--ink); }
+@media (max-width: 900px) { .brk-grid { grid-template-columns: 1fr; gap: 22px; } .brk-row { grid-template-columns: 130px 1fr 50px; } }
 @media (max-width: 1250px) { .kcards { grid-template-columns: repeat(3, 1fr); } .kcard-feat { grid-column: span 3; } }
 @media (max-width: 760px) { .kcards { grid-template-columns: repeat(2, 1fr); } .kcard-feat { grid-column: span 2; } }
 @media (max-width: 480px) { .kcards { grid-template-columns: 1fr; } .kcard-feat { grid-column: span 1; } }
