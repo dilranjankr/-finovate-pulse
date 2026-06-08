@@ -241,6 +241,8 @@ body { background: var(--bg); color: var(--ink);
 .wl-val span { font-size: 14px; font-weight: 600; color: var(--muted); margin-left: 1px; }
 .wl-sub { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--ink-2); }
 .wl-sub span { display: inline-flex; align-items: center; gap: 6px; font-weight: 550; }
+.wl-sub .wl-clk { cursor: pointer; padding: 2px 6px; margin: -2px -2px; border-radius: 6px; transition: background .12s; }
+.wl-sub .wl-clk:hover { background: var(--line-2); }
 .wl-sub .d { width: 9px; height: 9px; border-radius: 2px; }
 .wl-sub .d.bil { background: #0f9043; } .wl-sub .d.nbil { background: #d8dde6; }
 .wl-sub b { color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }

@@ -25,14 +25,14 @@ export default function CommandCenter({
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
   const [bd, setBd] = useState<BreakdownData | null>(null);
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
-  const [bdModal, setBdModal] = useState<null | "task" | "project">(null);
+  const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
 
   useEffect(() => {
     if (initialOpts) getBreakdown(defaultRange(initialOpts)).then(setBd).catch(() => setBd(null));
   }, [initialOpts]);
 
-  function openBdList(kind: "task" | "project") {
-    setBdModal(kind);
+  function openBdList(kind: "task" | "project", mode: "all" | "billable" | "nonbillable") {
+    setBdModal({ kind, mode });
     setBdList(null);
     getBreakdownList(draft).then(setBdList).catch(() => setBdList({ by_task: [], by_project: [] }));
   }
@@ -178,14 +178,14 @@ export default function CommandCenter({
         const totH = bd.task_h + bd.project_h;
         const taskPct = totH ? Math.round((bd.task_h / totH) * 100) : 0;
         const wlCard = (label: string, badge: string, tint: string, Icon: React.ComponentType<{ size?: number }>, hours: number, bil: number, nb: number, kind: "task" | "project") => (
-          <div className="wl-card kclk" onClick={() => openBdList(kind)}>
+          <div className="wl-card kclk" onClick={() => openBdList(kind, "all")}>
             <span className="wl-badge" style={{ background: tint, color: badge }}><Icon size={20} /></span>
             <div className="wl-info">
               <div className="wl-lbl">{label}</div>
               <div className="wl-val num">{n0(hours)}<span>h</span></div>
               <div className="wl-sub">
-                <span><i className="d bil" />Billable <b className="num">{n0(bil)}h</b></span>
-                <span><i className="d nbil" />Non-Billable <b className="num">{n0(nb)}h</b></span>
+                <span className="wl-clk" onClick={(e) => { e.stopPropagation(); openBdList(kind, "billable"); }}><i className="d bil" />Billable <b className="num">{n0(bil)}h</b></span>
+                <span className="wl-clk" onClick={(e) => { e.stopPropagation(); openBdList(kind, "nonbillable"); }}><i className="d nbil" />Non-Billable <b className="num">{n0(nb)}h</b></span>
               </div>
             </div>
           </div>
@@ -216,37 +216,47 @@ export default function CommandCenter({
 
       {/* TASK / PROJECT drill-down list */}
       {bdModal && (() => {
-        const rows = (bdModal === "task" ? bdList?.by_task : bdList?.by_project) || [];
-        const max = Math.max(1, ...rows.map((r) => r.total));
+        const { kind, mode } = bdModal;
+        const src = (kind === "task" ? bdList?.by_task : bdList?.by_project) || [];
+        const pick = (r: { total: number; billable: number; non_billable: number }) =>
+          mode === "nonbillable" ? r.non_billable : mode === "billable" ? r.billable : r.total;
+        const rows = src.filter((r) => pick(r) > 0).sort((a, b) => pick(b) - pick(a));
+        const max = Math.max(1, ...rows.map(pick));
+        const kLbl = kind === "task" ? "Task" : "Project";
+        const color = mode === "nonbillable" ? "#9aa3b2" : "#0f9043";
+        const title = mode === "billable" ? `Billable ${kLbl}s` : mode === "nonbillable" ? `Non-Billable ${kLbl}s` : `Time by ${kLbl}`;
         return (
           <div className="modal-bg" onClick={() => setBdModal(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-h">
                 <div>
-                  <h3>{bdModal === "task" ? "Time by Task" : "Time by Project (no task)"}</h3>
-                  <div className="sub">{bdList ? `${rows.length} ${bdModal === "task" ? "tasks" : "projects"} · billable vs non-billable` : "loading…"} · {data.context.label}</div>
+                  <h3>{title}</h3>
+                  <div className="sub">{bdList ? `${rows.length} ${kLbl.toLowerCase()}s${kind === "project" ? " (no task)" : ""}` : "loading…"} · {data.context.label}</div>
                 </div>
                 <div className="modal-x" onClick={() => setBdModal(null)}><X size={16} /></div>
               </div>
               <div className="modal-b">
                 {!bdList ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : (
                   <table>
-                    <thead><tr><th className="l">#</th><th className="l">{bdModal === "task" ? "Task" : "Project"}</th><th className="l">Billable / Non-Billable</th><th>Billable</th><th>Non-Bill</th><th>Total</th></tr></thead>
+                    <thead><tr><th className="l">#</th><th className="l">{kLbl}</th><th className="l">{mode === "all" ? "Billable / Non-Billable" : "Share"}</th><th>{mode === "all" ? "Total" : "Hours"}</th></tr></thead>
                     <tbody>
                       {rows.map((r, i) => {
+                        const v = pick(r);
                         const bilW = r.total ? (r.billable / r.total) * 100 : 0;
                         return (
                           <tr key={r.name + i}>
                             <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
                             <td className="l tname">{r.name}</td>
-                            <td className="l"><span className="brkbar"><span className="brkbar-t"><span className="bil" style={{ width: `${bilW}%` }} /><span className="nbil" style={{ width: `${100 - bilW}%` }} /></span><em>{(r.total / max * 100).toFixed(0)}%</em></span></td>
-                            <td className="num" style={{ color: "#0f9043", fontWeight: 700 }}>{n0(r.billable)}h</td>
-                            <td className="num" style={{ color: "var(--muted)" }}>{n0(r.non_billable)}h</td>
-                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.total)}h</td>
+                            <td className="l">
+                              {mode === "all"
+                                ? <span className="brkbar"><span className="brkbar-t"><span className="bil" style={{ width: `${bilW}%` }} /><span className="nbil" style={{ width: `${100 - bilW}%` }} /></span></span>
+                                : <span className="brkbar"><span className="brkbar-t"><span style={{ width: `${(v / max) * 100}%`, background: color, height: "100%" }} /></span></span>}
+                            </td>
+                            <td className="num" style={{ fontWeight: 750 }}>{n0(v)}h</td>
                           </tr>
                         );
                       })}
-                      {rows.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+                      {rows.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
                     </tbody>
                   </table>
                 )}
