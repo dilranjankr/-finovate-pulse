@@ -8,6 +8,7 @@ import {
   ScatterChart, Scatter, ZAxis,
   Sankey, Layer, Rectangle,
   ComposedChart, Line,
+  RadarChart, Radar, PolarGrid, PolarRadiusAxis,
 } from "recharts";
 
 type BubblePt = { x: number; y: number; z: number; name: string; color: string };
@@ -183,6 +184,37 @@ export function SankeyFlow({ data, height = 470 }: {
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           <Tooltip contentStyle={box} formatter={(v: any) => [`${Number(v).toLocaleString()} h`, "Tracked"]} />
         </Sankey>
+      )}
+    </Sized>
+  );
+}
+
+// Radar — compare teams across Utilization / Activity / Productivity / Billable %.
+export function RadarCompare({ teams, height = 330 }: {
+  teams: { name: string; util: number; activity: number; productivity: number; billable: number }[]; height?: number;
+}) {
+  if (teams.length < 2) return <div className="empty-s">Need at least 2 teams in scope to compare</div>;
+  const t = teams.slice(0, 5);
+  const axes: [string, "util" | "activity" | "productivity" | "billable"][] = [
+    ["Utilization", "util"], ["Activity", "activity"], ["Productivity", "productivity"], ["Billable %", "billable"]];
+  const data = axes.map(([m, k]) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const o: any = { metric: m };
+    t.forEach((tm) => { o[tm.name] = Math.round(tm[k]); });
+    return o;
+  });
+  const COL = ["#203070", "#0f9043", "#d9882a", "#7b3fc0", "#2f6fbf"];
+  return (
+    <Sized height={height} defaultWidth={520}>
+      {(w, h) => (
+        <RadarChart width={w} height={h} data={data} margin={{ top: 10, right: 38, bottom: 6, left: 38 }} outerRadius="70%">
+          <PolarGrid stroke="#e6e9f0" />
+          <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11, fill: "#565d6b", fontWeight: 600 }} />
+          <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#aab2c0" }} axisLine={false} tickCount={5} />
+          {t.map((tm, i) => <Radar key={tm.name} name={tm.name} dataKey={tm.name} stroke={COL[i % COL.length]} fill={COL[i % COL.length]} fillOpacity={0.1} strokeWidth={2} isAnimationActive={false} />)}
+          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 10.5, paddingTop: 8 }} />
+          <Tooltip contentStyle={box} />
+        </RadarChart>
       )}
     </Sized>
   );

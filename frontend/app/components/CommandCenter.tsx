@@ -11,7 +11,8 @@ import {
   getFilters, getCommand, getRaw, getEmployee, askAI,
   type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail,
 } from "../lib/api";
-import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow, ComboColumns } from "./Charts";
+import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow, ComboColumns, RadarCompare } from "./Charts";
+import MatrixHeatmap from "./Heatmap";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -149,6 +150,22 @@ export default function CommandCenter({
     color: e.grade.startsWith("A") ? "#0f9043" : e.grade.startsWith("B") ? "#2f6fbf" : e.grade.startsWith("C") ? "#bd8616" : "#d23f43",
   }));
 
+  // Team metrics (averaged from employees) for the radar + utilization gauges
+  const teamRadar = (() => {
+    const m = new Map<string, { name: string; util: number; act: number; prod: number; bill: number; non: number; n: number }>();
+    data.employees.forEach((e) => {
+      const t = m.get(e.team) || { name: e.team, util: 0, act: 0, prod: 0, bill: 0, non: 0, n: 0 };
+      t.util += e.utilization; t.act += e.activity; t.prod += e.productivity;
+      t.bill += e.billable; t.non += e.non_billable; t.n += 1;
+      m.set(e.team, t);
+    });
+    return [...m.values()].map((t) => ({
+      name: t.name, util: t.util / t.n, activity: t.act / t.n, productivity: t.prod / t.n,
+      billable: (t.bill + t.non) > 0 ? (t.bill / (t.bill + t.non)) * 100 : 0, hours: t.bill + t.non,
+    })).sort((a, b) => b.hours - a.hours);
+  })();
+  const teamGauge = teamRadar.slice(0, 6).map((t) => ({ name: t.name, value: t.util }));
+
   // Hours trend + 7-day forecast (avg of last 7 billable days, projected forward)
   const trendData = (() => {
     const base = data.hours_trend.map((d) => ({ date: d.date, billable: d.billable as number | null, non_billable: d.non_billable as number | null, forecast: undefined as number | undefined }));
@@ -163,12 +180,6 @@ export default function CommandCenter({
     }
     return base;
   })();
-
-  // Team utilization → multi-ring gauge (top 6 by total hours)
-  const teamGauge = [...data.teams]
-    .sort((a, b) => b.total - a.total)
-    .slice(0, 6)
-    .map((t) => ({ name: t.team, value: t.utilization }));
 
   function runAI(q: string): AiRes {
     if (!data) return { text: "", kind: "none" };
@@ -447,6 +458,20 @@ export default function CommandCenter({
         </div>
       </div>
 
+      {/* TEAM COMPARISON — radar + utilization ranking */}
+      {teamRadar.length > 1 && (
+        <div className="row2">
+          <div className="panel">
+            <div className="ph"><h3>Team Comparison <span className="hl">top teams · utilization · activity · productivity · billable %</span></h3></div>
+            <RadarCompare teams={teamRadar} height={300} />
+          </div>
+          <div className="panel">
+            <div className="ph"><h3>Team Utilization <span className="hl">top teams · capacity used</span></h3></div>
+            <TeamGauges data={teamGauge} height={300} />
+          </div>
+        </div>
+      )}
+
       {/* TASKS — priority ("grade") breakdown + per-employee */}
       <div className="sec"><h4>Tasks · {data.context.label}</h4></div>
       {(() => {
@@ -504,20 +529,12 @@ export default function CommandCenter({
         );
       })()}
 
-      {data.hierarchy && data.hierarchy.links.length > 0 && <div className="sec"><h4>Organisation</h4></div>}
-
-      {/* ORG HIERARCHY FLOW — Department → Team → Client */}
-      {data.hierarchy && data.hierarchy.links.length > 0 && (
+      {/* ACTIVITY HEATMAP — Department × Week (tracked hours, darker = busier) */}
+      {data.heatmap && data.heatmap.rows.length > 0 && <div className="sec"><h4>Activity Heatmap</h4></div>}
+      {data.heatmap && data.heatmap.rows.length > 0 && (
         <div className="panel" style={{ marginBottom: 14 }}>
-          <div className="ph">
-            <h3>Organisation Flow <span className="hl">Department → Team → Client · width = tracked hours</span></h3>
-            <div className="bd-legend2">
-              <span><i style={{ background: "#203070" }} />Dept</span>
-              <span><i style={{ background: "#2f6fbf" }} />Team</span>
-              <span><i style={{ background: "#0f9043" }} />Client</span>
-            </div>
-          </div>
-          <SankeyFlow data={data.hierarchy} height={480} />
+          <div className="ph"><h3>Activity Heatmap <span className="hl">tracked hours · {data.context.level === "company" ? "department" : "team"} × week · darker = busier</span></h3></div>
+          <MatrixHeatmap weeks={data.heatmap.weeks} rows={data.heatmap.rows} />
         </div>
       )}
 

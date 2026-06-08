@@ -913,13 +913,13 @@ def command(
         top_cl = list(d.groupby("client")["tracked_h"].sum().sort_values(ascending=False).head(10).index)
         tc = d[d["client"].isin(top_cl)].groupby(["atl", "client"])["tracked_h"].sum().reset_index()
         depts = sorted(dt["department"].unique().tolist())
-        teams = sorted(pd.unique(pd.concat([dt["atl"], tc["atl"]])).tolist())
+        h_teams = sorted(pd.unique(pd.concat([dt["atl"], tc["atl"]])).tolist())
         clnts = [c for c in top_cl if c in set(tc["client"])]
         d_idx = {n: i for i, n in enumerate(depts)}
-        t_idx = {n: len(depts) + i for i, n in enumerate(teams)}
-        c_idx = {n: len(depts) + len(teams) + i for i, n in enumerate(clnts)}
+        t_idx = {n: len(depts) + i for i, n in enumerate(h_teams)}
+        c_idx = {n: len(depts) + len(h_teams) + i for i, n in enumerate(clnts)}
         nodes = ([{"name": n, "layer": 0} for n in depts]
-                 + [{"name": n, "layer": 1} for n in teams]
+                 + [{"name": n, "layer": 1} for n in h_teams]
                  + [{"name": n, "layer": 2} for n in clnts])
         links = []
         for _, r in dt.iterrows():
