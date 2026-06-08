@@ -7,6 +7,7 @@ department (ClickUp space), team (folder), tasks. Revenue = billable x pay_rate.
 Run:  uvicorn main:app --reload --port 8000
 """
 import os
+import re
 from functools import lru_cache
 from typing import Optional
 from zlib import crc32
@@ -185,12 +186,24 @@ CLOSED_STATUS = {"closed", "complete", "completed", "finished", "published",
 
 
 def _client_cat(folder: str) -> str:
+    # Marker in the folder name is the source of truth: (F)=Fixed, (H)=Hourly
+    fz = folder.lower().replace(" ", "")
+    if "(f)" in fz: return "Fixed"
+    if "(h)" in fz: return "Hourly"
     f = folder.lower()
     if "hourly" in f: return "Hourly"
     if "monthly" in f: return "Monthly"
     if "fixed" in f: return "Fixed"
     if "retainer" in f: return "Retainer"
     return "Project"
+
+
+# Non-billable task marker: "NB" as a standalone token in the task name
+_NB_RE = re.compile(r"(?<![a-z])nb(?![a-z])", re.I)
+
+
+def _is_nb(name: str) -> bool:
+    return bool(_NB_RE.search(name or ""))
 
 
 @lru_cache(maxsize=1)
@@ -215,7 +228,8 @@ def clickup_intel():
     try:
         t = db.q("""SELECT coalesce(space_name,'') sp, coalesce(folder_name,'') fo,
                            lower(coalesce(status,'')) st, coalesce(assignees,'') asg,
-                           lower(coalesce(priority,'')) pr
+                           lower(coalesce(priority,'')) pr,
+                           coalesce(nullif(subtask_name,''), parent_task_name, '') nm
                     FROM clickup_tasks
                     WHERE coalesce(is_deleted,false)=false AND coalesce(archived,false)=false""")
     except Exception:
@@ -236,11 +250,13 @@ def clickup_intel():
     e_act = defaultdict(int); e_tot = defaultdict(int)
     e_pri = defaultdict(lambda: defaultdict(int))
     e_st = defaultdict(lambda: defaultdict(int))
+    e_nb = defaultdict(int); e_bl = defaultdict(int)
     clients = defaultdict(lambda: {"total": 0, "active": 0})
     for _, r in t.iterrows():
         sp, fo, st, pr = r["sp"], r["fo"], r["st"], r["pr"]
         active = st not in CLOSED_STATUS
         bucket = _stbucket(st)
+        nb = _is_nb(r["nm"])
         if fo:
             c = clients[fo]; c["total"] += 1; c["active"] += 1 if active else 0
         seen = set()
@@ -261,6 +277,8 @@ def clickup_intel():
                 if active: e_act[uid] += 1
                 if pr in PRIOS: e_pri[uid][pr] += 1
                 e_st[uid][bucket] += 1
+                if nb: e_nb[uid] += 1
+                else: e_bl[uid] += 1
     emp = {}
     for uid in set(list(e_sp) + list(e_tot)):
         sp = max(e_sp[uid].items(), key=lambda x: x[1])[0] if e_sp[uid] else ""
@@ -275,7 +293,8 @@ def clickup_intel():
                     "task_status": "Active" if e_act[uid] > 0 else "Idle",
                     "teams": teams, "depts": depts, "clients": clnts,
                     "pri": {p: e_pri[uid].get(p, 0) for p in PRIOS},
-                    "st": {b: e_st[uid].get(b, 0) for b in ("completed", "in_progress", "review", "overdue")}}
+                    "st": {b: e_st[uid].get(b, 0) for b in ("completed", "in_progress", "review", "overdue")},
+                    "nb_tasks": e_nb[uid], "bill_tasks": e_bl[uid]}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
                  "total": v["total"], "active_tasks": v["active"]} for fo, v in clients.items()}
     return {"emp": emp, "clients": cdim}
@@ -368,7 +387,8 @@ def load_from_db():
                      "team_set": info.get("teams", []),
                      "client_set": info.get("clients", []),
                      "pri": info.get("pri", {"urgent": 0, "high": 0, "normal": 0, "low": 0}),
-                     "st": info.get("st", {"completed": 0, "in_progress": 0, "review": 0, "overdue": 0})})
+                     "st": info.get("st", {"completed": 0, "in_progress": 0, "review": 0, "overdue": 0}),
+                     "nb_tasks": int(info.get("nb_tasks", 0)), "bill_tasks": int(info.get("bill_tasks", 0))})
     members = pd.DataFrame(rows)
     g["revenue"] = g["billable_h"] * g["user_id"].map(rate_map).fillna(40.0)
     return _finalize(members, g)
@@ -881,7 +901,8 @@ def command(
                 employee_tasks.append({
                     "name": r["name"], "urgent": pu, "high": ph, "normal": pn, "low": pl,
                     "total": tot, "active": int(r.get("active_tasks", 0)),
-                    "status": r.get("task_status", "Idle")})
+                    "status": r.get("task_status", "Idle"),
+                    "nb": int(r.get("nb_tasks", 0)), "billable": int(r.get("bill_tasks", 0))})
         employee_tasks.sort(key=lambda x: (-(x["urgent"] * 3 + x["high"] * 2 + x["normal"]), -x["total"]))
         employee_tasks = employee_tasks[:60]
 

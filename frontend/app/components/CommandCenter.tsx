@@ -292,6 +292,11 @@ export default function CommandCenter({
             <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" />
             <MultiSelect Icon={Briefcase} label="Client" value={draft.client} opts={opts?.clients} on={(v) => setField("client", v)} allLabel="All Clients" />
             <MultiSelect Icon={Receipt} label="Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
+            <div className="fbill">
+              {[["", "All"], ["Billable", "Billable"], ["Non-Billable", "Non-Bill"]].map(([v, lbl]) => (
+                <button key={v || "all"} className={(draft.billable || "") === v ? "on" : ""} onClick={() => setField("billable", v)}>{lbl}</button>
+              ))}
+            </div>
             {activeCount > 0 && (
               <button className="fclear" onClick={clearFilters} title="Clear all filters">
                 <RotateCcw size={13} />Clear all<span className="fcnt">{activeCount}</span>
@@ -489,18 +494,20 @@ export default function CommandCenter({
               <div className="ph"><h3>Tasks by Employee <span className="hl">which priority (grade) of tasks each person handles · click for detail</span></h3></div>
               <div className="scrollwrap" style={{ maxHeight: 430 }}>
                 <table>
-                  <thead><tr><th className="l">Employee</th><th>Urgent</th><th>High</th><th>Normal</th><th>Low</th><th>Total Tasks</th><th>Active</th><th className="l">Status</th></tr></thead>
+                  <thead><tr><th className="l">Employee</th><th>Urgent</th><th>High</th><th>Normal</th><th>Low</th><th>Billable</th><th>NB</th><th>Total</th><th>Active</th><th className="l">Status</th></tr></thead>
                   <tbody>
                     {empTasks.map((e) => (
                       <tr key={e.name} className="click" onClick={() => openEmployee(e.name)}>
                         <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname clk">{e.name}</span></span></td>
                         <td>{cell(e.urgent, "u")}</td><td>{cell(e.high, "h")}</td><td>{cell(e.normal, "n")}</td><td>{cell(e.low, "l")}</td>
+                        <td><span className="prbadge bl">{e.billable}</span></td>
+                        <td>{e.nb > 0 ? <span className="prbadge nb">{e.nb}</span> : <span className="prdash">—</span>}</td>
                         <td className="num" style={{ fontWeight: 750 }}>{e.total}</td>
                         <td className="num">{e.active}</td>
                         <td className="l"><span className={`stt ${e.status}`}><span className="d" />{e.status}</span></td>
                       </tr>
                     ))}
-                    {empTasks.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No task data in scope</td></tr>}
+                    {empTasks.length === 0 && <tr><td colSpan={10} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No task data in scope</td></tr>}
                   </tbody>
                 </table>
               </div>
