@@ -422,22 +422,32 @@ export default function CommandCenter({
           <TrendLines data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={280} />
         </div>
         <div className="panel">
-          <div className="ph"><h3>Budget vs Actual <span className="hl">capacity · hours</span></h3></div>
+          <div className="ph"><h3>Budget vs Actual <span className="hl">tracked vs capacity · target = budget</span></h3></div>
           {(() => {
             const pct = Math.round((bva.actual / Math.max(1, bva.budget)) * 100);
             const st = pct >= 100 ? { t: "Over capacity", c: "#d23f43", bg: "#fcecec" }
               : pct >= 85 ? { t: "On track", c: "#0f9043", bg: "#e8f4ed" }
                 : { t: "Under-utilized", c: "#bd8616", bg: "#f9f1da" };
+            const MAX = 130; // scale: 0 → 130% of budget
+            const sc = (x: number) => Math.min(100, (x / MAX) * 100); // % of track width
             return (
               <div className="budgetcard">
-                <span className="bc-status" style={{ color: st.c, background: st.bg }}>{st.t}</span>
-                <div className="bc-big num">{pct}%<span>of capacity used</span></div>
+                <div className="bc-head">
+                  <span className="bc-status" style={{ color: st.c, background: st.bg }}>{st.t}</span>
+                  <div className="bc-big num">{pct}%<span>of capacity</span></div>
+                </div>
+                <div className="bullet">
+                  <span className="bz" style={{ left: 0, width: `${sc(85)}%`, background: "#fbf0db" }} />
+                  <span className="bz" style={{ left: `${sc(85)}%`, width: `${sc(100) - sc(85)}%`, background: "#e3f2e9" }} />
+                  <span className="bz" style={{ left: `${sc(100)}%`, right: 0, background: "#fbe6e7" }} />
+                  <span className="bullet-fill" style={{ width: `${sc(pct)}%`, background: st.c }} />
+                  <span className="bullet-target" style={{ left: `${sc(100)}%` }} title="Budget (100% capacity)" />
+                </div>
+                <div className="bullet-scale"><span>0</span><span>under</span><span style={{ marginLeft: "auto", marginRight: `${100 - sc(100)}%`, fontWeight: 700, color: "var(--ink-2)" }}>▲ Budget</span><span>{MAX}%</span></div>
                 <div className="bc-rows">
-                  <div className="bc-row"><span>Budget (capacity)</span><b>{n0(bva.budget)}h</b></div>
-                  <div className="bc-track"><span style={{ width: "100%", background: "#cdd4e0" }} /></div>
-                  <div className="bc-row"><span>Actual (tracked)</span><b>{n0(bva.actual)}h</b></div>
-                  <div className="bc-track"><span style={{ width: `${Math.min(100, pct)}%`, background: st.c }} /></div>
-                  <div className="bc-row" style={{ marginTop: 4 }}><span>Variance</span><b style={{ color: st.c }}>{bva.variance >= 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
+                  <div className="bc-row"><span><span className="bdot" style={{ background: st.c }} />Actual (tracked)</span><b>{n0(bva.actual)}h</b></div>
+                  <div className="bc-row"><span><span className="bdot" style={{ background: "#14161b" }} />Budget (capacity)</span><b>{n0(bva.budget)}h</b></div>
+                  <div className="bc-row"><span>Variance</span><b style={{ color: st.c }}>{bva.variance >= 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
                 </div>
               </div>
             );
