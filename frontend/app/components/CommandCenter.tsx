@@ -54,14 +54,23 @@ export default function CommandCenter({
     return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
   };
 
-  // a circular gauge ring: arc filled to `pct`, value in the centre
+  // a circular progress ring (SVG, rounded cap) with the value in the centre
   const thr = (v: number, hi: number, mid: number) => (v >= hi ? "#0f9043" : v >= mid ? "#bd8616" : "#d23f43");
-  const ringCard = (label: string, key: string, pct: number, display: string, color: string, deltaKey?: string) => {
+  const ringCard = (label: string, key: string, pct: number, display: string, sub: string, color: string, deltaKey?: string) => {
     const fill = Math.max(0, Math.min(100, pct));
+    const R = 31, C = 2 * Math.PI * R, off = C * (1 - fill / 100);
     return (
       <div className="kring" key={key}>
-        <div className="kring-arc" style={{ background: `conic-gradient(${color} 0 ${fill}%, var(--line-2) ${fill}% 100%)` }}>
-          <div className="kring-hole"><b className="num" style={{ color }}>{display}</b></div>
+        <div className="kring-wrap">
+          <svg width="82" height="82" viewBox="0 0 82 82">
+            <circle cx="41" cy="41" r={R} fill="none" stroke="var(--line-2)" strokeWidth="7.5" />
+            <circle cx="41" cy="41" r={R} fill="none" stroke={color} strokeWidth="7.5" strokeLinecap="round"
+              strokeDasharray={C} strokeDashoffset={off} transform="rotate(-90 41 41)" />
+          </svg>
+          <div className="kring-center">
+            <b className="num" style={{ color }}>{display}</b>
+            {sub ? <span>{sub}</span> : null}
+          </div>
         </div>
         <div className="kring-foot"><span className="kring-lbl">{label}</span>{deltaKey ? deltaChip(deltaKey) : null}</div>
       </div>
@@ -72,6 +81,7 @@ export default function CommandCenter({
   const grColor = gradeStr.startsWith("A") ? "#0f9043" : gradeStr.startsWith("B") ? "#2f6fbf" : gradeStr.startsWith("C") ? "#bd8616" : "#d23f43";
   const util = Number(k.utilization?.value || 0);
   const prod = Number(k.productivity?.value || 0);
+  const act = Number(k.activity?.value || 0);
 
   return (
     <div className="page">
@@ -133,21 +143,28 @@ export default function CommandCenter({
             <span className="kcard-lbl">Total Hours</span>
             {deltaChip("total_hours")}
           </div>
-          <div className="kfeat-big num">{n0(total)}<span>h</span></div>
+          <div className="kfeat-num"><b className="num">{n0(total)}</b><span>hrs tracked</span></div>
           <div className="kfeat-bar">
             <span className="bil" style={{ width: `${billPct}%` }} />
             <span className="nbil" style={{ width: `${100 - billPct}%` }} />
           </div>
-          <div className="kfeat-rows">
-            <div className="kfr"><span className="dot bil" /><span className="l">Billable</span><b>{n0(billable)}h</b><i>{billPct}%</i></div>
-            <div className="kfr"><span className="dot nbil" /><span className="l">Non-Billable</span><b>{n0(nonbill)}h</b><i>{100 - billPct}%</i></div>
+          <div className="kfeat-split">
+            <div className="kfeat-blk bil">
+              <div className="top"><span className="dot" />Billable</div>
+              <div className="val num">{n0(billable)}<span className="u">h</span> <i>{billPct}%</i></div>
+            </div>
+            <div className="kfeat-blk nbil">
+              <div className="top"><span className="dot" />Non-Billable</div>
+              <div className="val num">{n0(nonbill)}<span className="u">h</span> <i>{100 - billPct}%</i></div>
+            </div>
           </div>
         </div>
 
-        {ringCard("Utilization", "ring-util", util, n1(util) + "%", thr(util, 75, 60), "utilization")}
-        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", thr(prod, 70, 50), "productivity")}
-        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "#0f9043", "billable_hours")}
-        {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, grColor)}
+        {ringCard("Utilization", "ring-util", util, n1(util) + "%", "", thr(util, 75, 60), "utilization")}
+        {ringCard("Activity", "ring-act", act, n1(act) + "%", "", thr(act, 70, 50), "activity")}
+        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", "", thr(prod, 70, 50), "productivity")}
+        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "", "#0f9043", "billable_hours")}
+        {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, "", grColor)}
       </div>
 
       {cmp && pv && (

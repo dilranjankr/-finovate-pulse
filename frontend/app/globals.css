@@ -118,10 +118,11 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 1150px) { .kpis { grid-template-columns: repeat(3, 1fr); } .kt { border-bottom: 1px solid var(--line); } }
 @media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } }
 
-/* KPI CARDS — elevated cards + billable donut */
-.kcards { display: grid; grid-template-columns: 2.1fr repeat(4, 1fr); gap: 13px; margin-bottom: 12px; }
-.kcard { background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 16px 17px;
-  box-shadow: 0 1px 2px rgba(20,30,60,.04); display: flex; flex-direction: column; min-height: 116px; }
+/* KPI CARDS — Total Hours card + progress rings */
+.kcards { display: grid; grid-template-columns: 1.85fr repeat(5, 1fr); gap: 12px; margin-bottom: 12px; }
+.kcard { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px 17px;
+  box-shadow: 0 1px 2px rgba(20,30,60,.04); display: flex; flex-direction: column; min-height: 150px; transition: box-shadow .16s, transform .16s; }
+.kcard:hover, .kring:hover { box-shadow: 0 6px 18px rgba(20,30,60,.09); transform: translateY(-1px); }
 .kcard-top { display: flex; align-items: center; gap: 9px; }
 .kcard-ic { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; }
 .kcard-lbl { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
@@ -132,30 +133,38 @@ body { background: var(--bg); color: var(--ink);
 .kchip.flat { color: var(--muted); background: var(--line-2); }
 /* featured Total Hours card */
 .kcard-feat { background: linear-gradient(180deg, #fbfcff, #f6f8fd); }
-.kfeat-big { font-size: 34px; font-weight: 780; letter-spacing: -1.2px; color: var(--ink); line-height: 1; margin-top: 14px; }
-.kfeat-big span { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 2px; }
-.kfeat-bar { display: flex; height: 9px; border-radius: 5px; overflow: hidden; margin: 14px 0 12px; background: var(--line-2); }
+.kfeat-num { display: flex; align-items: baseline; gap: 8px; margin-top: 13px; }
+.kfeat-num b { font-size: 38px; font-weight: 790; letter-spacing: -1.6px; color: var(--ink); line-height: 1; }
+.kfeat-num span { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+.kfeat-bar { display: flex; height: 8px; border-radius: 5px; overflow: hidden; margin: 15px 0 13px; background: var(--line-2); }
 .kfeat-bar > span { display: block; height: 100%; }
 .kfeat-bar .bil { background: #0f9043; } .kfeat-bar .nbil { background: #dbe0e8; }
-.kfeat-rows { margin-top: auto; display: flex; flex-direction: column; gap: 7px; }
-.kfr { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
-.kfr .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
-.kfr .dot.bil { background: #0f9043; } .kfr .dot.nbil { background: #dbe0e8; }
-.kfr .l { font-weight: 600; min-width: 84px; }
-.kfr b { color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
-.kfr i { font-style: normal; color: var(--faint); font-weight: 600; }
-/* gauge ring cards */
-.kring { background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 14px; box-shadow: 0 1px 2px rgba(20,30,60,.04);
-  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; min-height: 116px; }
-.kring-arc { width: 78px; height: 78px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
-.kring-hole { width: 58px; height: 58px; border-radius: 50%; background: var(--panel); display: flex; align-items: center; justify-content: center; }
-.kring-hole b { font-size: 17px; font-weight: 780; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+.kfeat-split { margin-top: auto; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kfeat-blk { border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; }
+.kfeat-blk.bil { background: #0f90430a; border-color: #cfe7d8; }
+.kfeat-blk.nbil { background: #f6f7fa; }
+.kfeat-blk .top { display: flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--muted); }
+.kfeat-blk .top .dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.kfeat-blk.bil .top .dot { background: #0f9043; } .kfeat-blk.nbil .top .dot { background: #c4ccd8; }
+.kfeat-blk .val { margin-top: 6px; font-size: 16px; font-weight: 780; color: var(--ink); letter-spacing: -.4px; }
+.kfeat-blk .val .u { font-size: 11px; font-weight: 600; color: var(--muted); margin-left: 1px; }
+.kfeat-blk .val i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--faint); margin-left: 4px; }
+/* progress ring cards */
+.kring { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px; box-shadow: 0 1px 2px rgba(20,30,60,.04);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 13px; min-height: 150px; transition: box-shadow .16s, transform .16s; }
+.kring-wrap { position: relative; width: 82px; height: 82px; }
+.kring-wrap svg { display: block; }
+.kring-wrap svg circle { transition: stroke-dashoffset .5s ease; }
+.kring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.kring-center b { font-size: 19px; font-weight: 790; letter-spacing: -.6px; font-variant-numeric: tabular-nums; line-height: 1; }
+.kring-center span { font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .3px; color: var(--faint); margin-top: 2px; }
 .kring-foot { display: flex; align-items: center; gap: 7px; }
 .kring-lbl { font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
 .kring-foot .kchip { margin-left: 0; padding: 2px 6px; font-size: 10px; }
 .kpi-cmp { margin: 2px 0 14px; font-size: 11.5px; color: var(--muted); font-weight: 550; }
-@media (max-width: 1150px) { .kcards { grid-template-columns: repeat(2, 1fr); } .kcard-feat { grid-column: span 2; } }
-@media (max-width: 560px) { .kcards { grid-template-columns: 1fr; } .kcard-feat { grid-column: span 1; } }
+@media (max-width: 1250px) { .kcards { grid-template-columns: repeat(3, 1fr); } .kcard-feat { grid-column: span 3; } }
+@media (max-width: 760px) { .kcards { grid-template-columns: repeat(2, 1fr); } .kcard-feat { grid-column: span 2; } }
+@media (max-width: 480px) { .kcards { grid-template-columns: 1fr; } .kcard-feat { grid-column: span 1; } }
 
 /* Billable / Non-Billable segmented filter */
 .bseg { display: inline-flex; align-items: center; gap: 0; height: 44px; padding: 0 6px; border-left: 1px solid var(--line); }
