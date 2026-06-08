@@ -118,6 +118,34 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 1150px) { .kpis { grid-template-columns: repeat(3, 1fr); } .kt { border-bottom: 1px solid var(--line); } }
 @media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } }
 
+/* KPI-only lead strip: Total Hours hero + 4 stat tiles */
+.kpis-lead { grid-template-columns: 1.9fr repeat(4, 1fr); }
+.kt-u { font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+.kt-hero { display: flex; flex-direction: column; background: linear-gradient(180deg, #fbfcfe, #f7f9fc); }
+.kt-hh { display: flex; align-items: center; gap: 8px; }
+.kt-hero .kt-ic { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--navy); }
+.kt-hero .kt-v { font-size: 30px; margin-top: 11px; }
+.kt-splitbar { display: flex; height: 9px; border-radius: 5px; overflow: hidden; margin: 14px 0 11px; background: var(--line-2); }
+.kt-splitbar > span { display: block; height: 100%; }
+.kt-splitbar .bil { background: #0f9043; } .kt-splitbar .nbil { background: #cdd4e0; }
+.kt-split { display: flex; flex-direction: column; gap: 7px; }
+.kt-sp { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.kt-sp .d { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+.kt-sp .d.bil { background: #0f9043; } .kt-sp .d.nbil { background: #cdd4e0; }
+.kt-sp .l { font-weight: 600; }
+.kt-sp b { margin-left: auto; color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
+.kt-sp i { font-style: normal; color: var(--faint); font-weight: 600; min-width: 34px; text-align: right; }
+.kpi-cmp { margin: -6px 0 14px; font-size: 11.5px; color: var(--muted); font-weight: 550; }
+@media (max-width: 1150px) { .kpis-lead { grid-template-columns: repeat(3, 1fr); } .kt-hero { grid-column: span 3; } }
+@media (max-width: 640px) { .kpis-lead { grid-template-columns: 1fr 1fr; } .kt-hero { grid-column: span 2; } }
+
+/* Billable / Non-Billable segmented filter */
+.bseg { display: inline-flex; align-items: center; gap: 0; height: 44px; padding: 0 6px; border-left: 1px solid var(--line); }
+.bseg button { height: 30px; padding: 0 12px; border: none; background: transparent; font-size: 12px; font-weight: 650;
+  color: var(--ink-2); cursor: pointer; border-radius: 7px; transition: background .12s, color .12s; }
+.bseg button:hover { background: #f4f6fa; }
+.bseg button.on { background: var(--navy); color: #fff; }
+
 .empty-s { padding: 28px 12px; text-align: center; color: var(--muted); font-size: 12.5px; }
 /* task priority (grade) badges */
 .prbadge { display: inline-block; min-width: 30px; padding: 3px 9px; border-radius: 5px; font-size: 11.5px; font-weight: 750; font-variant-numeric: tabular-nums; }
