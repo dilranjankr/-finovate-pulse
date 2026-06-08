@@ -164,11 +164,6 @@ export default function CommandCenter({
         {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
 
-      <div className="kpi-cmp">
-        {cmp && pv
-          ? <>▲▼ compares current <b>{pv.days} days</b> ({draft.date_from} → {draft.date_to}) vs previous <b>{pv.days} days</b> ({pv.from} → {pv.to})</>
-          : <>Pick a date range to compare against the previous equal-length period</>}
-      </div>
 
       {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
       {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
