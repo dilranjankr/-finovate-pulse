@@ -199,12 +199,13 @@ def _client_cat(folder: str) -> str:
     return "Project"
 
 
-# Non-billable task marker: "NB" as a standalone token in the task name
-_NB_RE = re.compile(r"(?<![a-z])nb(?![a-z])", re.I)
+# Non-billable task marker: task name STARTS with "NB" followed by -, _ or space
+# e.g. "NB - Training", "NB-Inbox Management", "NB_Research".
+_NB_RE = re.compile(r"^\s*nb[\s\-_]", re.I)
 
 
 def _is_nb(name: str) -> bool:
-    return bool(_NB_RE.search(name or ""))
+    return bool(_NB_RE.match(name or ""))
 
 
 @lru_cache(maxsize=1)
@@ -237,6 +238,7 @@ def clickup_intel():
         t = db.q("""SELECT coalesce(space_name,'') sp, coalesce(folder_name,'') fo,
                            lower(coalesce(status,'')) st, coalesce(assignees,'') asg,
                            lower(coalesce(priority,'')) pr,
+                           coalesce(time_tracked_hrs,0) th,
                            coalesce(nullif(subtask_name,''), parent_task_name, '') nm
                     FROM clickup_tasks
                     WHERE coalesce(is_deleted,false)=false AND coalesce(archived,false)=false""")
@@ -259,12 +261,16 @@ def clickup_intel():
     e_pri = defaultdict(lambda: defaultdict(int))
     e_st = defaultdict(lambda: defaultdict(int))
     e_nb = defaultdict(int); e_bl = defaultdict(int)
+    # ClickUp tracked hours per employee: non-billable (NB tasks) vs all — used to
+    # derive each person's NB ratio, which then splits their Hubstaff hours.
+    e_nbh = defaultdict(float); e_th = defaultdict(float)
     clients = defaultdict(lambda: {"total": 0, "active": 0})
     for _, r in t.iterrows():
         sp, fo, st, pr = r["sp"], r["fo"], r["st"], r["pr"]
         active = st not in CLOSED_STATUS
         bucket = _stbucket(st)
         nb = _is_nb(r["nm"])
+        th = float(r["th"] or 0)
         if fo:
             c = clients[fo]; c["total"] += 1; c["active"] += 1 if active else 0
         seen = set()
@@ -292,7 +298,8 @@ def clickup_intel():
                 if active: e_act[uid] += 1
                 if pr in PRIOS: e_pri[uid][pr] += 1
                 e_st[uid][bucket] += 1
-                if nb: e_nb[uid] += 1
+                e_th[uid] += th
+                if nb: e_nb[uid] += 1; e_nbh[uid] += th
                 else: e_bl[uid] += 1
     emp = {}
     for uid in set(list(e_sp) + list(e_tot)):
@@ -309,7 +316,8 @@ def clickup_intel():
                     "teams": teams, "depts": depts, "clients": clnts,
                     "pri": {p: e_pri[uid].get(p, 0) for p in PRIOS},
                     "st": {b: e_st[uid].get(b, 0) for b in ("completed", "in_progress", "review", "overdue")},
-                    "nb_tasks": e_nb[uid], "bill_tasks": e_bl[uid]}
+                    "nb_tasks": e_nb[uid], "bill_tasks": e_bl[uid],
+                    "nb_ratio": (e_nbh[uid] / e_th[uid]) if e_th[uid] > 0 else 0.0}
     cdim = {fo: {"active": v["active"] > 0, "category": _client_cat(fo),
                  "total": v["total"], "active_tasks": v["active"]} for fo, v in clients.items()}
     return {"emp": emp, "clients": cdim}
@@ -357,14 +365,16 @@ def load_from_db():
     g["client"] = g["user_id"].map(lambda u: (omap.get(u) or {}).get("client") or "Unassigned")
     g["client_type"] = g["client"].map(lambda c: (cdim.get(c) or {}).get("category", "Project"))
 
-    # Billable vs Non-Billable: internal departments are non-billable overhead
-    # (Hubstaff marks all time billable & ClickUp Billable flag is empty, so we
-    #  classify by department — the meaningful business definition.)
-    NONBILL = {"HR", "Admin", "Marketing", "Archived Projects"}
-    g["billable"] = ~g["department"].isin(NONBILL)
-    g["billable_h"] = np.where(g["billable"], g["tracked_h"], 0.0)
-    g["non_billable_h"] = np.where(g["billable"], 0.0, g["tracked_h"])
-    g["billable_sec"] = np.where(g["billable"], g["tracked"], 0)
+    # Billable vs Non-Billable from the NB task marker. Hubstaff time isn't tagged
+    # per task, so we use each employee's NB ratio (ClickUp tracked hours on
+    # "NB-…" tasks / their total ClickUp tracked hours) to split their Hubstaff
+    # hours. A task named "NB - …" / "NB_…" is non-billable.
+    nbr = {uid: float((info or {}).get("nb_ratio", 0.0)) for uid, info in omap.items()}
+    g["nb_ratio"] = g["user_id"].map(nbr).fillna(0.0).clip(0.0, 1.0)
+    g["non_billable_h"] = g["tracked_h"] * g["nb_ratio"]
+    g["billable_h"] = g["tracked_h"] * (1.0 - g["nb_ratio"])
+    g["billable_sec"] = g["tracked"] * (1.0 - g["nb_ratio"])
+    g["billable"] = g["nb_ratio"] < 0.5
 
     # members (user-level)
     mem = db.q("""
@@ -454,10 +464,21 @@ def apply_filters(members, g, f):
         vals = _vals(f.get(key))
         if vals:
             d = d[d[col].isin(vals)]
-    if f.get("billable") == "Billable":
-        d = d[d["billable"]]
-    elif f.get("billable") == "Non-Billable":
-        d = d[~d["billable"]]
+    bf = f.get("billable")
+    if bf in ("Billable", "Non-Billable") and not d.empty:
+        # Scale every row to just its billable (or non-billable) portion, using the
+        # NB ratio — so hours, utilization, activity & productivity all reflect that
+        # slice, instead of dropping whole rows.
+        d = d.copy()
+        keep = d["billable_h"] if bf == "Billable" else d["non_billable_h"]
+        frac = (keep / d["tracked_h"].replace(0, np.nan)).fillna(0.0)
+        for c in ["tracked_h", "overall_h", "tracked", "overall", "prod_w", "revenue"]:
+            if c in d.columns:
+                d[c] = d[c] * frac
+        if bf == "Billable":
+            d["billable_h"] = d["tracked_h"]; d["non_billable_h"] = 0.0; d["billable_sec"] = d["tracked"]
+        else:
+            d["non_billable_h"] = d["tracked_h"]; d["billable_h"] = 0.0; d["billable_sec"] = 0.0
     if f.get("date_from"):
         d = d[d["date_s"] >= f["date_from"]]
     if f.get("date_to"):
