@@ -561,7 +561,8 @@ def group_metrics(d, by):
     grp["utilization"] = (grp["total"] / cap * 100).clip(upper=100)
     grp["activity"] = (grp["overall"] / grp["total"].replace(0, 1) * 100)
     grp["avg_day"] = grp["total"] / grp["empdays"].replace(0, 1)
-    grp["productivity"] = grp["prod_w"] / grp["tracked"].replace(0, 1)
+    # Productivity = billable share of tracked time (billable hours / total × 100)
+    grp["productivity"] = (grp["billable"] / grp["total"].replace(0, 1) * 100)
     grp["budget"] = grp["empdays"] * 8
     grp["variance"] = grp["total"] - grp["budget"]
     grp["grade"] = (0.5 * grp["utilization"] + 0.5 * grp["productivity"]).apply(grade_letter)
@@ -711,7 +712,7 @@ def command(
     people = int(d["user_id"].nunique()) if not empty else 0
     cap = empdays * 8
     util = min(100.0, total / cap * 100) if cap else 0.0
-    prod = float(d["prod_w"].sum() / d["tracked"].sum()) if not empty and d["tracked"].sum() else 0.0
+    prod = float(bill / total * 100) if total else 0.0  # productivity = billable share
     revenue = float(d["revenue"].sum()) if not empty else 0.0
     budget = cap
     variance = total - budget
@@ -727,7 +728,7 @@ def command(
         avg_grade = "—"
 
     util_daily = (daily["total"] / (daily["users"] * 8).replace(0, 1) * 100).tolist() if not empty else []
-    prod_daily = (daily["prod_w"] / daily["tracked"].replace(0, 1)).tolist() if not empty else []
+    prod_daily = (daily["billable"] / daily["total"].replace(0, 1) * 100).tolist() if not empty else []
 
     def kpi(v, series, unit=""):
         return {"value": round(v, 1), "trend": trend_pct(series), "spark": spark(series), "unit": unit}
@@ -1166,7 +1167,7 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
     cap = empdays * 8
     util = min(100.0, tracked / cap * 100) if cap else 0.0
     act = overall / tracked * 100 if tracked else 0.0
-    prod = float(d["prod_w"].sum() / d["tracked"].sum()) if d["tracked"].sum() else 0.0
+    prod = float(bill / tracked * 100) if tracked else 0.0  # productivity = billable share
     tc = float(mr.get("task_completion", 70))
     grade = grade_letter(0.4 * util + 0.3 * prod + 0.3 * tc)
     dept = d["department"].mode().iloc[0] if not d.empty else "Unassigned"
@@ -1179,7 +1180,7 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
     daily_rows = [{"date": r.date_s, "hours": round(r.tracked_h, 2), "billable": round(r.billable_h, 2),
                    "non_billable": round(r.tracked_h - r.billable_h, 2),
                    "activity": round(r.overall_h / r.tracked_h * 100, 0) if r.tracked_h else 0,
-                   "productivity": round(r.prod_w / r.tr, 0) if r.tr else 0} for r in daily.itertuples()]
+                   "productivity": round(r.billable_h / r.tracked_h * 100, 0) if r.tracked_h else 0} for r in daily.itertuples()]
     tasks = build_tasks_db(name) if db.has_db() else build_tasks_sample(uid, name, client)
 
     return clean({

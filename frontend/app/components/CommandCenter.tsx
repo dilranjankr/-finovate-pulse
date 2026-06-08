@@ -160,7 +160,7 @@ export default function CommandCenter({
         {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
           openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
-          openMetric("Productivity", "#e8930c", "Time-weighted activity score (0–100). Equals Activity in this project (no separate Hubstaff score).", (e) => e.productivity, (v) => n1(v) + "%"))}
+          openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%"))}
         {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
 
