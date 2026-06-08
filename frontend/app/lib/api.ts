@@ -28,6 +28,7 @@ export interface EmployeeRow {
   name: string; team: string; billable: number; non_billable: number;
   utilization: number; activity: number; productivity: number; avg_day: number;
   days: number; grade: string; active_tasks: number; task_status: string; client: string;
+  clients?: string[];
 }
 
 export interface Summary {

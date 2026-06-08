@@ -834,7 +834,10 @@ def command(
 
     employees_tbl = []
     if not emp.empty:
+        # all clients each employee touches (from ClickUp membership), not just primary
+        cset = dict(zip(members["user_id"], members["client_set"])) if "client_set" in members.columns else {}
         for _, r in emp.sort_values("billable", ascending=False).head(200).iterrows():
+            clist = [c for c in (cset.get(r["user_id"]) or []) if c and c != "Unassigned"]
             employees_tbl.append({"name": r["name"], "team": pa.get(r["user_id"], "—"),
                                   "billable": round(r["billable"], 1), "non_billable": round(r["non_billable"], 1),
                                   "utilization": round(r["utilization"], 0), "activity": round(r["activity"], 0),
@@ -842,7 +845,8 @@ def command(
                                   "days": int(r["empdays"]), "grade": r["grade"],
                                   "active_tasks": int(r.get("active_tasks") or 0),
                                   "task_status": r.get("task_status") or "Idle",
-                                  "client": r.get("client") or "—"})
+                                  "client": r.get("client") or "—",
+                                  "clients": sorted(clist)})
 
     columns, table_rows, level, view = _table(f, d, emp, members, d_prev)
 

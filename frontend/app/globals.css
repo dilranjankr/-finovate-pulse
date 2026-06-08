@@ -234,6 +234,22 @@ body { background: var(--bg); color: var(--ink);
 .brkbar-t { flex: 1; display: flex; height: 9px; border-radius: 4px; overflow: hidden; background: var(--line-2); }
 .brkbar-t .bil { background: #0f9043; height: 100%; } .brkbar-t .nbil { background: #e2e6ee; height: 100%; }
 .brkbar em { font-style: normal; font-size: 10.5px; font-weight: 700; color: var(--faint); min-width: 30px; }
+
+/* clients-by-hours list */
+.cl-list { display: flex; flex-direction: column; gap: 1px; max-height: 320px; overflow-y: auto; }
+.cl-item { display: grid; grid-template-columns: 22px 1fr 90px 54px; align-items: center; gap: 11px; padding: 7px 3px; font-size: 12.5px; border-bottom: 1px solid var(--line-2); }
+.cl-item:last-child { border-bottom: none; }
+.cl-item .cat { text-align: center; padding: 2px 0; }
+.cl-nm { font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cl-bar { height: 8px; border-radius: 4px; background: var(--line-2); overflow: hidden; }
+.cl-bar > span { display: block; height: 100%; border-radius: 4px; }
+.cl-h { text-align: right; font-weight: 750; color: var(--ink); }
+/* employee -> clients chips */
+.chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.chip { font-size: 11px; font-weight: 600; color: var(--ink-2); background: var(--line-2); border: 1px solid var(--line); padding: 2px 9px; border-radius: 20px; white-space: nowrap; max-width: 170px; overflow: hidden; text-overflow: ellipsis; }
+.chip.more { background: var(--accent-soft); color: var(--navy); border-color: #d6def2; }
+.ec-team { display: block; font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+.ec-table td { vertical-align: middle; }
 .wl-badge { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .wl-info { min-width: 0; }
 .wl-lbl { font-size: 14px; font-weight: 650; color: var(--ink); }

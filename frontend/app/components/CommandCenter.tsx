@@ -10,7 +10,7 @@ import {
   getFilters, getCommand, getBreakdown, getBreakdownList, defaultRange,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData,
 } from "../lib/api";
-import { TrendLines, Donut, Bubble, BarList } from "./Charts";
+import { TrendLines, Donut, Bubble } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -115,8 +115,9 @@ export default function CommandCenter({
     x: e.utilization, y: e.productivity, z: Math.max(e.billable, 1), name: e.name,
     color: e.grade.startsWith("A") ? "#0f9043" : e.grade.startsWith("B") ? "#2f6fbf" : e.grade.startsWith("C") ? "#bd8616" : "#d23f43",
   }));
-  const clientsTop = [...data.clients_summary].filter((c) => c.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 8)
-    .map((c) => ({ label: c.client, value: c.hours, color: c.category === "Fixed" ? "#2f6fbf" : c.category === "Hourly" ? "#0f9043" : "#9aa3b2" }));
+  const clientsAll = [...data.clients_summary].filter((c) => c.hours > 0).sort((a, b) => b.hours - a.hours);
+  const clMax = Math.max(1, ...clientsAll.map((c) => c.hours));
+  const clColor = (cat: string) => (cat === "Fixed" ? "#2f6fbf" : cat === "Hourly" ? "#0f9043" : "#9aa3b2");
   const ch = data.client_health;
   const chTotal = ch.active + ch.at_risk + ch.inactive;
   const chData = [{ name: "Active", value: ch.active }, { name: "At Risk", value: ch.at_risk }, { name: "Inactive", value: ch.inactive }];
@@ -252,8 +253,19 @@ export default function CommandCenter({
       <div className="sec"><h4>Clients</h4></div>
       <div className="row2">
         <div className="panel">
-          <div className="ph"><h3>Top Clients by Hours <span className="hl">Fixed (blue) · Hourly (green)</span></h3></div>
-          {clientsTop.length ? <BarList items={clientsTop} unit="h" /> : <div className="empty-s">No client data in scope</div>}
+          <div className="ph"><h3>Clients by Hours <span className="hl">{clientsAll.length} clients · Fixed (blue) · Hourly (green) · scroll</span></h3></div>
+          {clientsAll.length ? (
+            <div className="cl-list">
+              {clientsAll.map((c) => (
+                <div className="cl-item" key={c.client}>
+                  <span className={`cat ${c.category}`}>{c.category?.[0] || "?"}</span>
+                  <span className="cl-nm" title={c.client}>{c.client}</span>
+                  <span className="cl-bar"><span style={{ width: `${(c.hours / clMax) * 100}%`, background: clColor(c.category) }} /></span>
+                  <span className="cl-h num">{n0(c.hours)}h</span>
+                </div>
+              ))}
+            </div>
+          ) : <div className="empty-s">No client data in scope</div>}
         </div>
         <div className="panel">
           <div className="ph"><h3>Client Health <span className="hl">active · at-risk · inactive</span></h3></div>
@@ -298,25 +310,32 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* EMPLOYEE → CLIENT */}
+      {/* EMPLOYEE → CLIENTS */}
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
       <div className="panel" style={{ marginBottom: 14 }}>
-        <div className="ph"><h3>Which employee works on which client <span className="hl">primary client · billable hours · click for detail</span></h3></div>
-        <div className="scrollwrap" style={{ maxHeight: 440 }}>
-          <table>
-            <thead><tr><th className="l">Employee</th><th className="l">Team</th><th className="l">Client</th><th>Billable</th><th>Util</th><th>Grade</th></tr></thead>
+        <div className="ph"><h3>Which employee works on which clients <span className="hl">all clients each person handles · billable hours</span></h3></div>
+        <div className="scrollwrap" style={{ maxHeight: 460 }}>
+          <table className="ec-table">
+            <thead><tr><th className="l">Employee</th><th>Grade</th><th>Billable</th><th className="l">Clients</th></tr></thead>
             <tbody>
-              {empClients.map((e) => (
-                <tr key={e.name}>
-                  <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
-                  <td className="l" style={{ color: "var(--muted)" }}>{e.team}</td>
-                  <td className="l"><span className="tname">{e.client || "—"}</span></td>
-                  <td className="num">{n0(e.billable)}h</td>
-                  <td className="num">{n0(e.utilization)}%</td>
-                  <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
-                </tr>
-              ))}
-              {empClients.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+              {empClients.map((e) => {
+                const cls = e.clients || [];
+                return (
+                  <tr key={e.name}>
+                    <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span><span className="tname">{e.name}</span><span className="ec-team">{e.team}</span></span></span></td>
+                    <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
+                    <td className="num">{n0(e.billable)}h</td>
+                    <td className="l">
+                      <div className="chips">
+                        {cls.slice(0, 8).map((c) => <span className="chip" key={c} title={c}>{c}</span>)}
+                        {cls.length > 8 && <span className="chip more">+{cls.length - 8}</span>}
+                        {cls.length === 0 && <span style={{ color: "var(--faint)" }}>—</span>}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {empClients.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
             </tbody>
           </table>
         </div>
