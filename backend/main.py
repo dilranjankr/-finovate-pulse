@@ -216,11 +216,18 @@ def clickup_intel():
     if not db.has_db():
         return blank
     from collections import defaultdict
-    mem = db.q("select user_id::text uid, lower(trim(coalesce(name,''))) nm from hubstaff_members where coalesce(name,'')<>''")
-    full, first, dupe = {}, {}, set()
+    import json
+    # hubstaff_members.name is empty in this project — the real names live on the
+    # denormalized activities.user_name. Build the name->uid map from there.
+    mem = db.q("select distinct user_id::text uid, lower(trim(user_name)) nm "
+               "from hubstaff_activities where coalesce(user_name,'')<>''")
+    full, first, dupe, compact = {}, {}, set(), {}
     for _, r in mem.iterrows():
         nm, uid = r["nm"], r["uid"]
+        if not nm:
+            continue
         full[nm] = uid
+        compact[re.sub(r"[^a-z0-9]", "", nm)] = uid
         fn = nm.split()[0] if nm.split() else nm
         if fn in first and first[fn] != uid:
             dupe.add(fn)
@@ -261,11 +268,18 @@ def clickup_intel():
         if fo:
             c = clients[fo]; c["total"] += 1; c["active"] += 1 if active else 0
         seen = set()
-        for a in str(r["asg"]).split(","):
-            a = a.strip().lower()
+        # assignees is a JSON array: [{"id","username","email"}, ...]
+        try:
+            _ass = json.loads(r["asg"]) if r["asg"] else []
+        except Exception:
+            _ass = []
+        for _ao in (_ass if isinstance(_ass, list) else []):
+            a = str((_ao or {}).get("username", "")).strip().lower()
             if not a:
                 continue
             uid = full.get(a)
+            if uid is None:
+                uid = compact.get(re.sub(r"[^a-z0-9]", "", a))
             if uid is None:
                 fn = a.split()[0] if a.split() else a
                 if fn in first and fn not in dupe:
@@ -316,11 +330,13 @@ def load_from_db():
           SUM(COALESCE(a.tracked,0)) AS tracked,
           SUM(COALESCE(a.overall,0)) AS overall,
           SUM(COALESCE(a.billable,0)) AS billable_sec,
-          SUM(COALESCE(a.productivity,0)::numeric * COALESCE(a.tracked,0)) AS prod_w
+          -- This project's activities table has no per-row "productivity" score,
+          -- so we proxy it with activity (overall/tracked): prod_w/tracked -> activity %.
+          SUM(COALESCE(a.overall,0) * 100) AS prod_w
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
         LEFT JOIN hubstaff_clients cl ON cl.id = p.client_id
-        WHERE COALESCE(a.is_deleted,false) = false AND COALESCE(a.tracked,0) > 0
+        WHERE COALESCE(a.tracked,0) > 0
         GROUP BY 1,2,3,4,5,6,7
     """)
     g["date_s"] = pd.to_datetime(g["date_s"]).dt.strftime("%Y-%m-%d")
@@ -365,6 +381,16 @@ def load_from_db():
     last = g.groupby("user_id")["date_s"].max()
     gmax_d = pd.to_datetime(g["date_s"].max())
     name_map = dict(zip(mem["user_id"], mem["name"]))
+    # hubstaff_members.name is empty in this project — fall back to the denormalized
+    # activities.user_name so employees show real names instead of "User <id>".
+    try:
+        _nm = db.q("select user_id::text uid, max(user_name) un from hubstaff_activities "
+                   "where coalesce(user_name,'')<>'' group by 1")
+        for _u, _n in zip(_nm["uid"], _nm["un"]):
+            if not name_map.get(_u):
+                name_map[_u] = _n
+    except Exception:
+        pass
     rate_map = dict(zip(mem["user_id"], pd.to_numeric(mem["pay_rate"], errors="coerce")))
     role_map = dict(zip(mem["user_id"], mem["role"]))
     email_map = dict(zip(mem["user_id"], mem["email"]))
@@ -957,9 +983,14 @@ def _clickup_assignee_names():
     if not db.has_db():
         return ()
     try:
-        t = db.q("""SELECT DISTINCT trim(a) a FROM
-                    (SELECT unnest(string_to_array(assignees, ',')) a FROM clickup_tasks
-                     WHERE coalesce(is_deleted,false)=false) x WHERE trim(a) <> ''""")
+        # assignees is a JSON array [{"id","username","email"}, ...]; pull usernames.
+        t = db.q("""SELECT DISTINCT trim(elem->>'username') a
+                    FROM clickup_tasks,
+                    LATERAL jsonb_array_elements(
+                      CASE WHEN coalesce(assignees,'') ~ '^\\s*\\[' THEN assignees::jsonb
+                           ELSE '[]'::jsonb END) elem
+                    WHERE coalesce(is_deleted,false)=false
+                      AND coalesce(trim(elem->>'username'),'') <> ''""")
         return tuple(x for x in t["a"].tolist() if x)
     except Exception:
         return ()
