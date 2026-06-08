@@ -250,6 +250,22 @@ body { background: var(--bg); color: var(--ink);
 .chip.more { background: var(--accent-soft); color: var(--navy); border-color: #d6def2; }
 .ec-team { display: block; font-size: 10.5px; color: var(--muted); margin-top: 1px; }
 .ec-table td { vertical-align: middle; }
+
+/* top & bottom card (clients / performers) */
+.tb-card { display: flex; flex-direction: column; }
+.tb-grp + .tb-grp { margin-top: 11px; padding-top: 11px; border-top: 1px solid var(--line-2); }
+.tb-h { font-size: 10.5px; font-weight: 750; letter-spacing: .5px; text-transform: uppercase; margin-bottom: 5px; }
+.tb-h.up { color: var(--green); } .tb-h.down { color: var(--red); }
+.tb-row { display: flex; align-items: center; gap: 9px; padding: 6px 2px; font-size: 12.5px; color: var(--ink-2); }
+.tb-row .tb-rank { width: 15px; font-weight: 700; color: var(--faint); font-size: 11px; text-align: center; flex-shrink: 0; }
+.tb-row > .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.tb-row .tb-nm { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; color: var(--ink); }
+.tb-row > b { font-weight: 750; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tb-row.perf .tb-nm { display: flex; flex-direction: column; white-space: normal; }
+.tb-row.perf .tb-nm b { font-weight: 650; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tb-row.perf .tb-nm i { font-style: normal; font-size: 10.5px; color: var(--muted); }
+.tb-row .pf-u { font-weight: 700; color: var(--ink-2); min-width: 38px; text-align: right; }
+.avatar.sm { width: 26px; height: 26px; border-radius: 7px; font-size: 10px; }
 .wl-badge { width: 40px; height: 40px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .wl-info { min-width: 0; }
 .wl-lbl { font-size: 14px; font-weight: 650; color: var(--ink); }
