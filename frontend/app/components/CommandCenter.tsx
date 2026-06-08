@@ -3,11 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import {
   ArrowUp, ArrowDown, ChevronDown, Search, Filter, CalendarDays,
-  Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock,
+  Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
 } from "lucide-react";
 import {
   getFilters, getCommand, defaultRange,
-  type FilterOptions, type CommandData, type Filters,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow,
 } from "../lib/api";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
@@ -21,6 +21,7 @@ export default function CommandCenter({
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
+  const [detail, setDetail] = useState<null | { label: string; color: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
 
   async function apply(f: Filters) {
     setLoading(true);
@@ -54,13 +55,17 @@ export default function CommandCenter({
     return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
   };
 
+  // distinct brand colour per metric so the rings are easy to tell apart
+  const COL = { util: "#203070", act: "#2f6fbf", prod: "#0d9488", bill: "#0f9043" };
+  const openMetric = (label: string, color: string, get: (e: EmployeeRow) => number, fmt: (v: number) => string) =>
+    () => setDetail({ label, color, get, fmt });
+
   // a circular progress ring (SVG, rounded cap) with the value in the centre
-  const thr = (v: number, hi: number, mid: number) => (v >= hi ? "#0f9043" : v >= mid ? "#bd8616" : "#d23f43");
-  const ringCard = (label: string, key: string, pct: number, display: string, sub: string, color: string, deltaKey?: string) => {
+  const ringCard = (label: string, key: string, pct: number, display: string, sub: string, color: string, deltaKey?: string, onClick?: () => void) => {
     const fill = Math.max(0, Math.min(100, pct));
     const R = 31, C = 2 * Math.PI * R, off = C * (1 - fill / 100);
     return (
-      <div className="kring" key={key}>
+      <div className={`kring${onClick ? " clk" : ""}`} key={key} onClick={onClick}>
         <div className="kring-wrap">
           <svg width="82" height="82" viewBox="0 0 82 82">
             <circle cx="41" cy="41" r={R} fill="none" stroke="var(--line-2)" strokeWidth="7.5" />
@@ -137,7 +142,7 @@ export default function CommandCenter({
       {/* KPI — Total Hours card + gauge rings */}
       <div className="kcards">
         {/* Featured: Total Hours + billable/non-billable */}
-        <div className="kcard kcard-feat">
+        <div className="kcard kcard-feat clk" onClick={openMetric("Total Hours", "#203070", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
           <div className="kcard-top">
             <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
             <span className="kcard-lbl">Total Hours</span>
@@ -160,10 +165,10 @@ export default function CommandCenter({
           </div>
         </div>
 
-        {ringCard("Utilization", "ring-util", util, n1(util) + "%", "", thr(util, 75, 60), "utilization")}
-        {ringCard("Activity", "ring-act", act, n1(act) + "%", "", thr(act, 70, 50), "activity")}
-        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", "", thr(prod, 70, 50), "productivity")}
-        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "", "#0f9043", "billable_hours")}
+        {ringCard("Utilization", "ring-util", util, n1(util) + "%", "", COL.util, "utilization", openMetric("Utilization", COL.util, (e) => e.utilization, (v) => n1(v) + "%"))}
+        {ringCard("Activity", "ring-act", act, n1(act) + "%", "", COL.act, "activity", openMetric("Activity", COL.act, (e) => e.activity, (v) => n1(v) + "%"))}
+        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", "", COL.prod, "productivity", openMetric("Productivity", COL.prod, (e) => e.productivity, (v) => n1(v) + "%"))}
+        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "", COL.bill, "billable_hours", openMetric("Billable hours", COL.bill, (e) => e.billable, (v) => n0(v) + "h"))}
         {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, "", grColor)}
       </div>
 
@@ -172,6 +177,45 @@ export default function CommandCenter({
       )}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
+
+      {/* KPI DETAIL — per-employee breakdown of the clicked metric */}
+      {detail && (() => {
+        const rows = data.employees
+          .map((e) => ({ name: e.name, team: e.team, grade: e.grade, v: detail.get(e) }))
+          .filter((r) => r.v > 0)
+          .sort((a, b) => b.v - a.v);
+        const max = Math.max(1, ...rows.map((r) => r.v));
+        return (
+          <div className="modal-bg" onClick={() => setDetail(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-h">
+                <div>
+                  <h3><span className="kdot" style={{ background: detail.color }} />{detail.label} · by employee</h3>
+                  <div className="sub">{rows.length} people · {data.context.label} · sorted high → low</div>
+                </div>
+                <div className="modal-x" onClick={() => setDetail(null)}><X size={16} /></div>
+              </div>
+              <div className="modal-b">
+                <table>
+                  <thead><tr><th className="l">#</th><th className="l">Employee</th><th className="l">Team</th><th>Grade</th><th className="l">{detail.label}</th></tr></thead>
+                  <tbody>
+                    {rows.map((r, i) => (
+                      <tr key={r.name}>
+                        <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
+                        <td className="l tname">{r.name}</td>
+                        <td className="l" style={{ color: "var(--muted)" }}>{r.team}</td>
+                        <td><span className={`grade ${r.grade.startsWith("A") ? "gA" : r.grade === "B+" ? "gB" : r.grade === "B" ? "gBb" : r.grade.startsWith("C") ? "gC" : "gD"}`}>{r.grade}</span></td>
+                        <td className="l"><span className="kbar"><span className="kbar-t"><span style={{ width: `${(r.v / max) * 100}%`, background: detail.color }} /></span><b>{detail.fmt(r.v)}</b></span></td>
+                      </tr>
+                    ))}
+                    {rows.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
