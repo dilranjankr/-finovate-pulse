@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
-  TrendingUp, Gauge, Activity, Zap, Award,
+  TrendingUp, Gauge, Activity, Zap, Award, Tag,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, defaultRange,
@@ -161,30 +161,44 @@ export default function CommandCenter({
           : <>Pick a date range to compare against the previous equal-length period</>}
       </div>
 
-      {/* TRACKED TIME — billable vs non-billable, within task time and project time */}
-      {bd && (bd.task_h > 0 || bd.project_h > 0) && (
-        <div className="panel">
-          <div className="ph"><h3>Tracked Time — Billable vs Non-Billable <span className="hl">split inside task time and project time</span></h3></div>
-          <div className="dn2-grid">
-            <Donut2
-              title={`On a task · ${n0(bd.task_h)}h`}
-              segs={[
-                { label: "Billable", value: bd.task_billable_h, color: "#0f9043" },
-                { label: "Non-Billable", value: bd.task_non_billable_h, color: "#d8dde6" },
-              ]}
-              centerLabel="billable"
-            />
-            <Donut2
-              title={`Project only (no task) · ${n0(bd.project_h)}h`}
-              segs={[
-                { label: "Billable", value: bd.project_billable_h, color: "#0f9043" },
-                { label: "Non-Billable", value: bd.project_non_billable_h, color: "#d8dde6" },
-              ]}
-              centerLabel="billable"
-            />
+      {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
+      {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
+        const totH = bd.task_h + bd.project_h;
+        const taskPct = totH ? Math.round((bd.task_h / totH) * 100) : 0;
+        const wlCard = (label: string, badge: string, tint: string, Icon: React.ComponentType<{ size?: number }>, hours: number, bil: number, nb: number) => (
+          <div className="wl-card">
+            <span className="wl-badge" style={{ background: tint, color: badge }}><Icon size={20} /></span>
+            <div className="wl-info">
+              <div className="wl-lbl">{label}</div>
+              <div className="wl-val num">{n0(hours)}<span>h</span></div>
+              <div className="wl-sub">
+                <span><i className="d bil" />Billable <b className="num">{n0(bil)}h</b></span>
+                <span><i className="d nbil" />Non-Billable <b className="num">{n0(nb)}h</b></span>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+        return (
+          <div className="panel wl-panel">
+            <div className="ph"><h3>Tracked Time — Task vs Project <span className="hl">where time was logged · billable split inside each</span></h3></div>
+            <div className="wl-grid">
+              <div className="wl-cards">
+                {wlCard("On a Task", "#e8930c", "#fdf2e1", Tag, bd.task_h, bd.task_billable_h, bd.task_non_billable_h)}
+                {wlCard("Project Only (no task)", "#2f6fbf", "#e8f1fd", Briefcase, bd.project_h, bd.project_billable_h, bd.project_non_billable_h)}
+              </div>
+              <div className="wl-chart">
+                <div className="wl-ring" style={{ background: `conic-gradient(#e8930c 0 ${taskPct}%, #cdd4e0 ${taskPct}% 100%)` }}>
+                  <div className="wl-hole"><b className="num">{taskPct}%</b><span>on tasks</span></div>
+                </div>
+                <div className="wl-leg">
+                  <span><i style={{ background: "#e8930c" }} />Task {n0(bd.task_h)}h</span>
+                  <span><i style={{ background: "#cdd4e0" }} />Project {n0(bd.project_h)}h</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 
@@ -230,36 +244,6 @@ export default function CommandCenter({
           </div>
         );
       })()}
-    </div>
-  );
-}
-
-function Donut2({ title, segs, centerLabel }: {
-  title: string; segs: { label: string; value: number; color: string }[]; centerLabel: string;
-}) {
-  const total = segs.reduce((s, x) => s + x.value, 0) || 1;
-  let acc = 0;
-  const stops = segs.map((s) => {
-    const start = (acc / total) * 100; acc += s.value; const end = (acc / total) * 100;
-    return `${s.color} ${start}% ${end}%`;
-  }).join(", ");
-  const mainPct = Math.round((segs[0].value / total) * 100);
-  return (
-    <div className="dn2-cell">
-      <div className="dn2-ring" style={{ background: `conic-gradient(${stops})` }}>
-        <div className="dn2-hole"><b className="num">{mainPct}%</b><span>{centerLabel}</span></div>
-      </div>
-      <div className="dn2-info">
-        <div className="dn2-t">{title}</div>
-        {segs.map((s) => (
-          <div className="dn2-lg" key={s.label}>
-            <span className="d" style={{ background: s.color }} />
-            <span className="l">{s.label}</span>
-            <b className="num">{n0(s.value)}h</b>
-            <i>{Math.round((s.value / total) * 100)}%</i>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
