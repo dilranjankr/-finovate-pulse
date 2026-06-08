@@ -1070,7 +1070,7 @@ def breakdown(
     return clean(_tracked_breakdown(uids, date_from, date_to))
 
 
-def _tracked_lists(uids, date_from, date_to, limit=25):
+def _tracked_lists(uids, date_from, date_to, limit=500):
     """Drill-down lists: tracked hours per task (task-linked time) and per
     project (project-only time), each split billable / non-billable."""
     blank = {"by_task": [], "by_project": []}
