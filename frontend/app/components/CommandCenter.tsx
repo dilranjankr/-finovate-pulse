@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
-  Gauge, Activity, Zap, Award, Tag, ArrowRight,
+  Gauge, Activity, Zap, Award, Tag,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, defaultRange,
@@ -140,28 +140,28 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* KPI — Total Hours donut card + metric cards */}
-      <div className="kpi-wrap">
+      {/* KPI — one row: Total Hours donut card + metric cards */}
+      <div className="kpi-row">
         <div className="thd-card kclk" onClick={openMetric("Total Hours", "#16a34a", "Total tracked time from Hubstaff = Billable + Non-Billable. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
-          <div className="thd-head"><h3>Total Hours</h3><span className="thd-arrow"><ArrowRight size={16} /></span></div>
-          <div className="thd-chart">
-            <RingChart segs={[{ label: "Billable", value: billable, color: "#16a34a" }, { label: "Non-Billable", value: nonbill, color: "#8b5cf6" }]} />
-            <div className="thd-center"><b className="num">{n0(total)}</b><span>total hrs</span></div>
-          </div>
-          <div className="thd-leg">
-            <div className="thd-lg"><span className="d" style={{ background: "#16a34a" }} /><span className="l">Billable</span><b className="num">{n0(billable)}h</b></div>
-            <div className="thd-lg"><span className="d" style={{ background: "#8b5cf6" }} /><span className="l">Non-Billable</span><b className="num">{n0(nonbill)}h</b></div>
+          <div className="thd-head"><h3>Total Hours</h3></div>
+          <div className="thd-body">
+            <div className="thd-chart">
+              <RingChart segs={[{ label: "Billable", value: billable, color: "#16a34a" }, { label: "Non-Billable", value: nonbill, color: "#8b5cf6" }]} />
+              <div className="thd-center"><b className="num">{n0(total)}</b><span>hrs</span></div>
+            </div>
+            <div className="thd-leg">
+              <div className="thd-lg"><span className="d" style={{ background: "#16a34a" }} /><span className="l">Billable</span><b className="num">{n0(billable)}h</b></div>
+              <div className="thd-lg"><span className="d" style={{ background: "#8b5cf6" }} /><span className="l">Non-Billable</span><b className="num">{n0(nonbill)}h</b></div>
+            </div>
           </div>
         </div>
-        <div className="kc2-grid kc2-grid-4">
-          {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
-            openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%"))}
-          {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
-            openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
-          {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
-            openMetric("Productivity", "#e8930c", "Time-weighted activity score (0–100). Equals Activity in this project (no separate Hubstaff score).", (e) => e.productivity, (v) => n1(v) + "%"))}
-          {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
-        </div>
+        {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
+          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%"))}
+        {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
+          openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
+        {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
+          openMetric("Productivity", "#e8930c", "Time-weighted activity score (0–100). Equals Activity in this project (no separate Hubstaff score).", (e) => e.productivity, (v) => n1(v) + "%"))}
+        {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
 
       <div className="kpi-cmp">
