@@ -7,8 +7,8 @@ import {
   Gauge, Activity, Zap, Award, Tag,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData,
+  getFilters, getCommand, getBreakdown, getBreakdownList, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData,
 } from "../lib/api";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
@@ -24,10 +24,18 @@ export default function CommandCenter({
   const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
   const [bd, setBd] = useState<BreakdownData | null>(null);
+  const [bdList, setBdList] = useState<BreakdownListData | null>(null);
+  const [bdModal, setBdModal] = useState<null | "task" | "project">(null);
 
   useEffect(() => {
     if (initialOpts) getBreakdown(defaultRange(initialOpts)).then(setBd).catch(() => setBd(null));
   }, [initialOpts]);
+
+  function openBdList(kind: "task" | "project") {
+    setBdModal(kind);
+    setBdList(null);
+    getBreakdownList(draft).then(setBdList).catch(() => setBdList({ by_task: [], by_project: [] }));
+  }
 
   async function apply(f: Filters) {
     setLoading(true);
@@ -169,8 +177,8 @@ export default function CommandCenter({
       {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
         const totH = bd.task_h + bd.project_h;
         const taskPct = totH ? Math.round((bd.task_h / totH) * 100) : 0;
-        const wlCard = (label: string, badge: string, tint: string, Icon: React.ComponentType<{ size?: number }>, hours: number, bil: number, nb: number) => (
-          <div className="wl-card">
+        const wlCard = (label: string, badge: string, tint: string, Icon: React.ComponentType<{ size?: number }>, hours: number, bil: number, nb: number, kind: "task" | "project") => (
+          <div className="wl-card kclk" onClick={() => openBdList(kind)}>
             <span className="wl-badge" style={{ background: tint, color: badge }}><Icon size={20} /></span>
             <div className="wl-info">
               <div className="wl-lbl">{label}</div>
@@ -187,8 +195,8 @@ export default function CommandCenter({
             <div className="ph"><h3>Tracked Time — Task vs Project <span className="hl">where time was logged · billable split inside each</span></h3></div>
             <div className="wl-grid">
               <div className="wl-cards">
-                {wlCard("On a Task", "#e8930c", "#fdf2e1", Tag, bd.task_h, bd.task_billable_h, bd.task_non_billable_h)}
-                {wlCard("Project Only (no task)", "#2f6fbf", "#e8f1fd", Briefcase, bd.project_h, bd.project_billable_h, bd.project_non_billable_h)}
+                {wlCard("On a Task", "#e8930c", "#fdf2e1", Tag, bd.task_h, bd.task_billable_h, bd.task_non_billable_h, "task")}
+                {wlCard("Project Only (no task)", "#2f6fbf", "#e8f1fd", Briefcase, bd.project_h, bd.project_billable_h, bd.project_non_billable_h, "project")}
               </div>
               <div className="wl-chart">
                 <div className="wl-ring" style={{ background: `conic-gradient(#e8930c 0 ${taskPct}%, #cdd4e0 ${taskPct}% 100%)` }}>
@@ -205,6 +213,48 @@ export default function CommandCenter({
       })()}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
+
+      {/* TASK / PROJECT drill-down list */}
+      {bdModal && (() => {
+        const rows = (bdModal === "task" ? bdList?.by_task : bdList?.by_project) || [];
+        const max = Math.max(1, ...rows.map((r) => r.total));
+        return (
+          <div className="modal-bg" onClick={() => setBdModal(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-h">
+                <div>
+                  <h3>{bdModal === "task" ? "Time by Task" : "Time by Project (no task)"}</h3>
+                  <div className="sub">{bdList ? `${rows.length} ${bdModal === "task" ? "tasks" : "projects"} · billable vs non-billable` : "loading…"} · {data.context.label}</div>
+                </div>
+                <div className="modal-x" onClick={() => setBdModal(null)}><X size={16} /></div>
+              </div>
+              <div className="modal-b">
+                {!bdList ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : (
+                  <table>
+                    <thead><tr><th className="l">#</th><th className="l">{bdModal === "task" ? "Task" : "Project"}</th><th className="l">Billable / Non-Billable</th><th>Billable</th><th>Non-Bill</th><th>Total</th></tr></thead>
+                    <tbody>
+                      {rows.map((r, i) => {
+                        const bilW = r.total ? (r.billable / r.total) * 100 : 0;
+                        return (
+                          <tr key={r.name + i}>
+                            <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
+                            <td className="l tname">{r.name}</td>
+                            <td className="l"><span className="brkbar"><span className="brkbar-t"><span className="bil" style={{ width: `${bilW}%` }} /><span className="nbil" style={{ width: `${100 - bilW}%` }} /></span><em>{(r.total / max * 100).toFixed(0)}%</em></span></td>
+                            <td className="num" style={{ color: "#0f9043", fontWeight: 700 }}>{n0(r.billable)}h</td>
+                            <td className="num" style={{ color: "var(--muted)" }}>{n0(r.non_billable)}h</td>
+                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.total)}h</td>
+                          </tr>
+                        );
+                      })}
+                      {rows.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* KPI DETAIL — per-employee breakdown of the clicked metric */}
       {detail && (() => {

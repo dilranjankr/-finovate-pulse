@@ -186,6 +186,16 @@ export async function getBreakdown(f: Filters): Promise<BreakdownData> {
   return r.json();
 }
 
+export interface BdRow { name: string; total: number; billable: number; non_billable: number; }
+export interface BreakdownListData { by_task: BdRow[]; by_project: BdRow[]; }
+export async function getBreakdownList(f: Filters): Promise<BreakdownListData> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await fetch(`${API}/api/breakdown_list?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("breakdown_list failed");
+  return r.json();
+}
+
 export async function getCommand(f: Filters): Promise<CommandData> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => {
