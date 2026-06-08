@@ -118,26 +118,38 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 1150px) { .kpis { grid-template-columns: repeat(3, 1fr); } .kt { border-bottom: 1px solid var(--line); } }
 @media (max-width: 640px) { .kpis { grid-template-columns: 1fr 1fr; } }
 
-/* KPI-only lead strip: Total Hours hero + 4 stat tiles */
-.kpis-lead { grid-template-columns: 1.9fr repeat(4, 1fr); }
-.kt-u { font-size: 13px; font-weight: 600; color: var(--muted); margin-left: 2px; }
-.kt-hero { display: flex; flex-direction: column; background: linear-gradient(180deg, #fbfcfe, #f7f9fc); }
-.kt-hh { display: flex; align-items: center; gap: 8px; }
-.kt-hero .kt-ic { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; background: var(--accent-soft); color: var(--navy); }
-.kt-hero .kt-v { font-size: 30px; margin-top: 11px; }
-.kt-splitbar { display: flex; height: 9px; border-radius: 5px; overflow: hidden; margin: 14px 0 11px; background: var(--line-2); }
-.kt-splitbar > span { display: block; height: 100%; }
-.kt-splitbar .bil { background: #0f9043; } .kt-splitbar .nbil { background: #cdd4e0; }
-.kt-split { display: flex; flex-direction: column; gap: 7px; }
-.kt-sp { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
-.kt-sp .d { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
-.kt-sp .d.bil { background: #0f9043; } .kt-sp .d.nbil { background: #cdd4e0; }
-.kt-sp .l { font-weight: 600; }
-.kt-sp b { margin-left: auto; color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
-.kt-sp i { font-style: normal; color: var(--faint); font-weight: 600; min-width: 34px; text-align: right; }
-.kpi-cmp { margin: -6px 0 14px; font-size: 11.5px; color: var(--muted); font-weight: 550; }
-@media (max-width: 1150px) { .kpis-lead { grid-template-columns: repeat(3, 1fr); } .kt-hero { grid-column: span 3; } }
-@media (max-width: 640px) { .kpis-lead { grid-template-columns: 1fr 1fr; } .kt-hero { grid-column: span 2; } }
+/* KPI CARDS — elevated cards + billable donut */
+.kcards { display: grid; grid-template-columns: 2.1fr repeat(4, 1fr); gap: 13px; margin-bottom: 12px; }
+.kcard { background: var(--panel); border: 1px solid var(--line); border-radius: 13px; padding: 16px 17px;
+  box-shadow: 0 1px 2px rgba(20,30,60,.04); display: flex; flex-direction: column; min-height: 116px; }
+.kcard-top { display: flex; align-items: center; gap: 9px; }
+.kcard-ic { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; flex-shrink: 0; }
+.kcard-lbl { font-size: 11px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); }
+.kcard > .kcard-lbl { margin-top: 4px; }
+.kcard-big { font-size: 27px; font-weight: 770; letter-spacing: -.8px; color: var(--ink); line-height: 1; margin-top: auto; padding-top: 12px; }
+.kchip { display: inline-flex; align-items: center; gap: 2px; margin-left: auto; font-size: 11px; font-weight: 750;
+  padding: 3px 8px; border-radius: 20px; font-variant-numeric: tabular-nums; }
+.kchip.up { color: var(--green); background: #e8f4ed; } .kchip.down { color: var(--red); background: #fcecec; }
+.kchip.flat { color: var(--muted); background: var(--line-2); }
+/* featured Total Hours card */
+.kcard-feat { background: linear-gradient(180deg, #fbfcff, #f6f8fd); }
+.kfeat-body { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: auto; padding-top: 14px; }
+.kfeat-big { font-size: 34px; font-weight: 780; letter-spacing: -1.2px; color: var(--ink); line-height: 1; }
+.kfeat-big span { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 2px; }
+.kfeat-rows { margin-top: 13px; display: flex; flex-direction: column; gap: 7px; }
+.kfr { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-2); }
+.kfr .dot { width: 9px; height: 9px; border-radius: 3px; flex-shrink: 0; }
+.kfr .dot.bil { background: #0f9043; } .kfr .dot.nbil { background: #dbe0e8; }
+.kfr .l { font-weight: 600; min-width: 84px; }
+.kfr b { color: var(--ink); font-weight: 750; font-variant-numeric: tabular-nums; }
+.kfr i { font-style: normal; color: var(--faint); font-weight: 600; }
+.kdonut { width: 92px; height: 92px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.kdonut-hole { width: 64px; height: 64px; border-radius: 50%; background: var(--panel); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.kdonut-hole b { font-size: 18px; font-weight: 780; color: var(--ink); letter-spacing: -.5px; }
+.kdonut-hole span { font-size: 9px; font-weight: 650; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-top: 1px; }
+.kpi-cmp { margin: 2px 0 14px; font-size: 11.5px; color: var(--muted); font-weight: 550; }
+@media (max-width: 1150px) { .kcards { grid-template-columns: repeat(2, 1fr); } .kcard-feat { grid-column: span 2; } }
+@media (max-width: 560px) { .kcards { grid-template-columns: 1fr; } .kcard-feat { grid-column: span 1; } }
 
 /* Billable / Non-Billable segmented filter */
 .bseg { display: inline-flex; align-items: center; gap: 0; height: 44px; padding: 0 6px; border-left: 1px solid var(--line); }

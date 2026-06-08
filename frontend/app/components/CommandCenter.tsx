@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import {
   ArrowUp, ArrowDown, ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock,
+  Gauge, Activity, Zap, Award,
 } from "lucide-react";
 import {
   getFilters, getCommand, defaultRange,
@@ -47,20 +48,27 @@ export default function CommandCenter({
   const cmp = data.period?.comparable;
   const pv = data.period?.previous;
 
-  // delta tile for a KPI
-  const tile = (label: string, key: string, unit: string) => {
+  const deltaChip = (key: string) => {
+    const t = data.kpis[key]?.trend || 0;
+    if (!cmp) return null;
+    const up = t > 0, dn = t < 0;
+    return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
+  };
+
+  // a single stat card: icon + value + label + delta
+  const statCard = (label: string, key: string, unit: string, Icon: React.ComponentType<{ size?: number }>, tint: string) => {
     const kv = data.kpis[key]; if (!kv) return null;
-    const up = kv.trend > 0, dn = kv.trend < 0;
     const val = typeof kv.value === "string"
       ? kv.value
       : unit === "%" ? n1(kv.value) + "%" : unit === "h" ? n0(kv.value) + "h" : n1(kv.value);
     return (
-      <div className="kt" key={key}>
-        <div className="kt-l">{label}</div>
-        <div className="kt-v num">{val}</div>
-        {cmp
-          ? <div className={`kt-d ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={11} /> : dn ? <ArrowDown size={11} /> : null}{Math.abs(kv.trend)}%<span className="kt-vs">vs prev</span></div>
-          : <div className="kt-d flat"><span className="kt-vs">—</span></div>}
+      <div className="kcard" key={key}>
+        <div className="kcard-top">
+          <span className="kcard-ic" style={{ background: `${tint}1a`, color: tint }}><Icon size={15} /></span>
+          {deltaChip(key)}
+        </div>
+        <div className="kcard-big num">{val}</div>
+        <div className="kcard-lbl">{label}</div>
       </div>
     );
   };
@@ -116,38 +124,40 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* KPI STRIP */}
-      <div className="kpis kpis-lead">
-        {/* Total Hours hero — billable / non-billable breakdown */}
-        <div className="kt kt-hero">
-          <div className="kt-hh"><span className="kt-ic"><Clock size={14} /></span><div className="kt-l">Total Hours</div></div>
-          <div className="kt-v num">{n0(total)}<span className="kt-u">h</span></div>
-          {cmp
-            ? (() => { const t = data.kpis.total_hours?.trend || 0; const up = t > 0, dn = t < 0; return (
-                <div className={`kt-d ${up ? "up" : dn ? "down" : "flat"}`}>{up ? <ArrowUp size={11} /> : dn ? <ArrowDown size={11} /> : null}{Math.abs(t)}%<span className="kt-vs">vs prev</span></div>
-              ); })()
-            : <div className="kt-d flat"><span className="kt-vs">—</span></div>}
-          <div className="kt-splitbar">
-            <span className="bil" style={{ width: `${billPct}%` }} />
-            <span className="nbil" style={{ width: `${100 - billPct}%` }} />
+      {/* KPI CARDS */}
+      <div className="kcards">
+        {/* Featured: Total Hours + billable/non-billable donut */}
+        <div className="kcard kcard-feat">
+          <div className="kcard-top">
+            <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
+            <span className="kcard-lbl">Total Hours</span>
+            {deltaChip("total_hours")}
           </div>
-          <div className="kt-split">
-            <div className="kt-sp"><span className="d bil" /><span className="l">Billable</span><b>{n0(billable)}h</b><i>{billPct}%</i></div>
-            <div className="kt-sp"><span className="d nbil" /><span className="l">Non-Billable</span><b>{n0(nonbill)}h</b><i>{100 - billPct}%</i></div>
+          <div className="kfeat-body">
+            <div className="kfeat-l">
+              <div className="kfeat-big num">{n0(total)}<span>h</span></div>
+              <div className="kfeat-rows">
+                <div className="kfr"><span className="dot bil" /><span className="l">Billable</span><b>{n0(billable)}h</b><i>{billPct}%</i></div>
+                <div className="kfr"><span className="dot nbil" /><span className="l">Non-Billable</span><b>{n0(nonbill)}h</b><i>{100 - billPct}%</i></div>
+              </div>
+            </div>
+            <div className="kdonut" style={{ background: `conic-gradient(#0f9043 0 ${billPct}%, #dbe0e8 ${billPct}% 100%)` }}>
+              <div className="kdonut-hole"><b className="num">{billPct}%</b><span>billable</span></div>
+            </div>
           </div>
         </div>
 
-        {tile("Utilization", "utilization", "%")}
-        {tile("Activity", "activity", "%")}
-        {tile("Productivity", "productivity", "%")}
-        {tile("Avg Grade", "avg_grade", "")}
+        {statCard("Utilization", "utilization", "%", Gauge, "#203070")}
+        {statCard("Productivity", "productivity", "%", Zap, "#0f9043")}
+        {statCard("Activity", "activity", "%", Activity, "#2f6fbf")}
+        {statCard("Avg Grade", "avg_grade", "", Award, "#7b3fc0")}
       </div>
 
       {cmp && pv && (
-        <div className="kpi-cmp">Compared to previous {pv.days}-day period · {pv.from} → {pv.to}</div>
+        <div className="kpi-cmp">vs previous {pv.days}-day period · {pv.from} → {pv.to}</div>
       )}
 
-      <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = internal depts (HR/Admin/Marketing/Archived)</div>
+      <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
     </div>
   );
 }
