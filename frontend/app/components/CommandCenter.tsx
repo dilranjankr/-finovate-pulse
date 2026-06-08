@@ -10,9 +10,23 @@ import {
   getFilters, getCommand, getBreakdown, getBreakdownList, defaultRange,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData,
 } from "../lib/api";
+import { TrendLines, Donut, Bubble, BarList } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
+function gradeCls(g: string) {
+  if (g.startsWith("A")) return "gA";
+  if (g === "B+") return "gB";
+  if (g === "B") return "gBb";
+  if (g.startsWith("C")) return "gC";
+  return "gD";
+}
+function avatarColor(s: string) {
+  const c = ["#203070", "#0f9043", "#2f6fbf", "#d9882a", "#7b3fc0", "#0d9488"];
+  let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 9973;
+  return c[h % c.length];
+}
+const initials = (s: string) => s.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
 
 export default function CommandCenter({
   initialOpts, initialData,
@@ -96,6 +110,17 @@ export default function CommandCenter({
     );
   };
 
+  // derived data for the visual sections
+  const bubble = data.employees.map((e) => ({
+    x: e.utilization, y: e.productivity, z: Math.max(e.billable, 1), name: e.name,
+    color: e.grade.startsWith("A") ? "#0f9043" : e.grade.startsWith("B") ? "#2f6fbf" : e.grade.startsWith("C") ? "#bd8616" : "#d23f43",
+  }));
+  const clientsTop = [...data.clients_summary].filter((c) => c.hours > 0).sort((a, b) => b.hours - a.hours).slice(0, 8)
+    .map((c) => ({ label: c.client, value: c.hours, color: c.category === "Fixed" ? "#2f6fbf" : c.category === "Hourly" ? "#0f9043" : "#9aa3b2" }));
+  const ch = data.client_health;
+  const chTotal = ch.active + ch.at_risk + ch.inactive;
+  const chData = [{ name: "Active", value: ch.active }, { name: "At Risk", value: ch.at_risk }, { name: "Inactive", value: ch.inactive }];
+  const empClients = [...data.employees].filter((e) => e.billable > 0).sort((a, b) => b.billable - a.billable);
 
   return (
     <div className="page">
@@ -211,6 +236,91 @@ export default function CommandCenter({
           </div>
         );
       })()}
+
+      {/* HOURS TREND */}
+      {data.hours_trend.length > 1 && (
+        <>
+          <div className="sec"><h4>Hours Trend</h4></div>
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3>Billable vs Non-Billable over time <span className="hl">tracked hours per day</span></h3></div>
+            <TrendLines data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={280} />
+          </div>
+        </>
+      )}
+
+      {/* CLIENTS */}
+      <div className="sec"><h4>Clients</h4></div>
+      <div className="row2">
+        <div className="panel">
+          <div className="ph"><h3>Top Clients by Hours <span className="hl">Fixed (blue) · Hourly (green)</span></h3></div>
+          {clientsTop.length ? <BarList items={clientsTop} unit="h" /> : <div className="empty-s">No client data in scope</div>}
+        </div>
+        <div className="panel">
+          <div className="ph"><h3>Client Health <span className="hl">active · at-risk · inactive</span></h3></div>
+          {chTotal > 0 ? (
+            <div className="donut-wrap">
+              <div style={{ width: 150 }}><Donut data={chData} colors={["#0f9043", "#bd8616", "#d23f43"]} height={180} center={{ value: String(chTotal), label: "Clients" }} /></div>
+              <div className="legend">
+                {chData.map((s, i) => (
+                  <div className="li" key={s.name}><span className="dot" style={{ background: ["#0f9043", "#bd8616", "#d23f43"][i] }} /><span className="nm">{s.name}</span><span className="vl">{s.value}</span><span className="pc">{chTotal ? Math.round((s.value / chTotal) * 100) : 0}%</span></div>
+                ))}
+              </div>
+            </div>
+          ) : <div className="empty-s">No client data in scope</div>}
+        </div>
+      </div>
+
+      {/* PERFORMANCE */}
+      <div className="sec"><h4>Performance</h4></div>
+      <div className="row2">
+        <div className="panel">
+          <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3></div>
+          {bubble.length > 1 ? <Bubble points={bubble} height={300} /> : <div className="empty-s">Select a broader scope to compare people</div>}
+        </div>
+        <div className="panel">
+          <div className="ph"><h3>Top Performers <span className="hl">by grade</span></h3></div>
+          <div className="scrollwrap" style={{ maxHeight: 300 }}>
+            <table>
+              <thead><tr><th className="l">Employee</th><th className="l">Team</th><th>Grade</th><th>Util</th><th>Billable</th></tr></thead>
+              <tbody>
+                {data.top3.concat(data.bottom3).filter((e, i, a) => a.findIndex((x) => x.name === e.name) === i).map((e) => (
+                  <tr key={e.name}>
+                    <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                    <td className="l" style={{ color: "var(--muted)" }}>{e.team}</td>
+                    <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
+                    <td className="num">{n0(e.utilization)}%</td>
+                    <td className="num">{n0(e.billable)}h</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      {/* EMPLOYEE → CLIENT */}
+      <div className="sec"><h4>Employees &amp; Clients</h4></div>
+      <div className="panel" style={{ marginBottom: 14 }}>
+        <div className="ph"><h3>Which employee works on which client <span className="hl">primary client · billable hours · click for detail</span></h3></div>
+        <div className="scrollwrap" style={{ maxHeight: 440 }}>
+          <table>
+            <thead><tr><th className="l">Employee</th><th className="l">Team</th><th className="l">Client</th><th>Billable</th><th>Util</th><th>Grade</th></tr></thead>
+            <tbody>
+              {empClients.map((e) => (
+                <tr key={e.name}>
+                  <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                  <td className="l" style={{ color: "var(--muted)" }}>{e.team}</td>
+                  <td className="l"><span className="tname">{e.client || "—"}</span></td>
+                  <td className="num">{n0(e.billable)}h</td>
+                  <td className="num">{n0(e.utilization)}%</td>
+                  <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
+                </tr>
+              ))}
+              {empClients.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 
