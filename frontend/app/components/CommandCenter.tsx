@@ -2,8 +2,9 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
-  ArrowUp, ArrowDown, ChevronDown, Search, Filter, CalendarDays,
+  ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
+  TrendingUp, Gauge, Activity, Zap, Award,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, defaultRange,
@@ -49,55 +50,43 @@ export default function CommandCenter({
 
   const total = Number(k.total_hours?.value || 0);
   const billable = Number(k.billable_hours?.value || 0);
-  const nonbill = Number(k.non_billable_hours?.value || 0);
-  const billPct = total ? Math.round((billable / total) * 100) : 0;
+  const util = Number(k.utilization?.value || 0);
+  const prod = Number(k.productivity?.value || 0);
+  const act = Number(k.activity?.value || 0);
+  const gradeStr = String(k.avg_grade?.value ?? "—");
   const cmp = data.period?.comparable;
   const pv = data.period?.previous;
 
-  const deltaChip = (key: string) => {
-    const t = data.kpis[key]?.trend || 0;
-    if (!cmp) return null;
-    const up = t > 0, dn = t < 0;
-    const pvw = data.period?.previous;
-    const tip = pvw ? `${t > 0 ? "+" : ""}${t}% vs previous ${pvw.days} days (${pvw.from} → ${pvw.to})` : "vs previous period";
-    return <span className={`kchip ${up ? "up" : dn ? "down" : "flat"}`} title={tip}>{up ? <ArrowUp size={10} /> : dn ? <ArrowDown size={10} /> : null}{Math.abs(t)}%</span>;
-  };
-
-  // distinct brand colour per metric so the rings are easy to tell apart
-  const COL = { util: "#203070", act: "#2f6fbf", prod: "#0d9488", bill: "#0f9043" };
   const openMetric = (label: string, color: string, calc: string, get: (e: EmployeeRow) => number, fmt: (v: number) => string) =>
     () => setDetail({ label, color, calc, get, fmt });
 
-  // a circular progress ring (SVG, rounded cap) with the value in the centre
-  const ringCard = (label: string, key: string, pct: number, display: string, sub: string, color: string, deltaKey?: string, onClick?: () => void) => {
-    const fill = Math.max(0, Math.min(100, pct));
-    const R = 31, C = 2 * Math.PI * R, off = C * (1 - fill / 100);
+  // image-style KPI card: tinted top + solid icon badge, white body w/ value + delta
+  const KPICOL: Record<string, { tint: string; badge: string }> = {
+    green: { tint: "#e7f6ec", badge: "#16a34a" },
+    teal: { tint: "#e2f5f1", badge: "#0d9488" },
+    purple: { tint: "#f1e9fb", badge: "#8b5cf6" },
+    blue: { tint: "#e8f1fd", badge: "#2f6fbf" },
+    amber: { tint: "#fdf2e1", badge: "#e8930c" },
+    rose: { tint: "#fdeaea", badge: "#ef4444" },
+  };
+  const kpiCard = (key: string, label: string, value: string, colorKey: string, Icon: React.ComponentType<{ size?: number }>, deltaKey?: string, onClick?: () => void) => {
+    const c = KPICOL[colorKey];
+    const t = deltaKey ? (data.kpis[deltaKey]?.trend ?? 0) : null;
     return (
-      <div className={`kring${onClick ? " kclk" : ""}`} key={key} onClick={onClick}>
-        <div className="kring-wrap">
-          <svg width="82" height="82" viewBox="0 0 82 82">
-            <circle cx="41" cy="41" r={R} fill="none" stroke="var(--line-2)" strokeWidth="7.5" />
-            <circle cx="41" cy="41" r={R} fill="none" stroke={color} strokeWidth="7.5" strokeLinecap="round"
-              strokeDasharray={C} strokeDashoffset={off} transform="rotate(-90 41 41)" />
-          </svg>
-          <div className="kring-center">
-            <b className="num" style={{ color }}>{display}</b>
-            {sub ? <span>{sub}</span> : null}
-          </div>
+      <div className={`kc2${onClick ? " kclk" : ""}`} key={key} onClick={onClick}>
+        <div className="kc2-top" style={{ background: c.tint }}>
+          <span className="kc2-badge" style={{ background: c.badge }}><Icon size={22} /></span>
         </div>
-        <div className="kring-foot">
-          <span className="kring-lbl">{label}</span>
-          {deltaKey && cmp ? <span className="kring-trend">{deltaChip(deltaKey)}<em>vs last {pv?.days}d</em></span> : null}
+        <div className="kc2-body">
+          <div className="kc2-lbl">{label}</div>
+          <div className="kc2-val num">{value}</div>
+          {cmp && t !== null
+            ? <div className="kc2-delta"><Clock size={13} style={{ color: c.badge }} /><b style={{ color: c.badge }}>{t > 0 ? "+" : ""}{t}%</b><span>vs last {pv?.days}d</span></div>
+            : <div className="kc2-delta dash"><span>—</span></div>}
         </div>
       </div>
     );
   };
-  const GR_PCT: Record<string, number> = { "A+": 96, A: 86, "B+": 78, B: 68, C: 52, D: 32 };
-  const gradeStr = String(k.avg_grade?.value ?? "—");
-  const grColor = gradeStr.startsWith("A") ? "#0f9043" : gradeStr.startsWith("B") ? "#2f6fbf" : gradeStr.startsWith("C") ? "#bd8616" : "#d23f43";
-  const util = Number(k.utilization?.value || 0);
-  const prod = Number(k.productivity?.value || 0);
-  const act = Number(k.activity?.value || 0);
 
 
   return (
@@ -151,37 +140,19 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* KPI — Total Hours card + gauge rings */}
-      <div className="kcards">
-        {/* Featured: Total Hours + billable/non-billable */}
-        <div className="kcard kcard-feat kclk" onClick={openMetric("Total Hours", "#203070", "Total tracked time from Hubstaff = Billable + Non-Billable hours. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
-          <div className="kcard-top">
-            <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
-            <span className="kcard-lbl">Total Hours</span>
-            {cmp ? <span className="kcard-trend">{deltaChip("total_hours")}<em>vs last {pv?.days}d</em></span> : null}
-          </div>
-          <div className="kfeat-num"><b className="num">{n0(total)}</b><span>hrs tracked</span></div>
-          <div className="kfeat-bar">
-            <span className="bil" style={{ width: `${billPct}%` }} />
-            <span className="nbil" style={{ width: `${100 - billPct}%` }} />
-          </div>
-          <div className="kfeat-split">
-            <div className="kfeat-blk bil">
-              <div className="top"><span className="dot" />Billable</div>
-              <div className="val num">{n0(billable)}<span className="u">h</span> <i>{billPct}%</i></div>
-            </div>
-            <div className="kfeat-blk nbil">
-              <div className="top"><span className="dot" />Non-Billable</div>
-              <div className="val num">{n0(nonbill)}<span className="u">h</span> <i>{100 - billPct}%</i></div>
-            </div>
-          </div>
-        </div>
-
-        {ringCard("Utilization", "ring-util", util, n1(util) + "%", "", COL.util, "utilization", openMetric("Utilization", COL.util, "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%. Per employee = their tracked ÷ (their days × 8).", (e) => e.utilization, (v) => n1(v) + "%"))}
-        {ringCard("Activity", "ring-act", act, n1(act) + "%", "", COL.act, "activity", openMetric("Activity", COL.act, "Active time (keyboard + mouse) ÷ tracked time × 100. How much of logged time had real input.", (e) => e.activity, (v) => n1(v) + "%"))}
-        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", "", COL.prod, "productivity", openMetric("Productivity", COL.prod, "Time-weighted activity score (0–100). This project has no separate Hubstaff productivity score, so it currently equals Activity.", (e) => e.productivity, (v) => n1(v) + "%"))}
-        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "", COL.bill, "billable_hours", openMetric("Billable hours", COL.bill, "Tracked time on tasks/projects NOT marked “NB”. Work whose task or project name starts with the NB token is non-billable.", (e) => e.billable, (v) => n0(v) + "h"))}
-        {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, "", grColor)}
+      {/* KPI CARDS — tinted top + icon badge, value + delta */}
+      <div className="kc2-grid">
+        {kpiCard("k-total", "Total Hours", n0(total) + "h", "green", TrendingUp, "total_hours",
+          openMetric("Total Hours", "#16a34a", "Total tracked time from Hubstaff = Billable + Non-Billable. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h"))}
+        {kpiCard("k-bill", "Billable Hours", n0(billable) + "h", "teal", Receipt, "billable_hours",
+          openMetric("Billable hours", "#0d9488", "Tracked time on tasks/projects NOT marked “NB”. NB-marked work is non-billable.", (e) => e.billable, (v) => n0(v) + "h"))}
+        {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
+          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%"))}
+        {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
+          openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
+        {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
+          openMetric("Productivity", "#e8930c", "Time-weighted activity score (0–100). Equals Activity in this project (no separate Hubstaff score).", (e) => e.productivity, (v) => n1(v) + "%"))}
+        {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
 
       <div className="kpi-cmp">
