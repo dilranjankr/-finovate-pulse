@@ -882,23 +882,27 @@ def command(
     else:
         top3, bottom3 = [], []
 
-    # Clients (ClickUp folders) with active/inactive + category
+    # Clients — ALL clients in scope (every ClickUp folder the in-scope people
+    # touch), not just the few that carry primary-mapped Hubstaff hours.
     cdim = clickup_intel()["clients"]
+    hrs_by = d.groupby("client")["tracked_h"].sum().to_dict() if not empty else {}
+    scope_clients = set()
+    if "client_set" in m.columns and not m.empty:
+        for cs in m["client_set"]:
+            scope_clients.update(c for c in (cs or []) if c and c != "Unassigned")
+    scope_clients.update(c for c in hrs_by if c and c != "Unassigned")
     clients_summary = []
-    if not empty:
-        ch = d.groupby("client")["tracked_h"].sum().sort_values(ascending=False)
-        for cl, hrs in ch.head(60).items():
-            if cl == "Unassigned":
-                continue
-            info = cdim.get(cl, {})
-            clients_summary.append({"client": cl, "hours": round(float(hrs), 1),
-                                    "active": bool(info.get("active", False)),
-                                    "category": info.get("category", "Project"),
-                                    "active_tasks": int(info.get("active_tasks", 0)),
-                                    "total_tasks": int(info.get("total", 0))})
-    present = set(d["client"].unique()) - {"Unassigned"} if not empty else set()
-    active_clients = sum(1 for c in present if (cdim.get(c) or {}).get("active"))
-    clients_status = {"active": active_clients, "inactive": len(present) - active_clients}
+    for cl in scope_clients:
+        info = cdim.get(cl, {})
+        clients_summary.append({"client": cl, "hours": round(float(hrs_by.get(cl, 0.0)), 1),
+                                "active": bool(info.get("active", False)),
+                                "category": info.get("category", "Project"),
+                                "active_tasks": int(info.get("active_tasks", 0)),
+                                "total_tasks": int(info.get("total", 0))})
+    clients_summary.sort(key=lambda c: -c["hours"])
+    summary["clients"] = len(scope_clients)
+    active_clients = sum(1 for c in scope_clients if (cdim.get(c) or {}).get("active"))
+    clients_status = {"active": active_clients, "inactive": len(scope_clients) - active_clients}
 
     # At-a-glance task counts
     task_total = int(sum(t["value"] for t in task_summary))
@@ -906,19 +910,17 @@ def command(
     summary["total_tasks"] = task_total
     summary["active_tasks"] = task_total - completed_t
 
-    # Client Health (active / at-risk / inactive)
+    # Client Health (active / at-risk / inactive) over ALL in-scope clients:
+    # active = has tracked hours this period; at-risk = ClickUp-active but no
+    # tracked hours; inactive = no active tasks and no hours.
     client_health = {"active": 0, "at_risk": 0, "inactive": 0}
-    if not empty:
-        chh = d[d["client"] != "Unassigned"].groupby("client")["tracked_h"].sum()
-        q25 = float(chh.quantile(0.25)) if len(chh) else 0.0
-        for cl, hrs in chh.items():
-            at = int((cdim.get(cl) or {}).get("active_tasks", 0))
-            if at == 0:
-                client_health["inactive"] += 1
-            elif hrs < q25:
-                client_health["at_risk"] += 1
-            else:
-                client_health["active"] += 1
+    for c in clients_summary:
+        if c["hours"] > 0:
+            client_health["active"] += 1
+        elif c["active_tasks"] > 0:
+            client_health["at_risk"] += 1
+        else:
+            client_health["inactive"] += 1
 
     # Project Health (from teams' utilization)
     project_health = {"on_track": 0, "at_risk": 0, "delayed": 0}
