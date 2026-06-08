@@ -190,24 +190,24 @@ export default function CommandCenter({
           : <>Pick a date range to compare against the previous equal-length period</>}
       </div>
 
-      {/* TRACKED TIME — two donuts: task vs project, and billable vs non-billable */}
-      {bd && bd.total_h > 0 && (
+      {/* TRACKED TIME — billable vs non-billable, within task time and project time */}
+      {bd && (bd.task_h > 0 || bd.project_h > 0) && (
         <div className="panel">
-          <div className="ph"><h3>Tracked Time Breakdown <span className="hl">how time was logged · and billable split</span></h3></div>
+          <div className="ph"><h3>Tracked Time — Billable vs Non-Billable <span className="hl">split inside task time and project time</span></h3></div>
           <div className="dn2-grid">
             <Donut2
-              title="Time logging"
+              title={`On a task · ${n0(bd.task_h)}h`}
               segs={[
-                { label: "On a task", value: bd.task_h, color: "#203070" },
-                { label: "Project only (no task)", value: bd.project_only_h, color: "#cdd4e0" },
+                { label: "Billable", value: bd.task_billable_h, color: "#0f9043" },
+                { label: "Non-Billable", value: bd.task_non_billable_h, color: "#d8dde6" },
               ]}
-              centerLabel="on tasks"
+              centerLabel="billable"
             />
             <Donut2
-              title="Billable split"
+              title={`Project only (no task) · ${n0(bd.project_h)}h`}
               segs={[
-                { label: "Billable", value: bd.billable_h, color: "#0f9043" },
-                { label: "Non-Billable", value: bd.non_billable_h, color: "#d8dde6" },
+                { label: "Billable", value: bd.project_billable_h, color: "#0f9043" },
+                { label: "Non-Billable", value: bd.project_non_billable_h, color: "#d8dde6" },
               ]}
               centerLabel="billable"
             />

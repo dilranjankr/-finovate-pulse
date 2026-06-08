@@ -175,8 +175,8 @@ export function defaultRange(opts: FilterOptions): { date_from: string; date_to:
 }
 
 export interface BreakdownData {
-  total_h: number; task_h: number; project_only_h: number;
-  billable_h: number; non_billable_h: number;
+  task_h: number; task_billable_h: number; task_non_billable_h: number;
+  project_h: number; project_billable_h: number; project_non_billable_h: number;
 }
 export async function getBreakdown(f: Filters): Promise<BreakdownData> {
   const qs = new URLSearchParams();
