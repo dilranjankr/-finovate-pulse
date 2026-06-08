@@ -822,15 +822,22 @@ def command(
     else:
         pa = {}
 
-    teams = []
-    if not empty:
-        for _, r in group_metrics(d, "atl").sort_values("billable", ascending=False).head(50).iterrows():
-            teams.append({"team": r["atl"], "team_size": int(r["people"]),
-                          "billable": round(r["billable"], 1), "non_billable": round(r["non_billable"], 1),
-                          "total": round(r["total"], 1), "utilization": round(r["utilization"], 0),
-                          "productivity": round(r["productivity"], 0), "grade": r["grade"],
-                          "revenue": round(r["revenue"], 0), "budget": round(r["budget"], 0),
-                          "variance": round(r["variance"], 0), "status": "Active"})
+    def _grouprows(by):
+        out = []
+        if empty:
+            return out
+        for _, r in group_metrics(d, by).sort_values("billable", ascending=False).head(60).iterrows():
+            out.append({"team": r[by], "team_size": int(r["people"]),
+                        "billable": round(r["billable"], 1), "non_billable": round(r["non_billable"], 1),
+                        "total": round(r["total"], 1), "utilization": round(r["utilization"], 0),
+                        "activity": round(r["activity"], 0),
+                        "productivity": round(r["productivity"], 0), "grade": r["grade"],
+                        "revenue": round(r["revenue"], 0), "budget": round(r["budget"], 0),
+                        "variance": round(r["variance"], 0), "status": "Active"})
+        return out
+
+    teams = _grouprows("atl")
+    departments = _grouprows("department")
 
     employees_tbl = []
     if not emp.empty:
@@ -1003,7 +1010,7 @@ def command(
                    "previous": prev} if prev else {"comparable": False},
         "kpis": kpis, "hours_distribution": hours_distribution, "hours_trend": hours_trend,
         "top_clients": top_clients, "task_summary": task_summary,
-        "teams": teams, "employees": employees_tbl, "total_employees": int(len(members)),
+        "teams": teams, "departments": departments, "employees": employees_tbl, "total_employees": int(len(members)),
         "top3": top3, "bottom3": bottom3,
         "clients_summary": clients_summary, "clients_status": clients_status,
         "table": {"level": level, "view": view, "columns": columns, "rows": table_rows},

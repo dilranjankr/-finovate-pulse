@@ -21,7 +21,7 @@ export interface KpiVal {
 
 export interface TeamRow {
   team: string; team_size: number; billable: number; non_billable: number;
-  total: number; utilization: number; productivity: number; grade: string;
+  total: number; utilization: number; activity?: number; productivity: number; grade: string;
   revenue: number; budget: number; variance: number; status: string;
 }
 export interface EmployeeRow {
@@ -54,6 +54,7 @@ export interface CommandData {
   top_clients: { client: string; hours: number }[];
   task_summary: { name: string; value: number }[];
   teams: TeamRow[];
+  departments?: TeamRow[];
   employees: EmployeeRow[];
   total_employees: number;
   top3: TopEmp[];

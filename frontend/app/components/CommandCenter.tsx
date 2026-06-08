@@ -10,7 +10,7 @@ import {
   getFilters, getCommand, getBreakdown, getBreakdownList, defaultRange,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData,
 } from "../lib/api";
-import { TrendLines, Donut, Bubble } from "./Charts";
+import { TrendLines, Donut, Bubble, ComboColumns } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -40,6 +40,7 @@ export default function CommandCenter({
   const [bd, setBd] = useState<BreakdownData | null>(null);
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
   const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
+  const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
 
   useEffect(() => {
     if (initialOpts) getBreakdown(defaultRange(initialOpts)).then(setBd).catch(() => setBd(null));
@@ -336,6 +337,47 @@ export default function CommandCenter({
           </div>
         </div>
       </div>
+
+      {/* COMPARISON — department-wise / team-wise */}
+      {(() => {
+        const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
+        if (!rows.length) return null;
+        return (
+          <>
+            <div className="sec"><h4>Comparison</h4></div>
+            <div className="panel" style={{ marginBottom: 14 }}>
+              <div className="ph">
+                <h3>{cmpDim === "department" ? "Departments" : "Teams"} — Hours &amp; Utilization <span className="hl">bars = hours · line = utilization %</span></h3>
+                <div className="bseg" role="group">
+                  {([["department", "By Department"], ["team", "By Team"]] as const).map(([v, lbl]) => (
+                    <button key={v} type="button" className={cmpDim === v ? "on" : ""} onClick={() => setCmpDim(v)}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <ComboColumns rows={rows.map((r) => ({ label: r.team, hours: r.total, util: r.utilization }))} height={320} />
+              <div className="scrollwrap" style={{ maxHeight: 360, marginTop: 6 }}>
+                <table>
+                  <thead><tr><th className="l">{cmpDim === "department" ? "Department" : "Team"}</th><th>People</th><th>Hours</th><th>Billable</th><th>Util</th><th>Activity</th><th>Productivity</th><th>Grade</th></tr></thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr key={r.team}>
+                        <td className="l tname">{r.team}</td>
+                        <td className="num">{r.team_size}</td>
+                        <td className="num">{n0(r.total)}h</td>
+                        <td className="num">{n0(r.billable)}h</td>
+                        <td><span className="util"><span className="bar"><span className="fill" style={{ width: `${r.utilization}%`, background: r.utilization >= 75 ? "#0f9043" : r.utilization >= 60 ? "#bd8616" : "#d23f43" }} /></span><span className="pc">{n0(r.utilization)}%</span></span></td>
+                        <td className="num">{n0(r.activity || 0)}%</td>
+                        <td className="num">{n0(r.productivity)}%</td>
+                        <td><span className={`grade ${gradeCls(r.grade)}`}>{r.grade}</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* EMPLOYEE → CLIENTS */}
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
