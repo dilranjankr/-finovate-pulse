@@ -85,6 +85,18 @@ export interface RawData {
   total: number;
   shown: number;
 }
+export interface UnassignedData {
+  rows: { name: string; hours: number; days: number; reason: string; suggestion: string }[];
+  count: number;
+  total_hours: number;
+  total_members: number;
+}
+export async function getUnassigned(): Promise<UnassignedData> {
+  const r = await fetch(`${API}/api/unassigned`, { cache: "no-store" });
+  if (!r.ok) throw new Error("unassigned failed");
+  return r.json();
+}
+
 export async function getRaw(f: Filters): Promise<RawData> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });

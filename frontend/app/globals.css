@@ -128,6 +128,18 @@ body { background: var(--bg); color: var(--ink);
 .prbadge.bl { background: #e8f4ed; color: #0f9043; }
 .prbadge.nb { background: #f4eef8; color: #7b3fc0; }
 .prdash { color: var(--faint); }
+/* unassigned diagnostic */
+.unbtn { display: inline-flex; align-items: center; gap: 6px; height: 38px; padding: 0 13px; font-family: inherit; font-size: 12.5px;
+  font-weight: 650; color: var(--amber); background: var(--amber-bg); border: 1px solid #ecd9a3; border-radius: 10px; cursor: pointer; transition: .15s; }
+.unbtn:hover { background: #f5e9c8; }
+.unbtn svg { flex-shrink: 0; }
+.un-note { display: flex; align-items: flex-start; gap: 10px; background: var(--amber-bg); border: 1px solid #ecd9a3; border-radius: 9px;
+  padding: 11px 14px; margin: 4px 0 14px; font-size: 12.5px; line-height: 1.55; color: var(--ink-2); }
+.un-note svg { color: var(--amber); flex-shrink: 0; margin-top: 1px; }
+.un-reason { font-size: 12px; font-weight: 600; }
+.un-reason.none { color: var(--ink-2); }
+.un-reason.fix { color: var(--amber); }
+.un-sug { font-size: 12px; font-weight: 650; color: var(--navy); background: var(--accent-soft); padding: 3px 9px; border-radius: 5px; }
 /* client-first view */
 .cov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
 .cov-sub { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); margin-bottom: 12px; }

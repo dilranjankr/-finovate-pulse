@@ -8,8 +8,8 @@ import {
   ListChecks, CheckSquare, Gauge, Sparkles, Send, RotateCcw,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getRaw, getEmployee, askAI,
-  type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail,
+  getFilters, getCommand, getRaw, getEmployee, askAI, getUnassigned,
+  type FilterOptions, type CommandData, type Filters, type KpiVal, type RawData, type EmployeeDetail, type UnassignedData,
 } from "../lib/api";
 import { Sparkline, TrendLines, Donut, GradeBars, RadialGauge, Bubble, BarList, TeamGauges, DeptColumns, BreakdownColumns, MetricColumns, SankeyFlow, ComboColumns, RadarCompare } from "./Charts";
 import MatrixHeatmap from "./Heatmap";
@@ -77,7 +77,8 @@ export default function CommandCenter({
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
-  const [modal, setModal] = useState<null | "employees" | "clients" | "raw">(null);
+  const [modal, setModal] = useState<null | "employees" | "clients" | "raw" | "unassigned">(null);
+  const [unData, setUnData] = useState<UnassignedData | null>(null);
   const [search, setSearch] = useState("");
   const [raw, setRaw] = useState<RawData | null>(null);
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
@@ -118,6 +119,7 @@ export default function CommandCenter({
     a.download = `${name}_${draft.date_from}_${draft.date_to}.csv`; a.click();
   }
   async function openRaw() { setModal("raw"); setRaw(null); try { setRaw(await getRaw(draft)); } catch { setRaw({ rows: [], total: 0, shown: 0 }); } }
+  async function openUnassigned() { setModal("unassigned"); setUnData(null); try { setUnData(await getUnassigned()); } catch { setUnData({ rows: [], count: 0, total_hours: 0, total_members: 0 }); } }
   async function openEmployee(name: string) {
     setEmp({ name, data: null });
     try { setEmp({ name, data: await getEmployee(name, draft) }); } catch { setEmp({ name, data: { found: false } }); }
@@ -281,6 +283,7 @@ export default function CommandCenter({
           </div>
         </div>
         <div className="tb-r">
+          <button className="unbtn" onClick={openUnassigned} title="Why are some hours Unassigned?"><AlertTriangle size={14} />Unassigned</button>
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
           <div className={`filtbtn${showFilters ? " on" : ""}`} title="Toggle filters" onClick={() => setShowFilters((s) => !s)}><Filter /></div>
         </div>
@@ -630,13 +633,14 @@ export default function CommandCenter({
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-h">
               <div>
-                <h3>{modal === "employees" ? "All Employees" : modal === "clients" ? "All Clients" : "Raw Activity Data"}</h3>
-                <div className="sub">{modal === "employees" ? `${data.employees.length} employees` : modal === "clients" ? `${data.clients_summary.length} clients` : raw ? `${n0(raw.shown)} of ${n0(raw.total)} rows` : "loading…"} · {data.context.label}</div>
+                <h3>{modal === "employees" ? "All Employees" : modal === "clients" ? "All Clients" : modal === "unassigned" ? "Unassigned — why?" : "Raw Activity Data"}</h3>
+                <div className="sub">{modal === "employees" ? `${data.employees.length} employees` : modal === "clients" ? `${data.clients_summary.length} clients` : modal === "unassigned" ? (unData ? `${unData.count} employees · ${n0(unData.total_hours)}h with no ClickUp mapping` : "loading…") : raw ? `${n0(raw.shown)} of ${n0(raw.total)} rows` : "loading…"} · {data.context.label}</div>
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 {modal === "employees" && <button className="exportbtn" onClick={() => exportCSV("people", ["name", "team", "days", "billable", "non_billable", "utilization", "activity", "productivity", "grade", "active_tasks", "task_status"], data.employees as unknown as Record<string, unknown>[], COL_LABEL)}><Download />Export</button>}
                 {modal === "clients" && <button className="exportbtn" onClick={() => exportCSV("clients", ["client", "category", "active_tasks", "total_tasks", "hours", "active"], data.clients_summary as unknown as Record<string, unknown>[], { client: "Client", category: "Category", active_tasks: "Active Tasks", total_tasks: "Total Tasks", hours: "Hours", active: "Active" })}><Download />Export</button>}
                 {modal === "raw" && raw && <button className="exportbtn" onClick={() => exportCSV("raw_data", ["employee", "date", "department", "team", "client", "client_type", "billable", "tracked_h", "overall_h", "productivity"], raw.rows, COL_LABEL)}><Download />Export</button>}
+                {modal === "unassigned" && unData && unData.rows.length > 0 && <button className="exportbtn" onClick={() => exportCSV("unassigned", ["name", "hours", "days", "reason", "suggestion"], unData.rows as unknown as Record<string, unknown>[], { name: "Employee", hours: "Hours", days: "Days", reason: "Reason", suggestion: "Suggested ClickUp name" })}><Download />Export</button>}
                 <div className="modal-x" onClick={() => setModal(null)}><X size={16} /></div>
               </div>
             </div>
@@ -676,6 +680,31 @@ export default function CommandCenter({
                       {raw.rows.length === 0 && <tr><td colSpan={10} style={{ textAlign: "center", padding: 20, color: "var(--muted)" }}>No data</td></tr>}
                     </tbody>
                   </table>
+                )
+              )}
+              {modal === "unassigned" && (
+                !unData ? <div className="loading" style={{ height: 200 }}><span className="spin" /> Checking ClickUp mapping…</div> : (
+                  <>
+                    <div className="un-note">
+                      <AlertTriangle size={15} />
+                      <span><b>Department / Team / Client come from ClickUp tasks</b> (matched to Hubstaff by name). These {unData.count} people tracked <b>{n0(unData.total_hours)}h</b> in Hubstaff but couldn&apos;t be matched to a ClickUp task — so they show as <b>Unassigned</b>.</span>
+                    </div>
+                    <table>
+                      <thead><tr><th className="l">Employee</th><th>Hours</th><th>Days</th><th className="l">Why Unassigned</th><th className="l">Suggested fix</th></tr></thead>
+                      <tbody>
+                        {unData.rows.map((r) => (
+                          <tr key={r.name}>
+                            <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span><span className="tname">{r.name}</span></span></td>
+                            <td className="num" style={{ fontWeight: 700 }}>{n0(r.hours)}h</td>
+                            <td className="num">{r.days}</td>
+                            <td className="l"><span className={`un-reason ${r.suggestion ? "fix" : "none"}`}>{r.reason}</span></td>
+                            <td className="l">{r.suggestion ? <span className="un-sug">rename to &ldquo;{r.suggestion}&rdquo; in ClickUp</span> : <span style={{ color: "var(--faint)" }}>assign tasks in ClickUp</span>}</td>
+                          </tr>
+                        ))}
+                        {unData.rows.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No unassigned employees 🎉</td></tr>}
+                      </tbody>
+                    </table>
+                  </>
                 )
               )}
             </div>

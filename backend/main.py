@@ -8,6 +8,7 @@ Run:  uvicorn main:app --reload --port 8000
 """
 import os
 import re
+import difflib
 from functools import lru_cache
 from typing import Optional
 from zlib import crc32
@@ -949,6 +950,51 @@ def command(
         "heatmap": heatmap,
         "source": "supabase" if db.has_db() else "csv",
     })
+
+
+@lru_cache(maxsize=1)
+def _clickup_assignee_names():
+    if not db.has_db():
+        return ()
+    try:
+        t = db.q("""SELECT DISTINCT trim(a) a FROM
+                    (SELECT unnest(string_to_array(assignees, ',')) a FROM clickup_tasks
+                     WHERE coalesce(is_deleted,false)=false) x WHERE trim(a) <> ''""")
+        return tuple(x for x in t["a"].tolist() if x)
+    except Exception:
+        return ()
+
+
+@app.get("/api/unassigned")
+def unassigned():
+    """Diagnostic: employees that fell into 'Unassigned' and WHY (no ClickUp match)."""
+    members, g = load()
+    nm = dict(zip(members["user_id"], members["name"]))
+    un = (g[g["department"] == "Unassigned"].groupby("user_id")
+          .agg(hours=("tracked_h", "sum"), days=("date_s", "nunique")).reset_index())
+    cu = list(_clickup_assignee_names())
+    cu_low = {c.lower().strip(): c for c in cu}
+    cu_keys = list(cu_low.keys())
+    # name with spaces/punctuation stripped — catches "garimajoshi" == "garima joshi"
+    cu_compact = {re.sub(r"[^a-z0-9]", "", c.lower()): c for c in cu}
+    rows = []
+    for _, r in un.iterrows():
+        name = nm.get(r["user_id"], str(r["user_id"]))
+        low = str(name).lower().strip()
+        compact = re.sub(r"[^a-z0-9]", "", low)
+        near = difflib.get_close_matches(low, cu_keys, n=1, cutoff=0.86)
+        if compact and compact in cu_compact and cu_compact[compact].lower().strip() != low:
+            reason, suggestion = "Same name, different format in ClickUp", cu_compact[compact]
+        elif near:
+            reason, suggestion = "Likely a spelling difference in ClickUp", cu_low[near[0]]
+        else:
+            reason, suggestion = "Not assigned to any ClickUp task", ""
+        rows.append({"name": name, "hours": round(float(r["hours"]), 1),
+                     "days": int(r["days"]), "reason": reason, "suggestion": suggestion})
+    rows.sort(key=lambda x: -x["hours"])
+    return clean({"rows": rows, "count": len(rows),
+                  "total_hours": round(float(un["hours"].sum()), 1) if not un.empty else 0.0,
+                  "total_members": int(len(members))})
 
 
 @app.get("/api/raw")
