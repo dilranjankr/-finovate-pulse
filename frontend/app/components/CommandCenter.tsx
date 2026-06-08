@@ -21,7 +21,7 @@ export default function CommandCenter({
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
-  const [detail, setDetail] = useState<null | { label: string; color: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
+  const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
 
   async function apply(f: Filters) {
     setLoading(true);
@@ -59,8 +59,8 @@ export default function CommandCenter({
 
   // distinct brand colour per metric so the rings are easy to tell apart
   const COL = { util: "#203070", act: "#2f6fbf", prod: "#0d9488", bill: "#0f9043" };
-  const openMetric = (label: string, color: string, get: (e: EmployeeRow) => number, fmt: (v: number) => string) =>
-    () => setDetail({ label, color, get, fmt });
+  const openMetric = (label: string, color: string, calc: string, get: (e: EmployeeRow) => number, fmt: (v: number) => string) =>
+    () => setDetail({ label, color, calc, get, fmt });
 
   // a circular progress ring (SVG, rounded cap) with the value in the centre
   const ringCard = (label: string, key: string, pct: number, display: string, sub: string, color: string, deltaKey?: string, onClick?: () => void) => {
@@ -147,7 +147,7 @@ export default function CommandCenter({
       {/* KPI — Total Hours card + gauge rings */}
       <div className="kcards">
         {/* Featured: Total Hours + billable/non-billable */}
-        <div className="kcard kcard-feat kclk" onClick={openMetric("Total Hours", "#203070", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
+        <div className="kcard kcard-feat kclk" onClick={openMetric("Total Hours", "#203070", "Total tracked time from Hubstaff = Billable + Non-Billable hours. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
           <div className="kcard-top">
             <span className="kcard-ic" style={{ background: "#2030701a", color: "#203070" }}><Clock size={15} /></span>
             <span className="kcard-lbl">Total Hours</span>
@@ -170,10 +170,10 @@ export default function CommandCenter({
           </div>
         </div>
 
-        {ringCard("Utilization", "ring-util", util, n1(util) + "%", "", COL.util, "utilization", openMetric("Utilization", COL.util, (e) => e.utilization, (v) => n1(v) + "%"))}
-        {ringCard("Activity", "ring-act", act, n1(act) + "%", "", COL.act, "activity", openMetric("Activity", COL.act, (e) => e.activity, (v) => n1(v) + "%"))}
-        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", "", COL.prod, "productivity", openMetric("Productivity", COL.prod, (e) => e.productivity, (v) => n1(v) + "%"))}
-        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "", COL.bill, "billable_hours", openMetric("Billable hours", COL.bill, (e) => e.billable, (v) => n0(v) + "h"))}
+        {ringCard("Utilization", "ring-util", util, n1(util) + "%", "", COL.util, "utilization", openMetric("Utilization", COL.util, "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%. Per employee = their tracked ÷ (their days × 8).", (e) => e.utilization, (v) => n1(v) + "%"))}
+        {ringCard("Activity", "ring-act", act, n1(act) + "%", "", COL.act, "activity", openMetric("Activity", COL.act, "Active time (keyboard + mouse) ÷ tracked time × 100. How much of logged time had real input.", (e) => e.activity, (v) => n1(v) + "%"))}
+        {ringCard("Productivity", "ring-prod", prod, n1(prod) + "%", "", COL.prod, "productivity", openMetric("Productivity", COL.prod, "Time-weighted activity score (0–100). This project has no separate Hubstaff productivity score, so it currently equals Activity.", (e) => e.productivity, (v) => n1(v) + "%"))}
+        {ringCard("Billable", "ring-bill", billPct, billPct + "%", "", COL.bill, "billable_hours", openMetric("Billable hours", COL.bill, "Tracked time on tasks/projects NOT marked “NB”. Work whose task or project name starts with the NB token is non-billable.", (e) => e.billable, (v) => n0(v) + "h"))}
         {ringCard("Avg Grade", "ring-grade", GR_PCT[gradeStr] ?? 0, gradeStr, "", grColor)}
       </div>
 
@@ -203,6 +203,10 @@ export default function CommandCenter({
                 <div className="modal-x" onClick={() => setDetail(null)}><X size={16} /></div>
               </div>
               <div className="modal-b">
+                <div className="calc-note">
+                  <b>How it&apos;s calculated</b>
+                  <span>{detail.calc}</span>
+                </div>
                 <table>
                   <thead><tr><th className="l">#</th><th className="l">Employee</th><th className="l">Team</th><th>Grade</th><th className="l">{detail.label}</th></tr></thead>
                   <tbody>
