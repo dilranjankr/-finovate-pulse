@@ -649,7 +649,10 @@ body { background: var(--bg); color: var(--ink);
 /* filter toggle button */
 .filtbtn { width: 34px; height: 34px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); box-shadow: none;
   display: flex; align-items: center; justify-content: center; cursor: pointer; color: var(--muted); }
+.filtbtn { position: relative; }
 .filtbtn:hover, .filtbtn.on { border-color: var(--navy); color: var(--navy); background: var(--accent-soft); }
+.filtbtn.has { border-color: var(--navy); color: var(--navy); }
+.filtbtn-c { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 9px; background: var(--navy); color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
 .filtbtn svg { width: 16px; height: 16px; }
 
 /* At a Glance strip */

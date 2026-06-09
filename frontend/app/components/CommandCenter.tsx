@@ -126,7 +126,7 @@ export default function CommandCenter({
   const [draft, setDraft] = useState<Filters>(initialOpts ? defaultRange(initialOpts) : {});
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
-  const [showFilters, setShowFilters] = useState(true);
+  const [showFilters, setShowFilters] = useState(false);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
   const [bd, setBd] = useState<BreakdownData | null>(null);
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
@@ -419,6 +419,11 @@ export default function CommandCenter({
   if (draft.atl) crumbs.push({ label: crumbLbl(draft.atl, "Teams"), sub: "Team", on: draft.employee ? goTeam : undefined, active: !!draft.atl && !draft.employee });
   if (draft.employee) crumbs.push({ label: crumbLbl(draft.employee, "Employees"), sub: "Employee", active: true });
 
+  // active filters (beyond the default date window) — drives the funnel badge
+  // and whether the slim scope strip needs to show at all
+  const activeCount = [draft.department, draft.atl, draft.employee, draft.client, draft.client_type, draft.billable].filter(Boolean).length;
+  const anyScope = activeCount > 0;
+
   return (
     <div className="page">
       {/* HEADER */}
@@ -437,7 +442,7 @@ export default function CommandCenter({
           {caps.export && <button className="tb-act" title="Export employees to CSV" onClick={exportCsv}><Download size={15} /><span>Export</span></button>}
           {caps.raw && <button className="tb-act" title="Raw data (developer)" onClick={openRaw}><Code2 size={15} /><span>Raw</span></button>}
           {caps.settings && <button className="tb-act" title="Settings" onClick={() => setShowSettings(true)}><Settings size={15} /></button>}
-          {caps.filters && <div className={`filtbtn${showFilters ? " on" : ""}`} title="Toggle filters" onClick={() => setShowFilters((s) => !s)}><Filter /></div>}
+          {caps.filters && <div className={`filtbtn${showFilters ? " on" : ""}${activeCount ? " has" : ""}`} title="Filters" onClick={() => setShowFilters((s) => !s)}><Filter />{activeCount > 0 && <span className="filtbtn-c">{activeCount}</span>}</div>}
           <span className="tb-sep" />
           {(() => { const rd = ROLE_DEF.find((r) => r.id === role)!; return (
             <div className="role-chip" title={`Signed in as ${rd.label}${selfName ? " · " + selfName : ""}`}>
@@ -451,7 +456,6 @@ export default function CommandCenter({
 
       {/* FILTERS */}
       {caps.filters && showFilters && (() => {
-        const activeCount = [draft.department, draft.atl, draft.employee, draft.client, draft.client_type, draft.billable].filter(Boolean).length;
         return (
           <div className="filterbar">
             <span className="fb-lead">FILTERS</span>
@@ -504,7 +508,8 @@ export default function CommandCenter({
         </div>
       )}
 
-      {/* SCOPE BREADCRUMB — current drill path, click a crumb to jump up */}
+      {/* SCOPE BREADCRUMB — only when drilled/filtered (or self view); hidden at the clean default */}
+      {(anyScope || caps.self) && (
       <div className="scopebar">
         <div className="crumbs">
           {caps.self ? (
@@ -527,6 +532,7 @@ export default function CommandCenter({
           {loading && <span className="scope-sync"><span className="spin sm" /> updating…</span>}
         </div>
       </div>
+      )}
 
       {/* KPI — one row: Total Hours donut card + metric cards */}
       <div className="kpi-row">
