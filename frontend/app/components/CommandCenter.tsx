@@ -1221,7 +1221,12 @@ export default function CommandCenter({
               <div className="modal-b">
                 {detail.dayKey && (data.kpi_daily?.length ?? 0) > 1 && (() => {
                   const dk = detail.dayKey!;
-                  const series = (data.kpi_daily || []).map((d) => ({ date: d.date, value: Number(d[dk]) }));
+                  const series = (data.kpi_daily || []).map((d) => ({
+                    date: d.date, value: Number(d[dk]),
+                    sub: dk === "activity" ? `${n1(d.active)}h active / ${n1(d.hours)}h`
+                      : dk === "productivity" ? `${n1(d.billable)}h billable / ${n1(d.hours)}h`
+                      : `${n1(d.hours)}h of ${n0(d.capacity)}h capacity`,
+                  }));
                   const avg = series.reduce((s, p) => s + p.value, 0) / series.length;
                   return (
                     <div className="mtrend-wrap">
@@ -1548,7 +1553,7 @@ function Sparkline({ data, color, id }: { data: number[]; color: string; id: str
   );
 }
 
-function MetricTrend({ points, color, unit = "%" }: { points: { date: string; value: number }[]; color: string; unit?: string }) {
+function MetricTrend({ points, color, unit = "%" }: { points: { date: string; value: number; sub?: string }[]; color: string; unit?: string }) {
   const [hi, setHi] = useState<number | null>(null);
   if (!points.length) return null;
   const w = 720, h = 150, padL = 6, padR = 6, padT = 12, padB = 16;
@@ -1560,6 +1565,11 @@ function MetricTrend({ points, color, unit = "%" }: { points: { date: string; va
   const gid = `mt-${color.replace("#", "")}`;
   const seg = (w - padL - padR) / Math.max(1, n - 1);
   const fmtDate = (s: string) => { const [, m, d] = s.split("-"); return `${d} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m) - 1]}`; };
+  const hp = hi != null ? points[hi] : null;
+  const leftPct = hi != null ? (X(hi) / w) * 100 : 0;
+  const topPct = hi != null ? (Y(points[hi].value) / h) * 100 : 0;
+  const flipBelow = topPct < 32;           // point near top → show tooltip below it
+  const nearEdge = leftPct < 12 ? "l" : leftPct > 88 ? "r" : "";
   return (
     <div className="mtrend-box" onMouseLeave={() => setHi(null)}>
       <svg viewBox={`0 0 ${w} ${h}`} className="mtrend">
@@ -1574,9 +1584,11 @@ function MetricTrend({ points, color, unit = "%" }: { points: { date: string; va
         </>)}
         {points.map((p, i) => <rect key={i} x={X(i) - seg / 2} y="0" width={Math.max(seg, 2)} height={h} fill="transparent" onMouseEnter={() => setHi(i)} />)}
       </svg>
-      {hi != null && (
-        <div className="mtrend-tip" style={{ left: `${(X(hi) / w) * 100}%` }}>
-          <b>{n1(points[hi].value)}{unit}</b><span>{fmtDate(points[hi].date)}</span>
+      {hp && (
+        <div className={`mtrend-tip${flipBelow ? " below" : ""} ${nearEdge}`} style={{ left: `${leftPct}%`, top: `${topPct}%` }}>
+          <b>{n1(hp.value)}{unit}</b>
+          {hp.sub && <span className="mt-sub">{hp.sub}</span>}
+          <span className="mt-date">{fmtDate(hp.date)}</span>
         </div>
       )}
     </div>

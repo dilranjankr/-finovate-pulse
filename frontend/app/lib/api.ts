@@ -51,7 +51,7 @@ export interface CommandData {
   kpis: Record<string, KpiVal>;
   hours_distribution: { name: string; value: number }[];
   hours_trend: { date: string; billable: number; non_billable: number; hours: number }[];
-  kpi_daily?: { date: string; utilization: number; activity: number; productivity: number; hours: number }[];
+  kpi_daily?: { date: string; utilization: number; activity: number; productivity: number; hours: number; active: number; billable: number; capacity: number }[];
   top_clients: { client: string; hours: number }[];
   task_summary: { name: string; value: number }[];
   teams: TeamRow[];

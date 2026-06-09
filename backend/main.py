@@ -717,6 +717,9 @@ def command(
                 "activity": round(float(r.overall) / tot * 100, 1) if tot else 0.0,
                 "productivity": round(float(r.billable) / tot * 100, 1) if tot else 0.0,
                 "hours": round(tot, 1),
+                "active": round(float(r.overall), 1),
+                "billable": round(float(r.billable), 1),
+                "capacity": cap_d,
             })
 
     bill = float(d["billable_h"].sum()) if not empty else 0.0
