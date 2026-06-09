@@ -1026,11 +1026,14 @@ export default function CommandCenter({
                   <div className="modbar-plot">
                     {[0, 0.25, 0.5, 0.75, 1].map((f) => <div className="modbar-grid" key={f} style={{ bottom: `${f * 100}%` }} />)}
                     <div className="modbar-bars">
-                      {rows.map((r) => {
+                      {rows.map((r, i) => {
                         const hp = Math.max(3, (r.total / niceTop) * 100);
+                        const isLow = r.team === lowKey && rows.length > 1;
+                        const palette = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4", "#b8860b", "#5c6bc0"];
+                        const col = isLow ? "#e2574c" : palette[i % palette.length];
                         return (
-                          <div className="modbar-track" key={r.team} title={`${r.team}: ${n0(r.total)}h · ${n0(r.utilization)}% util`}>
-                            <div className={`modbar-fill${r.team === lowKey ? " hi" : ""}`} style={{ height: `${hp}%` }}>
+                          <div className="modbar-track" key={r.team} title={`${r.team}: ${n0(r.total)}h · ${n0(r.utilization)}% util${isLow ? " · lowest" : ""}`}>
+                            <div className="modbar-fill" style={{ height: `${hp}%`, background: `linear-gradient(180deg, ${col}, ${col}cc)` }}>
                               <span className="modbar-val">{n0(r.total)}h</span>
                             </div>
                           </div>

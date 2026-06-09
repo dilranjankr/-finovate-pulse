@@ -541,8 +541,8 @@ body { background: var(--bg); color: var(--ink);
   padding-bottom: 11px; min-height: 26px; box-shadow: inset 0 1px 0 rgba(255,255,255,.12); transition: height .45s ease; }
 .modbar-fill.hi { background: linear-gradient(180deg, #f6a64e, #e8830c); }
 .modbar-val { color: #fff; font-weight: 750; font-size: 12.5px; white-space: nowrap; }
-.modbar-xrow { display: flex; gap: 16px; margin-top: 9px; }
-.modbar-x { flex: 1; min-width: 0; text-align: center; font-size: 12px; font-weight: 600; color: var(--ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.modbar-xrow { display: flex; gap: 16px; margin-top: 10px; align-items: flex-start; }
+.modbar-x { flex: 1; min-width: 0; text-align: center; font-size: 11px; font-weight: 600; color: var(--ink-2); white-space: normal; overflow-wrap: anywhere; line-height: 1.3; }
 .modcards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 22px; }
 .modcard { background: #fafbfc; border: 1px solid var(--line); border-radius: 9px; padding: 16px 18px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modcard-l { min-width: 0; }
