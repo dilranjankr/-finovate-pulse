@@ -4,13 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import {
   ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
-  Gauge, Activity, Zap, Award, Tag, Sparkles, Send,
+  Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, askAI, defaultRange,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail,
 } from "../lib/api";
-import { TrendLines, Donut, Bubble, ComboColumns, BarList } from "./Charts";
+import { TrendLines, Donut, Bubble, BarList } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -27,7 +27,6 @@ function avatarColor(s: string) {
   return c[h % c.length];
 }
 const initials = (s: string) => s.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
-const utilColor = (u: number) => (u >= 75 ? "#0f9043" : u >= 60 ? "#bd8616" : "#d23f43");
 const AI_SUGGESTIONS = ["Top performers", "Lowest utilization team", "Billable mix", "At-risk clients", "Busiest department"];
 type AiMsg = {
   role: "user" | "ai"; text: string; kind?: "bar" | "donut" | "none";
@@ -404,41 +403,62 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* COMPARISON — department-wise / team-wise */}
+      {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
       {(() => {
         const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
         if (!rows.length) return null;
+        const maxH = Math.max(1, ...rows.map((r) => r.total));
+        const niceTop = Math.ceil((maxH * 1.08) / 1000) * 1000 || 1000;
+        const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
+        const lowKey = rows.reduce((a, b) => (b.utilization < a.utilization ? b : a)).team;
         return (
           <>
             <div className="sec"><h4>Comparison</h4></div>
             <div className="panel" style={{ marginBottom: 14 }}>
               <div className="ph">
-                <h3>{cmpDim === "department" ? "Departments" : "Teams"} — Hours &amp; Utilization <span className="hl">bars = hours · line = utilization %</span></h3>
-                <div className="bseg" role="group">
-                  {([["department", "By Department"], ["team", "By Team"]] as const).map(([v, lbl]) => (
+                <h3><BarChart3 size={16} style={{ color: "#ed7d31", verticalAlign: "-3px", marginRight: 7 }} />Hours by {cmpDim === "department" ? "Department" : "Team"}</h3>
+                <div className="seg-pill" role="group">
+                  {([["department", "Department"], ["team", "Team"]] as const).map(([v, lbl]) => (
                     <button key={v} type="button" className={cmpDim === v ? "on" : ""} onClick={() => setCmpDim(v)}>{lbl}</button>
                   ))}
                 </div>
               </div>
-              <ComboColumns rows={rows.map((r) => ({ label: r.team, hours: r.total, util: r.utilization }))} height={320} />
-              <div className="scrollwrap" style={{ maxHeight: 360, marginTop: 6 }}>
-                <table>
-                  <thead><tr><th className="l">{cmpDim === "department" ? "Department" : "Team"}</th><th>People</th><th>Hours</th><th>Billable</th><th>Util</th><th>Activity</th><th>Productivity</th><th>Grade</th></tr></thead>
-                  <tbody>
-                    {rows.map((r) => (
-                      <tr key={r.team}>
-                        <td className="l tname">{r.team}</td>
-                        <td className="num">{r.team_size}</td>
-                        <td className="num">{n0(r.total)}h</td>
-                        <td className="num">{n0(r.billable)}h</td>
-                        <td><span className="util"><span className="bar"><span className="fill" style={{ width: `${r.utilization}%`, background: utilColor(r.utilization) }} /></span><span className="pc">{n0(r.utilization)}%</span></span></td>
-                        <td className="num">{n0(r.activity || 0)}%</td>
-                        <td className="num">{n0(r.productivity)}%</td>
-                        <td><span className={`grade ${gradeCls(r.grade)}`}>{r.grade}</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="modbar">
+                <div className="modbar-y">{[1, 0.75, 0.5, 0.25, 0].map((f) => <span key={f}>{fk(niceTop * f)}</span>)}</div>
+                <div className="modbar-main">
+                  <div className="modbar-plot">
+                    {[0, 0.25, 0.5, 0.75, 1].map((f) => <div className="modbar-grid" key={f} style={{ bottom: `${f * 100}%` }} />)}
+                    <div className="modbar-bars">
+                      {rows.map((r) => {
+                        const hp = Math.max(3, (r.total / niceTop) * 100);
+                        return (
+                          <div className="modbar-track" key={r.team} title={`${r.team}: ${n0(r.total)}h · ${n0(r.utilization)}% util`}>
+                            <div className={`modbar-fill${r.team === lowKey ? " hi" : ""}`} style={{ height: `${hp}%` }}>
+                              <span className="modbar-val">{n0(r.total)}h</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="modbar-xrow">{rows.map((r) => <span className="modbar-x" key={r.team} title={r.team}>{r.team}</span>)}</div>
+                </div>
+              </div>
+              <div className="modcards">
+                {rows.map((r) => {
+                  const good = r.utilization >= 60;
+                  return (
+                    <div className="modcard" key={r.team}>
+                      <div className="modcard-l">
+                        <div className="nm">{r.team}</div>
+                        <div className={`mt${good ? "" : " bad"}`}>Utilization: {n0(r.utilization)}%</div>
+                      </div>
+                      {good
+                        ? <ShieldCheck size={26} style={{ color: "#16a34a", flexShrink: 0 }} />
+                        : <ShieldAlert size={26} style={{ color: "#d23f43", flexShrink: 0 }} />}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </>
