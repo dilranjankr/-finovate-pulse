@@ -204,11 +204,15 @@ body { background: var(--bg); color: var(--ink);
 
 /* budget vs actual gauge */
 .bva-body { display: grid; grid-template-columns: 300px 1fr; gap: 28px; align-items: center; }
-.bva-body.compact { grid-template-columns: 1fr; gap: 6px; margin: auto 0; }
-.bva-body.compact .gauge { max-width: 190px; }
-.bva-body.compact .bva-read { margin-top: -26px; }
-.bva-body.compact .bva-stat { padding: 8px 4px; }
-.bva-body.compact .bva-stat b { font-size: 15px; }
+.bva-body.compact { grid-template-columns: 1fr; gap: 2px; margin: auto 0; }
+.bva-body.compact .gauge { max-width: 150px; }
+.bva-body.compact .gauge-sc { font-size: 10px; }
+.bva-body.compact .bva-read { margin-top: -22px; }
+.bva-body.compact .bva-read b { font-size: 24px; }
+.bva-body.compact .bva-cap { font-size: 11px; }
+.bva-body.compact .bva-stat { padding: 6px 4px; }
+.bva-body.compact .bva-stat .l { font-size: 11.5px; font-weight: 600; }
+.bva-body.compact .bva-stat b { font-size: 13.5px; }
 /* center shorter cards' content so the row isn't bottom-heavy with empty space */
 .row3 > .panel > .tb-card, .row3 > .panel > .donut-wrap { margin-top: auto; margin-bottom: auto; }
 @media (max-width: 720px) { .bva-body { grid-template-columns: 1fr; } }
