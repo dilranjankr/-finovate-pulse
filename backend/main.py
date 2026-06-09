@@ -813,7 +813,11 @@ def command(
                     .head(6).reset_index().rename(columns={"tracked_h": "hours"}).to_dict("records"))
                    if not empty else [])
 
-    task_summary = _task_summary(d, emp, m)
+    # Scope tasks to people ACTIVE in the current (date-filtered) data, so task
+    # status/priority update with the date filter too — not only membership.
+    active_uids = set(d["user_id"]) if not empty else set()
+    m_scope = m[m["user_id"].isin(active_uids)] if not empty else m.iloc[0:0]
+    task_summary = _task_summary(d, emp, m_scope)
 
     # primary team per employee
     if not empty:
@@ -960,8 +964,8 @@ def command(
     # Task "grade" (priority) per employee + overall, for the current scope
     task_priority = {"urgent": 0, "high": 0, "normal": 0, "low": 0}
     employee_tasks = []
-    if not m.empty and "pri" in m.columns:
-        for _, r in m.iterrows():
+    if not m_scope.empty and "pri" in m_scope.columns:
+        for _, r in m_scope.iterrows():
             p = r.get("pri") or {}
             pu = int(p.get("urgent", 0)); ph = int(p.get("high", 0))
             pn = int(p.get("normal", 0)); pl = int(p.get("low", 0))
@@ -1267,16 +1271,17 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
 
 def _task_summary(d, emp, members):
     ts = {"Completed": 0, "In Progress": 0, "Review": 0, "Overdue": 0}
-    # Scope-aware: aggregate per-employee task status for the employees in scope
-    if "st" in members.columns and not members.empty:
+    # Scope-aware: aggregate per-employee task status for the employees in scope.
+    # When the schema carries per-member status ("st"), always return the scoped
+    # result (even zero) so it tracks the active filter instead of a global total.
+    if "st" in members.columns:
         for _, r in members.iterrows():
             s = r.get("st") or {}
             ts["Completed"] += int(s.get("completed", 0))
             ts["In Progress"] += int(s.get("in_progress", 0))
             ts["Review"] += int(s.get("review", 0))
             ts["Overdue"] += int(s.get("overdue", 0))
-        if sum(ts.values()) > 0:
-            return [{"name": k, "value": v} for k, v in ts.items()]
+        return [{"name": k, "value": v} for k, v in ts.items()]
     if db.has_db():
         m = task_meta()["summary"]
         if m:

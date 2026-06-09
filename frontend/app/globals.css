@@ -284,6 +284,30 @@ body { background: var(--bg); color: var(--ink);
 .alert-item.info .alert-bar, .alert-item.info .alert-c { background: #2f6fbf; }
 .alert-item.muted .alert-bar, .alert-item.muted .alert-c { background: #9aa3b2; }
 
+/* ---- workforce: grade mix, status, capacity ---- */
+.gd-wrap { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
+.gd-bar { display: flex; height: 26px; border-radius: 6px; overflow: hidden; background: #eef1f6; }
+.gd-seg { min-width: 3px; transition: flex .4s ease; }
+.gd-leg { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.gd-li { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.gd-li .dot { width: 9px; height: 9px; border-radius: 3px; }
+.gd-li b { font-weight: 750; color: var(--ink); }
+.gd-li span { color: var(--ink-2); font-weight: 650; }
+.gd-li i { font-style: normal; color: var(--faint); font-size: 11px; }
+.wf-stat { display: flex; gap: 10px; margin-top: auto; margin-bottom: auto; }
+.wf-tile { flex: 1; text-align: center; padding: 16px 8px; border: 1px solid var(--line-2); border-radius: 8px; background: #fafbfd; }
+.wf-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-bottom: 9px; }
+.wf-v { font-size: 26px; font-weight: 800; letter-spacing: -1px; color: var(--ink); line-height: 1; }
+.wf-l { font-size: 11.5px; font-weight: 650; color: var(--muted); margin-top: 5px; }
+.cap-wrap { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; margin: auto 0; padding: 6px 0; }
+.cap-big { font-size: 44px; font-weight: 800; letter-spacing: -2px; color: var(--navy); line-height: 1; }
+.cap-big span { font-size: 18px; font-weight: 700; color: var(--muted); margin-left: 1px; }
+.cap-sub { font-size: 12px; font-weight: 600; color: var(--muted); }
+.cap-track { width: 100%; height: 9px; background: #eef1f6; border-radius: 6px; overflow: hidden; margin-top: 12px; }
+.cap-fill { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #5b8def, #2f6fbf); transition: width .4s ease; }
+.cap-foot { display: flex; justify-content: space-between; width: 100%; margin-top: 10px; font-size: 11.5px; color: var(--muted); }
+.cap-foot b { color: var(--ink); font-weight: 750; }
+
 /* ---- leaderboard (department→teams, team→members) ---- */
 .rank-list { display: flex; flex-direction: column; }
 .rank-row { display: grid; grid-template-columns: 30px 30px 1fr 150px 64px 54px 34px; align-items: center; gap: 12px; padding: 9px 6px; border-bottom: 1px solid var(--line-2); }

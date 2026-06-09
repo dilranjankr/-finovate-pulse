@@ -354,6 +354,13 @@ export default function CommandCenter({
   const insights = (data.insights || []).slice(0, 4);
   const empTasks = (data.table?.level === "employee" ? data.table.rows : []) as Array<Record<string, unknown>>;
 
+  // workforce widgets (filter-responsive, shown when comparing people)
+  const gradeDist = (data.grade_distribution || []).filter((g) => g.count > 0);
+  const gradeTotal = gradeDist.reduce((s, x) => s + x.count, 0);
+  const gradeColor = (g: string) => (g.startsWith("A") ? "#0f9043" : g.startsWith("B") ? "#2f6fbf" : g === "C" ? "#e8930c" : "#d23f43");
+  const la = data.live_activity || { active: 0, idle: 0, offline: 0 };
+  const res = data.resource || { capacity: 0, availability: 0 };
+
   // department/team level: a simple ranked leaderboard (teams or members)
   const rankInfo = (() => {
     const rows = (data.table?.rows || []) as Array<Record<string, unknown>>;
@@ -865,6 +872,51 @@ export default function CommandCenter({
         </div>
       </div>
       </>)}
+
+      {/* WORKFORCE — grade mix, live status, capacity (filter-responsive) */}
+      {showPeople && (gradeTotal > 0 || la.active + la.idle + la.offline > 0) && (
+        <>
+          <div className="sec"><h4>Workforce</h4></div>
+          <div className="row3">
+            <div className="panel">
+              <div className="ph"><h3>Grade Distribution <span className="hl">{peopleN} people in scope</span></h3></div>
+              {gradeTotal > 0 ? (
+                <div className="gd-wrap">
+                  <div className="gd-bar">
+                    {gradeDist.map((g) => <span className="gd-seg" key={g.grade} style={{ flex: g.count, background: gradeColor(g.grade) }} title={`${g.grade}: ${g.count}`} />)}
+                  </div>
+                  <div className="gd-leg">
+                    {gradeDist.map((g) => (
+                      <div className="gd-li" key={g.grade}><span className="dot" style={{ background: gradeColor(g.grade) }} /><b>{g.grade}</b><span>{g.count}</span><i>{Math.round((g.count / gradeTotal) * 100)}%</i></div>
+                    ))}
+                  </div>
+                </div>
+              ) : <div className="empty-s">No grades in scope</div>}
+            </div>
+            <div className="panel">
+              <div className="ph"><h3>Workforce Status <span className="hl">active · idle · offline</span></h3></div>
+              <div className="wf-stat">
+                {([["Active", la.active, "#0f9043"], ["Idle", la.idle, "#e8930c"], ["Offline", la.offline, "#9aa3b2"]] as const).map(([lbl, v, c]) => (
+                  <div className="wf-tile" key={lbl}>
+                    <span className="wf-dot" style={{ background: c }} />
+                    <div className="wf-v num">{n0(v)}</div>
+                    <div className="wf-l">{lbl}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="panel">
+              <div className="ph"><h3>Capacity <span className="hl">tracked vs 8h/day capacity</span></h3></div>
+              <div className="cap-wrap">
+                <div className="cap-big num">{n0(res.capacity)}<span>%</span></div>
+                <div className="cap-sub">capacity utilised</div>
+                <div className="cap-track"><span className="cap-fill" style={{ width: `${Math.min(res.capacity, 100)}%` }} /></div>
+                <div className="cap-foot"><span><b className="num">{n0(util)}%</b> utilization</span><span><b className="num">{n0(res.availability)}%</b> headroom</span></div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
       {showComparison && (() => {
