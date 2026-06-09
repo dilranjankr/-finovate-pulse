@@ -735,10 +735,13 @@ body { background: var(--bg); color: var(--ink);
 .exportbtn:hover { background: #dfe3f4; } .exportbtn svg { width: 13px; height: 13px; }
 
 /* sections + grids */
-.sec { display: flex; align-items: center; gap: 10px; margin: 24px 2px 14px; }
-.sec::before { content: ""; width: 3px; height: 15px; background: var(--navy); border-radius: 2px; flex-shrink: 0; }
-.sec h4 { font-size: 13.5px; font-weight: 750; letter-spacing: -.2px; color: var(--ink); white-space: nowrap; }
+.sec { display: flex; align-items: center; gap: 11px; margin: 34px 2px 16px; }
+.sec::before { content: ""; width: 3px; height: 16px; background: var(--navy); border-radius: 2px; flex-shrink: 0; }
+.sec h4 { font-size: 14px; font-weight: 780; letter-spacing: -.2px; color: var(--ink); white-space: nowrap; }
 .sec::after { content: ""; flex: 1; height: 1px; background: var(--line-2); }
+.sec .sec-tag { font-size: 11px; font-weight: 650; color: var(--faint); white-space: nowrap; }
+/* first section after the KPI row shouldn't push too far down */
+.kpi-row + .sec { margin-top: 26px; }
 .row3a { display: grid; grid-template-columns: 1.7fr 1fr 1fr; gap: 12px; margin-bottom: 14px; align-items: stretch; }
 .ht2 { display: grid; grid-template-columns: 1.7fr 1fr; gap: 12px; margin-bottom: 12px; align-items: start; }
 .hm-wrap { overflow-x: auto; padding-top: 4px; }
