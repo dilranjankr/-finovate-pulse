@@ -232,10 +232,13 @@ body { background: var(--bg); color: var(--ink);
 .hd-table th { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; background: #fafbfd; z-index: 1; }
 .hd-table th:last-child, .hd-table td.num { text-align: right; }
 .hd-table .tname { font-weight: 600; color: var(--ink); }
-.hd-search { display: flex; align-items: center; gap: 9px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; color: var(--muted); }
-.hd-search input { flex: 1; border: 0; outline: 0; background: transparent; font-size: 13px; color: var(--ink); }
-.hd-clr { display: inline-flex; border: 0; background: #eef1f6; color: var(--muted); border-radius: 6px; width: 22px; height: 22px; align-items: center; justify-content: center; cursor: pointer; }
-.hd-clr:hover { background: #e2e7ef; color: var(--ink); }
+.hd-search { display: flex; align-items: center; gap: 10px; width: 360px; max-width: 100%; background: #f6f8fb; border: 1px solid var(--line); border-radius: 9px; padding: 0 12px; height: 40px; margin-bottom: 14px; color: var(--faint); transition: border-color .14s, box-shadow .14s, background .14s; }
+.hd-search:focus-within { background: var(--panel); border-color: var(--navy); box-shadow: 0 0 0 3px rgba(31,43,93,.10); color: var(--navy); }
+.hd-search > svg { flex-shrink: 0; }
+.hd-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 13px; font-weight: 550; color: var(--ink); }
+.hd-search input::placeholder { color: var(--faint); font-weight: 500; }
+.hd-clr { display: inline-flex; flex-shrink: 0; border: 0; background: #e7ebf2; color: var(--muted); border-radius: 50%; width: 20px; height: 20px; align-items: center; justify-content: center; cursor: pointer; transition: background .12s, color .12s; }
+.hd-clr:hover { background: #d23f43; color: #fff; }
 @media (max-width: 1250px) { .kc2-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 720px) { .kc2-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 440px) { .kc2-grid { grid-template-columns: 1fr; } }
