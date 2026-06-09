@@ -9,8 +9,8 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, askAI, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, askAI, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
@@ -157,6 +157,8 @@ export default function CommandCenter({
   }, [acctOpen]);
   const [rawModal, setRawModal] = useState(false);
   const [rawData, setRawData] = useState<RawData | null>(null);
+  const [unaModal, setUnaModal] = useState(false);
+  const [unaData, setUnaData] = useState<UnassignedData | null>(null);
   useEffect(() => {
     try {
       const r = localStorage.getItem("fin_role") as Role | null;
@@ -268,6 +270,17 @@ export default function CommandCenter({
     setDraft(base); apply(base);
   }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
+  function openUnassigned() { setUnaModal(true); setUnaData(null); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
+  function exportUnassignedCsv() {
+    const rows = unaData?.rows || [];
+    const head = ["Employee", "Tracked_h", "Active_days", "Reason", "Suggestion"];
+    const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [head.join(",")];
+    rows.forEach((r) => lines.push([r.name, Math.round(r.hours), r.days, r.reason, r.suggestion].map(esc).join(",")));
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "finovate_unassigned.csv"; a.click(); URL.revokeObjectURL(url);
+  }
   // export the in-scope employees table to CSV (client-side, no backend)
   function exportCsv() {
     const rows = [...data!.employees].sort((a, b) => b.billable - a.billable);
@@ -466,6 +479,7 @@ export default function CommandCenter({
             <h2><span className="pulse">Insight</span> · Operations Intelligence</h2>
             <div className="s">
               <b>{sm.employees}</b> employees · <b>{sm.departments}</b> depts · <b>{sm.teams}</b> teams · <b>{sm.clients}</b> clients · <b>{sm.active_days}</b> days
+              {!caps.self && <button type="button" className="unassigned-link" onClick={openUnassigned} title="Employees not mapped to a department/team/client"><ShieldAlert size={12} />Unassigned</button>}
             </div>
           </div>
         </div>
@@ -1349,6 +1363,45 @@ export default function CommandCenter({
                   </table>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* UNASSIGNED EMPLOYEES — who & why, exportable */}
+      {unaModal && (
+        <div className="modal-bg" onClick={() => setUnaModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div>
+                <h3><ShieldAlert size={15} style={{ verticalAlign: -2, color: "#e8930c" }} /> Unassigned Employees</h3>
+                <div className="sub">{unaData ? `${unaData.count} of ${unaData.total_members} have tracked time but no department/team/client mapping · ${n0(unaData.total_hours)}h` : "loading…"}</div>
+              </div>
+              <div className="modal-h-r">
+                {unaData && unaData.rows.length > 0 && <button className="tb-act" onClick={exportUnassignedCsv}><Download size={14} /><span>CSV</span></button>}
+                <div className="modal-x" onClick={() => setUnaModal(false)}><X size={16} /></div>
+              </div>
+            </div>
+            <div className="modal-b">
+              {!unaData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div>
+                : unaData.rows.length === 0 ? <div className="empty-s">Everyone is mapped — no unassigned employees 🎉</div> : (
+                  <div className="scrollwrap" style={{ maxHeight: 480 }}>
+                    <table className="ec-table">
+                      <thead><tr><th className="l">Employee</th><th>Tracked</th><th>Days</th><th className="l">Reason</th><th className="l">Suggestion</th></tr></thead>
+                      <tbody>
+                        {unaData.rows.map((r, i) => (
+                          <tr key={r.name + i}>
+                            <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span><span className="tname">{r.name}</span></span></td>
+                            <td className="num">{n0(r.hours)}h</td>
+                            <td className="num">{r.days}</td>
+                            <td className="l"><span className="una-reason">{r.reason}</span></td>
+                            <td className="l" style={{ color: "var(--muted)" }}>{r.suggestion}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
             </div>
           </div>
         </div>

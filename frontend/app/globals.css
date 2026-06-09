@@ -217,6 +217,12 @@ body { background: var(--bg); color: var(--ink);
 .bva-stat .l { font-size: 13px; color: var(--ink-2); font-weight: 600; }
 .bva-stat b { font-size: 17px; font-weight: 780; color: var(--ink); letter-spacing: -.4px; }
 .bva-note { font-size: 12.5px; color: var(--muted); padding-top: 12px; font-weight: 550; }
+
+/* unassigned link + modal */
+.unassigned-link { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; padding: 2px 9px; border: 1px solid #f3e2bf; background: #fef6e9; color: #b5751a; font-size: 11px; font-weight: 700; border-radius: 20px; cursor: pointer; vertical-align: 1px; transition: background .12s; }
+.unassigned-link:hover { background: #fdeccd; }
+.modal-h-r { display: flex; align-items: center; gap: 10px; }
+.una-reason { display: inline-block; font-size: 11.5px; font-weight: 650; color: #b5751a; background: #fef6e9; border: 1px solid #f3e2bf; padding: 2px 9px; border-radius: 5px; }
 @media (max-width: 1250px) { .kc2-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 720px) { .kc2-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 440px) { .kc2-grid { grid-template-columns: 1fr; } }
