@@ -1109,21 +1109,29 @@ def _tracked_lists(uids, date_from, date_to, limit=500):
             " LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id "
             " WHERE " + " AND ".join(where))
 
-    def _q(label_expr, extra):
+    def _q(label_expr, extra, proj_expr=None):
+        sel_proj = f", {proj_expr} pj" if proj_expr else ""
+        group = "GROUP BY 1, 2" if proj_expr else "GROUP BY 1"
         try:
-            df = db.q(f"SELECT {label_expr} g, sum(a.tracked) t, sum({nb_expr}) nb "
-                      f"{base} AND {extra} GROUP BY 1 ORDER BY 2 DESC LIMIT {limit}", params)
+            df = db.q(f"SELECT {label_expr} g{sel_proj}, sum(a.tracked) t, sum({nb_expr}) nb "
+                      f"{base} AND {extra} {group} ORDER BY sum(a.tracked) DESC LIMIT {limit}", params)
         except Exception as e:  # noqa
             print("list failed:", e); return []
         out = []
         for _, r in df.iterrows():
             tot = float(r["t"] or 0); nb = float(r["nb"] or 0)
-            out.append({"name": r["g"], "total": round(tot / SEC, 1),
-                        "billable": round(max(0.0, tot - nb) / SEC, 1),
-                        "non_billable": round(nb / SEC, 1)})
+            row = {"name": r["g"], "total": round(tot / SEC, 1),
+                   "billable": round(max(0.0, tot - nb) / SEC, 1),
+                   "non_billable": round(nb / SEC, 1)}
+            if proj_expr:
+                row["project"] = r["pj"]
+            out.append(row)
         return out
 
-    return {"by_task": _q("coalesce(nullif(ht.summary,''),'(unnamed task)')", "a.task_id IS NOT NULL"),
+    # by_task now carries the parent PROJECT for each task, so the drill-down can
+    # show which project a task belongs to.
+    return {"by_task": _q("coalesce(nullif(ht.summary,''),'(unnamed task)')", "a.task_id IS NOT NULL",
+                          "coalesce(nullif(p.name,''),'(no project)')"),
             "by_project": _q("coalesce(nullif(p.name,''),'(no project)')", "a.task_id IS NULL")}
 
 

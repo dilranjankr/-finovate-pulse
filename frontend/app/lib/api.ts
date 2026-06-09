@@ -188,7 +188,7 @@ export async function getBreakdown(f: Filters): Promise<BreakdownData> {
   return r.json();
 }
 
-export interface BdRow { name: string; total: number; billable: number; non_billable: number; }
+export interface BdRow { name: string; total: number; billable: number; non_billable: number; project?: string; }
 export interface BreakdownListData { by_task: BdRow[]; by_project: BdRow[]; }
 export async function getBreakdownList(f: Filters): Promise<BreakdownListData> {
   const qs = new URLSearchParams();

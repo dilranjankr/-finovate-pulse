@@ -1144,7 +1144,7 @@ export default function CommandCenter({
               <div className="modal-b">
                 {!bdList ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : (
                   <table>
-                    <thead><tr><th className="l">#</th><th className="l">{kLbl}</th><th className="l">{mode === "all" ? "Billable / Non-Billable" : "Share"}</th><th>{mode === "all" ? "Total" : "Hours"}</th></tr></thead>
+                    <thead><tr><th className="l">#</th>{kind === "task" && <th className="l">Project</th>}<th className="l">{kLbl}</th><th className="l">{mode === "all" ? "Billable / Non-Billable" : "Share"}</th><th>{mode === "all" ? "Total" : "Hours"}</th></tr></thead>
                     <tbody>
                       {rows.map((r, i) => {
                         const v = pick(r);
@@ -1152,6 +1152,7 @@ export default function CommandCenter({
                         return (
                           <tr key={r.name + i}>
                             <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
+                            {kind === "task" && <td className="l" style={{ color: "var(--muted)", fontWeight: 600 }}>{r.project || "—"}</td>}
                             <td className="l tname">{r.name}</td>
                             <td className="l">
                               {mode === "all"
@@ -1162,7 +1163,7 @@ export default function CommandCenter({
                           </tr>
                         );
                       })}
-                      {rows.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+                      {rows.length === 0 && <tr><td colSpan={kind === "task" ? 5 : 4} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
                     </tbody>
                   </table>
                 )}
