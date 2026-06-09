@@ -107,6 +107,16 @@ export async function getRaw(f: Filters): Promise<RawData> {
   return r.json();
 }
 
+export interface HoursDetailRow { employee: string; project: string; task: string; billable: number; non_billable: number; total: number; }
+export interface HoursDetailData { rows: HoursDetailRow[]; count: number; }
+export async function getHoursDetail(f: Filters): Promise<HoursDetailData> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await fetch(`${API}/api/hours_detail?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("hours_detail failed");
+  return r.json();
+}
+
 export interface EmployeeDetail {
   found: boolean;
   profile?: {

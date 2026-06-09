@@ -225,6 +225,13 @@ body { background: var(--bg); color: var(--ink);
 .una-reason { display: inline-block; font-size: 11.5px; font-weight: 650; color: #b5751a; background: #fef6e9; border: 1px solid #f3e2bf; padding: 2px 9px; border-radius: 5px; }
 .proj-link { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 650; color: #2f6fbf; cursor: pointer; text-align: left; }
 .proj-link:hover { text-decoration: underline; color: #1f4f9c; }
+/* total-hours detail modal */
+.modal.wide { max-width: 1080px; }
+.hd-table { width: 100%; border-collapse: collapse; }
+.hd-table th, .hd-table td { padding: 9px 12px; font-size: 12.5px; text-align: left; border-bottom: 1px solid var(--line-2); vertical-align: middle; }
+.hd-table th { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; background: #fafbfd; z-index: 1; }
+.hd-table th:last-child, .hd-table td.num { text-align: right; }
+.hd-table .tname { font-weight: 600; color: var(--ink); }
 @media (max-width: 1250px) { .kc2-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 720px) { .kc2-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 440px) { .kc2-grid { grid-template-columns: 1fr; } }

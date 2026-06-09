@@ -9,8 +9,8 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, askAI, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, askAI, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
@@ -160,6 +160,8 @@ export default function CommandCenter({
   const [rawData, setRawData] = useState<RawData | null>(null);
   const [unaModal, setUnaModal] = useState(false);
   const [unaData, setUnaData] = useState<UnassignedData | null>(null);
+  const [hoursModal, setHoursModal] = useState(false);
+  const [hoursData, setHoursData] = useState<HoursDetailData | null>(null);
   useEffect(() => {
     try {
       const r = localStorage.getItem("fin_role") as Role | null;
@@ -273,6 +275,17 @@ export default function CommandCenter({
   }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
   function openUnassigned() { setUnaModal(true); setUnaData(null); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
+  function openHours() { setHoursModal(true); setHoursData(null); getHoursDetail(draft).then(setHoursData).catch(() => setHoursData({ rows: [], count: 0 })); }
+  function exportHoursCsv() {
+    const rows = hoursData?.rows || [];
+    const head = ["Employee", "Project", "Task", "Billable_h", "NonBillable_h", "Total_h"];
+    const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [head.join(",")];
+    rows.forEach((r) => lines.push([r.employee, r.project, r.task, r.billable, r.non_billable, r.total].map(esc).join(",")));
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = "finovate_hours_detail.csv"; a.click(); URL.revokeObjectURL(url);
+  }
   function exportUnassignedCsv() {
     const rows = unaData?.rows || [];
     const head = ["Employee", "Tracked_h", "Active_days", "Reason", "Suggestion"];
@@ -608,7 +621,7 @@ export default function CommandCenter({
 
       {/* KPI — one row: Total Hours donut card + metric cards */}
       <div className="kpi-row">
-        <div className="thd-card kclk" onClick={openMetric("Total Hours", "#16a34a", "Total tracked time from Hubstaff = Billable + Non-Billable. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
+        <div className="thd-card kclk" onClick={openHours}>
           <div className="thd-head"><h3>Total Hours</h3></div>
           <div className="thd-body">
             <div className="thd-chart">
@@ -1409,6 +1422,54 @@ export default function CommandCenter({
           </div>
         </div>
       )}
+
+      {/* TOTAL HOURS DETAIL — employee x project x task, billable / non-billable */}
+      {hoursModal && (() => {
+        const rows = hoursData?.rows || [];
+        const tot = rows.reduce((s, r) => s + r.total, 0);
+        const bil = rows.reduce((s, r) => s + r.billable, 0);
+        return (
+          <div className="modal-bg" onClick={() => setHoursModal(false)}>
+            <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-h">
+                <div>
+                  <h3>Total Hours — full breakdown</h3>
+                  <div className="sub">{hoursData ? `${rows.length}${rows.length >= 1000 ? "+" : ""} rows · ${n0(tot)}h shown (${n0(bil)}h billable) · ${data.context.label}` : "loading…"}</div>
+                </div>
+                <div className="modal-h-r">
+                  {hoursData && rows.length > 0 && <button className="tb-act" onClick={exportHoursCsv}><Download size={14} /><span>CSV</span></button>}
+                  <div className="modal-x" onClick={() => setHoursModal(false)}><X size={16} /></div>
+                </div>
+              </div>
+              <div className="modal-b">
+                {!hoursData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div>
+                  : rows.length === 0 ? <div className="empty-s">No tracked time in scope</div> : (
+                    <div className="scrollwrap" style={{ maxHeight: 520 }}>
+                      <table className="hd-table">
+                        <thead><tr><th className="l">#</th><th className="l">Employee</th><th className="l">Project</th><th className="l">Task</th><th className="l">Billable / Non-Billable</th><th>Total</th></tr></thead>
+                        <tbody>
+                          {rows.map((r, i) => {
+                            const bilW = r.total ? (r.billable / r.total) * 100 : 0;
+                            return (
+                              <tr key={i}>
+                                <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
+                                <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(r.employee) }}>{initials(r.employee)}</span><span className="tname">{r.employee}</span></span></td>
+                                <td className="l" style={{ color: "var(--ink-2)", fontWeight: 600 }}>{r.project}</td>
+                                <td className="l tname">{r.task}</td>
+                                <td className="l"><span className="brkbar" title={`Billable ${n0(r.billable)}h · Non-Billable ${n0(r.non_billable)}h`}><span className="brkbar-t"><span className="bil" style={{ width: `${bilW}%` }} /><span className="nbil" style={{ width: `${100 - bilW}%` }} /></span><em>{Math.round(bilW)}%</em></span></td>
+                                <td className="num" style={{ fontWeight: 750 }}>{n1(r.total)}h</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

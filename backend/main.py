@@ -1229,6 +1229,57 @@ def raw(
     return clean({"rows": rows, "total": int(len(d)), "shown": len(rows)})
 
 
+@app.get("/api/hours_detail")
+def hours_detail(
+    date_from: Optional[str] = None, date_to: Optional[str] = None,
+    department: Optional[str] = None, atl: Optional[str] = None,
+    employee: Optional[str] = None, client: Optional[str] = None,
+    client_type: Optional[str] = None, billable: Optional[str] = None,
+    status: Optional[str] = None,
+):
+    """Total-hours drill-down: who tracked what — employee x project x task,
+    split billable / non-billable. Honours the active scope + date filter."""
+    members, g = load()
+    f = dict(date_from=date_from, date_to=date_to, department=department, atl=atl,
+             employee=employee, client=client, client_type=client_type,
+             billable=billable, status=status)
+    m, _ = apply_filters(members, g, f)
+    uids = [str(x) for x in m["user_id"].unique().tolist()] if not m.empty else []
+    if not db.has_db() or not uids:
+        return {"rows": [], "count": 0}
+    where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)"]
+    params = {"uids": list(uids), "nb": _NB_SQL}
+    if date_from:
+        where.append("a.date >= :df"); params["df"] = date_from
+    if date_to:
+        where.append("a.date <= :dt"); params["dt"] = date_to
+    nb_expr = ("CASE WHEN trim(coalesce(ht.summary,'')) ~* :nb "
+               "OR trim(coalesce(p.name,'')) ~* :nb THEN a.tracked ELSE 0 END")
+    sql = f"""
+        SELECT coalesce(nullif(a.user_name,''), 'User '||a.user_id::text) emp,
+               coalesce(nullif(p.name,''), 'No Project') project,
+               coalesce(nullif(ht.summary,''),
+                        CASE WHEN a.task_id IS NULL THEN '(project only — no task)' ELSE '(unnamed task)' END) task,
+               sum(a.tracked) t, sum({nb_expr}) nb
+        FROM hubstaff_activities a
+        LEFT JOIN hubstaff_projects p ON p.id = a.project_id
+        LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
+        WHERE {' AND '.join(where)}
+        GROUP BY 1, 2, 3 ORDER BY sum(a.tracked) DESC LIMIT 1000
+    """
+    try:
+        df = db.q(sql, params)
+    except Exception as e:  # noqa
+        print("hours_detail failed:", e); return {"rows": [], "count": 0}
+    rows = []
+    for _, r in df.iterrows():
+        tot = float(r["t"] or 0); nb = float(r["nb"] or 0)
+        rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
+                     "total": round(tot / SEC, 1), "billable": round(max(0.0, tot - nb) / SEC, 1),
+                     "non_billable": round(nb / SEC, 1)})
+    return clean({"rows": rows, "count": len(rows)})
+
+
 @app.get("/api/employee")
 def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
     members, g = load()
