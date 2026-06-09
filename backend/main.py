@@ -911,8 +911,11 @@ def command(
                                 "active_tasks": int(info.get("active_tasks", 0)),
                                 "total_tasks": int(info.get("total", 0))})
     clients_summary.sort(key=lambda c: -c["hours"])
-    summary["clients"] = len(scope_clients)
-    active_clients = sum(1 for c in scope_clients if (cdim.get(c) or {}).get("active"))
+    # Header count is date-aware: clients actually worked on in the selected
+    # period (matches the employees/active-days counts). The Client Health
+    # section still lists every in-scope client.
+    summary["clients"] = sum(1 for c in clients_summary if c["hours"] > 0)
+    active_clients = sum(1 for c in clients_summary if c["hours"] > 0)
     clients_status = {"active": active_clients, "inactive": len(scope_clients) - active_clients}
 
     # At-a-glance task counts
