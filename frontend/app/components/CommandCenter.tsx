@@ -21,6 +21,13 @@ function gradeCls(g: string) {
   if (g.startsWith("C")) return "gC";
   return "gD";
 }
+function sevClass(s: string) {
+  const v = (s || "").toLowerCase();
+  if (["danger", "high", "critical", "error"].includes(v)) return "danger";
+  if (["warn", "warning", "medium"].includes(v)) return "warn";
+  if (["info", "low"].includes(v)) return "info";
+  return "muted";
+}
 function avatarColor(s: string) {
   const c = ["#203070", "#0f9043", "#2f6fbf", "#d9882a", "#7b3fc0", "#0d9488"];
   let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) % 9973;
@@ -196,6 +203,26 @@ export default function CommandCenter({
   const insights = (data.insights || []).slice(0, 4);
   const empTasks = (data.table?.level === "employee" ? data.table.rows : []) as Array<Record<string, unknown>>;
 
+  // department/team level: a simple ranked leaderboard (teams or members)
+  const rankInfo = (() => {
+    const rows = (data.table?.rows || []) as Array<Record<string, unknown>>;
+    if (lvl === "department") {
+      return {
+        title: "Team Leaderboard", sub: "teams ranked by billable hours", isPeople: false,
+        items: rows.map((r) => ({ name: String(r.name ?? "—"), billable: Number(r.billable ?? 0), util: Number(r.utilization ?? 0), grade: String(r.grade ?? "—"), meta: `${Number(r.team_size ?? 0)} people` })),
+      };
+    }
+    if (lvl === "atl") {
+      return {
+        title: "Member Leaderboard", sub: "team members ranked by billable hours", isPeople: true,
+        items: rows.map((r) => ({ name: String(r.employee ?? "—"), billable: Number(r.billable ?? 0), util: Number(r.utilization ?? 0), grade: String(r.grade ?? "—"), meta: `${Number(r.tasks ?? 0)} tasks` })),
+      };
+    }
+    return null;
+  })();
+  const rankItems = rankInfo ? [...rankInfo.items].sort((a, b) => b.billable - a.billable) : [];
+  const rankMax = Math.max(1, ...rankItems.map((r) => r.billable));
+
   // breadcrumb crumbs from the active drill path
   const crumbs: { label: string; sub: string; on?: () => void; active: boolean }[] = [
     { label: "Company", sub: "All", on: draft.department || draft.atl || draft.employee ? goCompany : undefined, active: !draft.department && !draft.atl && !draft.employee },
@@ -307,22 +334,30 @@ export default function CommandCenter({
           {insights.length > 0 && (
             <div className="panel ia-panel">
               <div className="ph"><h3><Sparkles size={15} style={{ color: "#7b3fc0", verticalAlign: "-2px", marginRight: 6 }} />Key Insights <span className="hl">for {data.context.label}</span></h3></div>
-              <ul className="ia-list">
-                {insights.map((t, i) => <li key={i}><span className="ia-dot" />{t}</li>)}
-              </ul>
+              <div className="ins-list">
+                {insights.map((t, i) => (
+                  <div className="ins-item" key={i}>
+                    <span className="ins-n">{i + 1}</span>
+                    <span className="ins-t">{t}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           {alerts.length > 0 && (
             <div className="panel ia-panel">
               <div className="ph"><h3><ShieldAlert size={15} style={{ color: "#e8930c", verticalAlign: "-2px", marginRight: 6 }} />Alerts <span className="hl">needs attention</span></h3></div>
               <div className="alert-list">
-                {alerts.map((a, i) => (
-                  <div className={`alert-item ${a.severity}`} key={i}>
-                    <span className="alert-ic">{a.severity === "high" ? <ShieldAlert size={15} /> : <ShieldCheck size={15} />}</span>
-                    <span className="alert-t">{a.title}</span>
-                    {a.count > 0 && <span className="alert-c">{a.count}</span>}
-                  </div>
-                ))}
+                {alerts.map((a, i) => {
+                  const sev = sevClass(a.severity);
+                  return (
+                    <div className={`alert-item ${sev}`} key={i}>
+                      <span className="alert-bar" />
+                      <span className="alert-t">{a.title}</span>
+                      {a.count > 0 && <span className="alert-c">{n0(a.count)}</span>}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -445,6 +480,31 @@ export default function CommandCenter({
                 </div>
               </div>
             )}
+          </div>
+        </>
+      )}
+
+      {/* LEADERBOARD — department → teams, team → members (context-specific) */}
+      {rankInfo && rankItems.length > 0 && (
+        <>
+          <div className="sec"><h4>{rankInfo.title}</h4></div>
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3>{rankInfo.title} <span className="hl">{rankInfo.sub}</span></h3></div>
+            <div className="rank-list">
+              {rankItems.map((r, i) => (
+                <div className={`rank-row${rankInfo.isPeople ? " kclk" : ""}`} key={r.name + i} onClick={rankInfo.isPeople ? () => openEmployee(r.name) : undefined}>
+                  <span className={`rank-pos${i < 3 ? " top" : ""}`}>{i + 1}</span>
+                  {rankInfo.isPeople
+                    ? <span className="avatar sm" style={{ background: avatarColor(r.name) }}>{initials(r.name)}</span>
+                    : <span className="rank-ic" style={{ background: avatarColor(r.name) }}><Network size={13} /></span>}
+                  <span className="rank-id"><b title={r.name}>{r.name}</b><i>{r.meta}</i></span>
+                  <span className="rank-bar"><span className="rank-fill" style={{ width: `${(r.billable / rankMax) * 100}%` }} /></span>
+                  <span className="rank-h num">{n0(r.billable)}h</span>
+                  <span className="rank-u num">{n0(r.util)}%</span>
+                  <span className={`grade ${gradeCls(r.grade)}`}>{r.grade}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}
