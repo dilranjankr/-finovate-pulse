@@ -701,9 +701,23 @@ def command(
 
     daily = (d.groupby("date_s").agg(
         billable=("billable_h", "sum"), non_billable=("non_billable_h", "sum"),
-        total=("tracked_h", "sum"), prod_w=("prod_w", "sum"),
+        total=("tracked_h", "sum"), prod_w=("prod_w", "sum"), overall=("overall_h", "sum"),
         tracked=("tracked", "sum"), revenue=("revenue", "sum"),
-        users=("user_id", "nunique")).reset_index().sort_values("date_s")) if not empty else pd.DataFrame()
+        ud=("ud", "nunique"), users=("user_id", "nunique")).reset_index().sort_values("date_s")) if not empty else pd.DataFrame()
+
+    # per-day KPI series (utilization / activity / productivity) for KPI drill-down
+    kpi_daily = []
+    if not empty:
+        for r in daily.itertuples():
+            tot = float(r.total) or 0.0
+            cap_d = int(r.ud) * 8
+            kpi_daily.append({
+                "date": r.date_s,
+                "utilization": round(min(100.0, tot / cap_d * 100) if cap_d else 0.0, 1),
+                "activity": round(float(r.overall) / tot * 100, 1) if tot else 0.0,
+                "productivity": round(float(r.billable) / tot * 100, 1) if tot else 0.0,
+                "hours": round(tot, 1),
+            })
 
     bill = float(d["billable_h"].sum()) if not empty else 0.0
     nonb = float(d["non_billable_h"].sum()) if not empty else 0.0
@@ -1015,7 +1029,7 @@ def command(
         "summary": summary,
         "period": {"comparable": bool(prev), "current": {"from": date_from, "to": date_to, "days": (prev or {}).get("days")},
                    "previous": prev} if prev else {"comparable": False},
-        "kpis": kpis, "hours_distribution": hours_distribution, "hours_trend": hours_trend,
+        "kpis": kpis, "hours_distribution": hours_distribution, "hours_trend": hours_trend, "kpi_daily": kpi_daily,
         "top_clients": top_clients, "task_summary": task_summary,
         "teams": teams, "departments": departments, "employees": employees_tbl, "total_employees": int(len(members)),
         "top3": top3, "bottom3": bottom3,

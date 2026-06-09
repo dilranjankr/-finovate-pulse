@@ -127,7 +127,7 @@ export default function CommandCenter({
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
-  const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
+  const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string; dayKey?: "utilization" | "activity" | "productivity" }>(null);
   const [bd, setBd] = useState<BreakdownData | null>(null);
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
   const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
@@ -329,8 +329,8 @@ export default function CommandCenter({
   const cmp = data.period?.comparable;
   const pv = data.period?.previous;
 
-  const openMetric = (label: string, color: string, calc: string, get: (e: EmployeeRow) => number, fmt: (v: number) => string) =>
-    () => setDetail({ label, color, calc, get, fmt });
+  const openMetric = (label: string, color: string, calc: string, get: (e: EmployeeRow) => number, fmt: (v: number) => string, dayKey?: "utilization" | "activity" | "productivity") =>
+    () => setDetail({ label, color, calc, get, fmt, dayKey });
 
   // image-style KPI card: tinted top + solid icon badge, white body w/ value + delta
   const KPICOL: Record<string, { tint: string; badge: string }> = {
@@ -637,11 +637,11 @@ export default function CommandCenter({
           </div>
         </div>
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
-          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%"))}
+          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"))}
         {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
-          openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%"))}
+          openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"))}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
-          openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%"))}
+          openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%", "productivity"))}
         {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
 
@@ -1213,12 +1213,23 @@ export default function CommandCenter({
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-h">
                 <div>
-                  <h3><span className="kdot" style={{ background: detail.color }} />{detail.label} · by employee</h3>
-                  <div className="sub">{rows.length} people · {data.context.label} · sorted high → low</div>
+                  <h3><span className="kdot" style={{ background: detail.color }} />{detail.label} breakdown</h3>
+                  <div className="sub">{detail.dayKey ? "daily trend + " : ""}{rows.length} people · {data.context.label}</div>
                 </div>
                 <div className="modal-x" onClick={() => setDetail(null)}><X size={16} /></div>
               </div>
               <div className="modal-b">
+                {detail.dayKey && (data.kpi_daily?.length ?? 0) > 1 && (() => {
+                  const dk = detail.dayKey!;
+                  const series = (data.kpi_daily || []).map((d) => ({ date: d.date, value: Number(d[dk]) }));
+                  const avg = series.reduce((s, p) => s + p.value, 0) / series.length;
+                  return (
+                    <div className="mtrend-wrap">
+                      <div className="mtrend-h"><b><span className="kdot" style={{ background: detail.color }} />Daily {detail.label}</b><span>{series.length} days · avg {n1(avg)}%</span></div>
+                      <MetricTrend points={series} color={detail.color} />
+                    </div>
+                  );
+                })()}
                 <div className="calc-note">
                   <b>How it&apos;s calculated</b>
                   <span>{detail.calc}</span>
@@ -1533,6 +1544,26 @@ function Sparkline({ data, color, id }: { data: number[]; color: string; id: str
       <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.22" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
       <path d={area} fill={`url(#${gid})`} />
       <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MetricTrend({ points, color }: { points: { date: string; value: number }[]; color: string }) {
+  if (!points.length) return null;
+  const w = 720, h = 150, padL = 6, padR = 6, padT = 12, padB = 16;
+  const n = points.length;
+  const X = (i: number) => padL + (n <= 1 ? (w - padL - padR) / 2 : (i / (n - 1)) * (w - padL - padR));
+  const Y = (v: number) => padT + (1 - Math.min(Math.max(v, 0), 100) / 100) * (h - padT - padB);
+  const pts = points.map((p, i) => `${X(i).toFixed(1)},${Y(p.value).toFixed(1)}`).join(" L");
+  const area = `M${pts} L${X(n - 1).toFixed(1)},${h - padB} L${X(0).toFixed(1)},${h - padB} Z`;
+  const gid = `mt-${color.replace("#", "")}`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="mtrend">
+      <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.2" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      {[0, 50, 100].map((g) => <line key={g} x1={padL} x2={w - padR} y1={Y(g)} y2={Y(g)} stroke="#eef1f6" strokeWidth="1" />)}
+      <path d={area} fill={`url(#${gid})`} />
+      <path d={`M${pts}`} fill="none" stroke={color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />
+      {n <= 50 && points.map((p, i) => <circle key={i} cx={X(i)} cy={Y(p.value)} r="2.6" fill="#fff" stroke={color} strokeWidth="1.6" />)}
     </svg>
   );
 }
