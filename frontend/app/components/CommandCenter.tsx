@@ -1032,9 +1032,16 @@ export default function CommandCenter({
                         const palette = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4", "#b8860b", "#5c6bc0"];
                         const col = isLow ? "#e2574c" : palette[i % palette.length];
                         return (
-                          <div className="modbar-track" key={r.team} title={`${r.team}: ${n0(r.total)}h · ${n0(r.utilization)}% util${isLow ? " · lowest" : ""}`}>
+                          <div className="modbar-track" key={r.team}>
                             <div className="modbar-fill" style={{ height: `${hp}%`, background: `linear-gradient(180deg, ${col}, ${col}cc)` }}>
                               <span className="modbar-val">{n0(r.total)}h</span>
+                              <div className="modbar-tip">
+                                <div className="mt-nm">{r.team}{isLow ? " · lowest" : ""}</div>
+                                <div className="mt-row"><span><i className="mt-dot" style={{ background: col }} />Hours</span><b>{n0(r.total)}h</b></div>
+                                <div className="mt-row"><span>Utilization</span><b>{n0(r.utilization)}%</b></div>
+                                <div className="mt-row"><span>Activity</span><b>{n0(r.activity ?? 0)}%</b></div>
+                                <div className="mt-row"><span>Productivity</span><b>{n0(r.productivity)}%</b></div>
+                              </div>
                             </div>
                           </div>
                         );
@@ -1043,22 +1050,6 @@ export default function CommandCenter({
                   </div>
                   <div className="modbar-xrow">{rows.map((r) => <span className="modbar-x" key={r.team} title={r.team}>{r.team}</span>)}</div>
                 </div>
-              </div>
-              <div className="modcards">
-                {rows.map((r) => {
-                  const good = r.utilization >= 60;
-                  return (
-                    <div className="modcard" key={r.team}>
-                      <div className="modcard-l">
-                        <div className="nm">{r.team}</div>
-                        <div className={`mt${good ? "" : " bad"}`}>Utilization: {n0(r.utilization)}%</div>
-                      </div>
-                      {good
-                        ? <ShieldCheck size={26} style={{ color: "#16a34a", flexShrink: 0 }} />
-                        : <ShieldAlert size={26} style={{ color: "#d23f43", flexShrink: 0 }} />}
-                    </div>
-                  );
-                })}
               </div>
             </div>
           </>
