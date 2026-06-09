@@ -364,6 +364,10 @@ body { background: var(--bg); color: var(--ink);
 .cmp-split { display: flex; height: 8px; border-radius: 5px; overflow: hidden; background: #eef1f6; }
 .cmp-split .bil { background: #16a34a; height: 100%; } .cmp-split .nbil { background: #cbd2dd; height: 100%; }
 .cmp-split-l { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 6px; }
+.cmp-kpis { display: flex; gap: 8px; margin-top: 12px; padding-top: 11px; border-top: 1px solid var(--line-2); }
+.cmp-kpi { flex: 1; text-align: center; }
+.cmp-kpi .ck-l { display: block; font-size: 9.5px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--faint); }
+.cmp-kpi .ck-v { font-size: 16px; font-weight: 800; color: var(--ink); letter-spacing: -.5px; }
 /* grouped bar chart in the comparison panel */
 .cmp-chart { border: 1px solid var(--line-2); border-radius: 10px; padding: 16px 18px 14px; margin-bottom: 18px; background: #fcfdfe; }
 .cmp-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; margin-bottom: 14px; }

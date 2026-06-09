@@ -676,6 +676,11 @@ export default function CommandCenter({
                       <div className="cmp-bar"><span style={{ width: `${(e.total / maxTotal) * 100}%`, background: col }} /></div>
                       <div className="cmp-split"><i className="bil" style={{ width: `${bilPct}%` }} /><i className="nbil" style={{ width: `${100 - bilPct}%` }} /></div>
                       <div className="cmp-split-l"><span>Billable {n0(e.billable)}h</span><span>NB {n0(e.non_billable)}h</span></div>
+                      <div className="cmp-kpis">
+                        {([["Utilization", e.utilization], ["Activity", e.activity], ["Productivity", e.productivity]] as const).map(([lbl, val]) => (
+                          <div className="cmp-kpi" key={lbl}><span className="ck-l">{lbl}</span><b className="ck-v num" style={{ color: i === bestIdx(lbl === "Utilization" ? "utilization" : lbl === "Activity" ? "activity" : "productivity") && compare.ents.length > 1 ? "#0f7a3d" : undefined }}>{n0(val)}%</b></div>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}
