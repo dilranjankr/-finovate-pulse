@@ -741,39 +741,21 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* HEADLINE — plain-English summary + key insights & alerts as chips */}
+      {/* HEADLINE — single plain-English line with key numbers highlighted */}
       {(() => {
         const billPct = total ? Math.round((billable / total) * 100) : 0;
         const scope = caps.self ? selfName : (data.context.label === "Company (All)" ? "Across the company" : data.context.label);
-        const headlineText = caps.self
-          ? `${selfName} tracked ${n0(total)}h — ${billPct}% billable, ${n1(util)}% utilization, productivity ${n1(prod)}%${gradeStr !== "—" ? `, grade ${gradeStr}` : ""}.`
-          : `${scope} · ${n0(peopleN)} ${peopleN === 1 ? "person" : "people"} tracked ${n0(total)}h — ${billPct}% billable at ${n1(util)}% utilization${gradeStr !== "—" ? `, avg grade ${gradeStr}` : ""}.`;
+        const gColor = gradeStr.startsWith("A") ? "#0f9043" : gradeStr.startsWith("B") ? "#2f6fbf" : gradeStr === "C" ? "#e8930c" : "#d23f43";
         return (
           <div className="headline">
-            <div className="hl-top">
-              <span className="hl-spark"><Sparkles size={17} /></span>
-              <p className="hl-text">{headlineText}</p>
-            </div>
-            {(insights.length > 0 || alerts.length > 0) && (
-              <div className="hl-chips">
-                {insights.map((t, i) => {
-                  const tg = insightTarget(t);
-                  return (
-                    <button type="button" key={"i" + i} className={`hl-chip ins${tg ? " clk" : ""}`} disabled={!tg} onClick={tg ? () => applyInsight(tg) : undefined} title={t}>
-                      <span className="hl-dot" />{t}{tg && <ArrowRight size={12} />}
-                    </button>
-                  );
-                })}
-                {alerts.map((a, i) => {
-                  const sev = sevClass(a.severity);
-                  return (
-                    <button type="button" key={"a" + i} className={`hl-chip alert ${sev}`} onClick={() => askAboutAlert(a.title)} title="Ask AI about this">
-                      {a.count > 0 && <b>{n0(a.count)}</b>}{a.title}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
+            <span className="hl-spark"><Sparkles size={16} /></span>
+            <p className="hl-text">
+              <span className="hl-scope">{scope}</span>
+              {!caps.self && <> · <b>{n0(peopleN)}</b> {peopleN === 1 ? "person" : "people"}</>} tracked <b className="hl-k">{n0(total)}h</b> —{" "}
+              <b className="hl-k" style={{ color: "#0f9043" }}>{billPct}%</b> billable at{" "}
+              <b className="hl-k" style={{ color: "#2f6fbf" }}>{n1(util)}%</b> utilization
+              {gradeStr !== "—" && <>, avg grade <b className="hl-k" style={{ color: gColor }}>{gradeStr}</b></>}.
+            </p>
           </div>
         );
       })()}
