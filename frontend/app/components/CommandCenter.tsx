@@ -163,6 +163,7 @@ export default function CommandCenter({
   const [hoursModal, setHoursModal] = useState(false);
   const [hoursData, setHoursData] = useState<HoursDetailData | null>(null);
   const [hoursSearch, setHoursSearch] = useState("");
+  const [gradeModal, setGradeModal] = useState(false);
   useEffect(() => {
     try {
       const r = localStorage.getItem("fin_role") as Role | null;
@@ -642,7 +643,7 @@ export default function CommandCenter({
           openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"))}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%", "productivity"))}
-        {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
+        {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award, undefined, () => setGradeModal(true))}
       </div>
 
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
@@ -1494,6 +1495,54 @@ export default function CommandCenter({
                     )}
                   </>
                 )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* AVG GRADE breakdown — distribution + how it's scored + per-employee */}
+      {gradeModal && (() => {
+        const order = ["A+", "A", "B+", "B", "C", "D"];
+        const gcol: Record<string, string> = { "A+": "#0f9043", "A": "#16a34a", "B+": "#2f6fbf", "B": "#5b8def", "C": "#e8930c", "D": "#d23f43" };
+        const dist = order.map((g) => ({ grade: g, count: (data.grade_distribution || []).find((x) => x.grade === g)?.count || 0 }));
+        const distTot = dist.reduce((s, x) => s + x.count, 0) || 1;
+        const ppl = [...data.employees].sort((a, b) => order.indexOf(a.grade) - order.indexOf(b.grade) || b.utilization - a.utilization);
+        return (
+          <div className="modal-bg" onClick={() => setGradeModal(false)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-h">
+                <div>
+                  <h3><Award size={15} style={{ verticalAlign: -2, color: "#e11d63" }} /> Avg Grade — {gradeStr}</h3>
+                  <div className="sub">{distTot} people · {data.context.label}</div>
+                </div>
+                <div className="modal-x" onClick={() => setGradeModal(false)}><X size={16} /></div>
+              </div>
+              <div className="modal-b">
+                {/* distribution bar */}
+                <div className="gx-bar">{dist.filter((d) => d.count > 0).map((d) => <span key={d.grade} className="gx-seg" style={{ flex: d.count, background: gcol[d.grade] }} title={`${d.grade}: ${d.count}`} />)}</div>
+                <div className="gx-leg">{dist.map((d) => <div className="gx-li" key={d.grade}><span className="dot" style={{ background: gcol[d.grade] }} /><b>{d.grade}</b><span>{d.count}</span><i>{Math.round(d.count / distTot * 100)}%</i></div>)}</div>
+                <div className="calc-note">
+                  <b>How the grade is scored</b>
+                  <span>Score = 0.4 × Utilization + 0.3 × Productivity + 0.3 × Task-completion. Then: ≥90 A+, ≥80 A, ≥75 B+, ≥65 B, ≥50 C, else D. The card shows the grade of the average score across everyone in scope.</span>
+                </div>
+                <div className="scrollwrap" style={{ maxHeight: 420 }}>
+                  <table className="ec-table">
+                    <thead><tr><th className="l">Employee</th><th className="l">Team</th><th>Utilization</th><th>Productivity</th><th>Activity</th><th>Grade</th></tr></thead>
+                    <tbody>
+                      {ppl.map((e, i) => (
+                        <tr key={e.name + i} className="click" onClick={() => { setGradeModal(false); openEmployee(e.name); }}>
+                          <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                          <td className="l" style={{ color: "var(--muted)" }}>{e.team}</td>
+                          <td className="num">{n0(e.utilization)}%</td>
+                          <td className="num">{n0(e.productivity)}%</td>
+                          <td className="num">{n0(e.activity)}%</td>
+                          <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
