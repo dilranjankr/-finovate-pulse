@@ -47,6 +47,8 @@ export default function CommandCenter({
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
   const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
+  const [clientTab, setClientTab] = useState<"top" | "bottom">("top");
+  const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [aiQ, setAiQ] = useState("");
@@ -307,33 +309,24 @@ export default function CommandCenter({
       <div className="sec"><h4>Clients</h4></div>
       <div className="row3">
         <div className="panel">
-          <div className="ph"><h3>Top &amp; Bottom Clients <span className="hl">by hours · {clientsAll.length} clients</span></h3></div>
+          <div className="ph">
+            <h3>Clients <span className="hl">by hours · {clientsAll.length}</span></h3>
+            <div className="seg-pill">
+              <button type="button" className={clientTab === "top" ? "on" : ""} onClick={() => setClientTab("top")}>▲ Top 5</button>
+              <button type="button" className={clientTab === "bottom" ? "on" : ""} onClick={() => setClientTab("bottom")}>▼ Bottom 5</button>
+            </div>
+          </div>
           {clientsAll.length ? (
             <div className="tb-card">
-              <div className="tb-grp">
-                <div className="tb-h up">▲ Top 5</div>
-                {topClients.map((c, i) => (
-                  <div className="tb-row" key={c.client + i}>
-                    <span className="tb-rank">{i + 1}</span>
-                    <span className="dot" style={{ background: clColor(c.category) }} />
-                    <span className="tb-nm" title={c.client}>{c.client}</span>
-                    <b className="num">{n0(c.hours)}h</b>
-                  </div>
-                ))}
-              </div>
-              {botClients.length > 0 && (
-                <div className="tb-grp">
-                  <div className="tb-h down">▼ Bottom 5</div>
-                  {botClients.map((c, i) => (
-                    <div className="tb-row" key={c.client + i}>
-                      <span className="tb-rank">{i + 1}</span>
-                      <span className="dot" style={{ background: clColor(c.category) }} />
-                      <span className="tb-nm" title={c.client}>{c.client}</span>
-                      <b className="num">{n0(c.hours)}h</b>
-                    </div>
-                  ))}
+              {(clientTab === "top" ? topClients : botClients).map((c, i) => (
+                <div className="tb-row" key={c.client + i}>
+                  <span className="tb-rank">{i + 1}</span>
+                  <span className="dot" style={{ background: clColor(c.category) }} />
+                  <span className="tb-nm" title={c.client}>{c.client}</span>
+                  <b className="num">{n0(c.hours)}h</b>
                 </div>
-              )}
+              ))}
+              {clientTab === "bottom" && botClients.length === 0 && <div className="empty-s">Not enough clients</div>}
             </div>
           ) : <div className="empty-s">No client data in scope</div>}
         </div>
@@ -373,32 +366,23 @@ export default function CommandCenter({
           {bubble.length > 1 ? <Bubble points={bubble} height={300} /> : <div className="empty-s">Select a broader scope to compare people</div>}
         </div>
         <div className="panel">
-          <div className="ph"><h3>Top &amp; Bottom Performers <span className="hl">by grade</span></h3></div>
+          <div className="ph">
+            <h3>Performers <span className="hl">by grade</span></h3>
+            <div className="seg-pill">
+              <button type="button" className={perfTab === "top" ? "on" : ""} onClick={() => setPerfTab("top")}>▲ Top 3</button>
+              <button type="button" className={perfTab === "bottom" ? "on" : ""} onClick={() => setPerfTab("bottom")}>▼ Bottom 3</button>
+            </div>
+          </div>
           <div className="tb-card">
-            <div className="tb-grp">
-              <div className="tb-h up">▲ Top 3</div>
-              {data.top3.map((e, i) => (
-                <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
-                  <span className="tb-rank">{i + 1}</span>
-                  <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
-                  <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
-                  <span className="num pf-u">{n0(e.utilization)}%</span>
-                  <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
-                </div>
-              ))}
-            </div>
-            <div className="tb-grp">
-              <div className="tb-h down">▼ Bottom 3</div>
-              {data.bottom3.map((e, i) => (
-                <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
-                  <span className="tb-rank">{i + 1}</span>
-                  <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
-                  <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
-                  <span className="num pf-u">{n0(e.utilization)}%</span>
-                  <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
-                </div>
-              ))}
-            </div>
+            {(perfTab === "top" ? data.top3 : data.bottom3).map((e, i) => (
+              <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
+                <span className="tb-rank">{i + 1}</span>
+                <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
+                <span className="num pf-u">{n0(e.utilization)}%</span>
+                <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>
