@@ -10,7 +10,7 @@ import {
   getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, askAI, defaultRange,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail,
 } from "../lib/api";
-import { TrendLines, Donut, Bubble, BarList } from "./Charts";
+import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -298,7 +298,7 @@ export default function CommandCenter({
           <div className="sec"><h4>Hours Trend</h4></div>
           <div className="panel" style={{ marginBottom: 14 }}>
             <div className="ph"><h3>Billable vs Non-Billable over time <span className="hl">tracked hours per day</span></h3></div>
-            <TrendLines data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={280} />
+            <HoursTrend data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={300} />
           </div>
         </>
       )}
