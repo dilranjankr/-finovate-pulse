@@ -761,32 +761,6 @@ export default function CommandCenter({
       })()}
 
 
-      {/* BUDGET vs ACTUAL — capacity utilised gauge */}
-      {bva.budget > 0 && (
-        <>
-          <div className="sec"><h4>Budget vs Actual</h4></div>
-          <div className="panel" style={{ marginBottom: 14 }}>
-            <div className="ph"><h3>Capacity utilised <span className="hl">tracked hours vs budgeted capacity (8h/day)</span></h3></div>
-            <div className="bva-body">
-              <div className="bva-gauge">
-                <GaugeChart value={bvaPct} color={bvaPct > 100 ? "#d23f43" : bvaPct >= 70 ? "#16a34a" : "#e8930c"} />
-                <div className="bva-read">
-                  <b className="num">{bvaPct}%</b>
-                  {cmp && bvaDelta !== null && <span className="bva-delta" style={{ color: bvaDelta >= 0 ? "#0f9043" : "#d23f43" }}>{bvaDelta > 0 ? "+" : ""}{bvaDelta}%</span>}
-                  <span className="bva-cap">of budget · last {pv?.days || 90}d</span>
-                </div>
-              </div>
-              <div className="bva-stats">
-                <div className="bva-stat"><span className="l">Budgeted capacity</span><b className="num">{n0(bva.budget)}h</b></div>
-                <div className="bva-stat"><span className="l">Actual tracked</span><b className="num">{n0(bva.actual)}h</b></div>
-                <div className="bva-stat"><span className="l">Variance</span><b className="num" style={{ color: bva.variance < 0 ? "#d23f43" : "#0f9043" }}>{bva.variance > 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
-                <div className="bva-note">{bvaPct >= 100 ? "Over capacity — team is fully loaded." : bvaPct >= 70 ? "Healthy utilisation of available capacity." : "Spare capacity available."}</div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
       {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
       {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
         const totH = bd.task_h + bd.project_h;
@@ -853,16 +827,105 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* HOURS TREND */}
-      {data.hours_trend.length > 1 && (
-        <>
-          <div className="sec"><h4>Hours Trend</h4></div>
+      {/* HOURS TREND + PERFORMANCE — one row */}
+      {(data.hours_trend.length > 1 || showPeople) && (<>
+        <div className="sec"><h4>Activity &amp; Performance</h4></div>
+        {showPeople ? (
+          <div className="row2 hp-row">
+            <div className="panel">
+              <div className="ph"><h3>Hours Trend <span className="hl">billable vs non-billable per day</span></h3></div>
+              {data.hours_trend.length > 1 ? <HoursTrend data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={250} /> : <div className="empty-s">Not enough data in range</div>}
+            </div>
+            <div className="hp-right">
+              <div className="panel">
+                <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3></div>
+                {bubble.length > 1 ? <Bubble points={bubble} height={200} /> : <div className="empty-s">Select a broader scope to compare people</div>}
+              </div>
+              <div className="panel">
+                <div className="ph">
+                  <h3>Performers <span className="hl">by grade</span></h3>
+                  <div className="seg-pill">
+                    <button type="button" className={perfTab === "top" ? "on" : ""} onClick={() => setPerfTab("top")}>▲ Top 3</button>
+                    <button type="button" className={perfTab === "bottom" ? "on" : ""} onClick={() => setPerfTab("bottom")}>▼ Bottom 3</button>
+                  </div>
+                </div>
+                <div className="tb-card">
+                  {(perfTab === "top" ? data.top3 : data.bottom3).map((e, i) => (
+                    <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
+                      <span className="tb-rank">{i + 1}</span>
+                      <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                      <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
+                      <span className="num pf-u">{n0(e.utilization)}%</span>
+                      <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (data.hours_trend.length > 1 && (
           <div className="panel" style={{ marginBottom: 14 }}>
             <div className="ph"><h3>Billable vs Non-Billable over time <span className="hl">tracked hours per day</span></h3></div>
             <HoursTrend data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={300} />
           </div>
-        </>
-      )}
+        ))}
+      </>)}
+
+      {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
+      {showComparison && (() => {
+        const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
+        if (!rows.length) return null;
+        const maxH = Math.max(1, ...rows.map((r) => r.total));
+        const niceTop = Math.ceil((maxH * 1.08) / 1000) * 1000 || 1000;
+        const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
+        const lowKey = rows.reduce((a, b) => (b.utilization < a.utilization ? b : a)).team;
+        return (
+          <>
+            <div className="sec"><h4>Comparison</h4></div>
+            <div className="panel" style={{ marginBottom: 14 }}>
+              <div className="ph">
+                <h3><BarChart3 size={16} style={{ color: "#ed7d31", verticalAlign: "-3px", marginRight: 7 }} />Hours by {cmpDim === "department" ? "Department" : "Team"}</h3>
+                <div className="seg-pill" role="group">
+                  {([["department", "Department"], ["team", "Team"]] as const).map(([v, lbl]) => (
+                    <button key={v} type="button" className={cmpDim === v ? "on" : ""} onClick={() => setCmpDim(v)}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
+              <div className="modbar">
+                <div className="modbar-y">{[1, 0.75, 0.5, 0.25, 0].map((f) => <span key={f}>{fk(niceTop * f)}</span>)}</div>
+                <div className="modbar-main">
+                  <div className="modbar-plot">
+                    {[0, 0.25, 0.5, 0.75, 1].map((f) => <div className="modbar-grid" key={f} style={{ bottom: `${f * 100}%` }} />)}
+                    <div className="modbar-bars">
+                      {rows.map((r, i) => {
+                        const hp = Math.max(3, (r.total / niceTop) * 100);
+                        const isLow = r.team === lowKey && rows.length > 1;
+                        const palette = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4", "#b8860b", "#5c6bc0"];
+                        const col = isLow ? "#e2574c" : palette[i % palette.length];
+                        return (
+                          <div className="modbar-track" key={r.team}>
+                            <div className="modbar-fill" style={{ height: `${hp}%`, background: `linear-gradient(180deg, ${col}, ${col}cc)` }}>
+                              <span className="modbar-val">{n0(r.total)}h</span>
+                              <div className="modbar-tip">
+                                <div className="mt-nm">{r.team}{isLow ? " · lowest" : ""}</div>
+                                <div className="mt-row"><span><i className="mt-dot" style={{ background: col }} />Hours</span><b>{n0(r.total)}h</b></div>
+                                <div className="mt-row"><span>Utilization</span><b>{n0(r.utilization)}%</b></div>
+                                <div className="mt-row"><span>Activity</span><b>{n0(r.activity ?? 0)}%</b></div>
+                                <div className="mt-row"><span>Productivity</span><b>{n0(r.productivity)}%</b></div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="modbar-xrow">{rows.map((r) => <span className="modbar-x" key={r.team} title={r.team}>{r.team}</span>)}</div>
+                </div>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* TASKS — status + priority (contextual) */}
       {(taskStatusTotal > 0 || tpTotal > 0) && (
@@ -971,93 +1034,6 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* PERFORMANCE — only when there are ≥2 people to compare */}
-      {showPeople && (<>
-      <div className="sec"><h4>Performance</h4></div>
-      <div className="row2">
-        <div className="panel">
-          <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3></div>
-          {bubble.length > 1 ? <Bubble points={bubble} height={300} /> : <div className="empty-s">Select a broader scope to compare people</div>}
-        </div>
-        <div className="panel">
-          <div className="ph">
-            <h3>Performers <span className="hl">by grade</span></h3>
-            <div className="seg-pill">
-              <button type="button" className={perfTab === "top" ? "on" : ""} onClick={() => setPerfTab("top")}>▲ Top 3</button>
-              <button type="button" className={perfTab === "bottom" ? "on" : ""} onClick={() => setPerfTab("bottom")}>▼ Bottom 3</button>
-            </div>
-          </div>
-          <div className="tb-card">
-            {(perfTab === "top" ? data.top3 : data.bottom3).map((e, i) => (
-              <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
-                <span className="tb-rank">{i + 1}</span>
-                <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
-                <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
-                <span className="num pf-u">{n0(e.utilization)}%</span>
-                <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-      </>)}
-
-      {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
-      {showComparison && (() => {
-        const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
-        if (!rows.length) return null;
-        const maxH = Math.max(1, ...rows.map((r) => r.total));
-        const niceTop = Math.ceil((maxH * 1.08) / 1000) * 1000 || 1000;
-        const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
-        const lowKey = rows.reduce((a, b) => (b.utilization < a.utilization ? b : a)).team;
-        return (
-          <>
-            <div className="sec"><h4>Comparison</h4></div>
-            <div className="panel" style={{ marginBottom: 14 }}>
-              <div className="ph">
-                <h3><BarChart3 size={16} style={{ color: "#ed7d31", verticalAlign: "-3px", marginRight: 7 }} />Hours by {cmpDim === "department" ? "Department" : "Team"}</h3>
-                <div className="seg-pill" role="group">
-                  {([["department", "Department"], ["team", "Team"]] as const).map(([v, lbl]) => (
-                    <button key={v} type="button" className={cmpDim === v ? "on" : ""} onClick={() => setCmpDim(v)}>{lbl}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="modbar">
-                <div className="modbar-y">{[1, 0.75, 0.5, 0.25, 0].map((f) => <span key={f}>{fk(niceTop * f)}</span>)}</div>
-                <div className="modbar-main">
-                  <div className="modbar-plot">
-                    {[0, 0.25, 0.5, 0.75, 1].map((f) => <div className="modbar-grid" key={f} style={{ bottom: `${f * 100}%` }} />)}
-                    <div className="modbar-bars">
-                      {rows.map((r, i) => {
-                        const hp = Math.max(3, (r.total / niceTop) * 100);
-                        const isLow = r.team === lowKey && rows.length > 1;
-                        const palette = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4", "#b8860b", "#5c6bc0"];
-                        const col = isLow ? "#e2574c" : palette[i % palette.length];
-                        return (
-                          <div className="modbar-track" key={r.team}>
-                            <div className="modbar-fill" style={{ height: `${hp}%`, background: `linear-gradient(180deg, ${col}, ${col}cc)` }}>
-                              <span className="modbar-val">{n0(r.total)}h</span>
-                              <div className="modbar-tip">
-                                <div className="mt-nm">{r.team}{isLow ? " · lowest" : ""}</div>
-                                <div className="mt-row"><span><i className="mt-dot" style={{ background: col }} />Hours</span><b>{n0(r.total)}h</b></div>
-                                <div className="mt-row"><span>Utilization</span><b>{n0(r.utilization)}%</b></div>
-                                <div className="mt-row"><span>Activity</span><b>{n0(r.activity ?? 0)}%</b></div>
-                                <div className="mt-row"><span>Productivity</span><b>{n0(r.productivity)}%</b></div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div className="modbar-xrow">{rows.map((r) => <span className="modbar-x" key={r.team} title={r.team}>{r.team}</span>)}</div>
-                </div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
-
       {/* EMPLOYEE → CLIENTS — only when there are multiple people to map */}
       {showPeople && (<>
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
@@ -1090,6 +1066,32 @@ export default function CommandCenter({
         </div>
       </div>
       </>)}
+
+      {/* BUDGET vs ACTUAL — capacity utilised gauge (moved to end) */}
+      {bva.budget > 0 && (
+        <>
+          <div className="sec"><h4>Budget vs Actual</h4></div>
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3>Capacity utilised <span className="hl">tracked hours vs budgeted capacity (8h/day)</span></h3></div>
+            <div className="bva-body">
+              <div className="bva-gauge">
+                <GaugeChart value={bvaPct} color={bvaPct > 100 ? "#d23f43" : bvaPct >= 70 ? "#16a34a" : "#e8930c"} />
+                <div className="bva-read">
+                  <b className="num">{bvaPct}%</b>
+                  {cmp && bvaDelta !== null && <span className="bva-delta" style={{ color: bvaDelta >= 0 ? "#0f9043" : "#d23f43" }}>{bvaDelta > 0 ? "+" : ""}{bvaDelta}%</span>}
+                  <span className="bva-cap">of budget · last {pv?.days || 90}d</span>
+                </div>
+              </div>
+              <div className="bva-stats">
+                <div className="bva-stat"><span className="l">Budgeted capacity</span><b className="num">{n0(bva.budget)}h</b></div>
+                <div className="bva-stat"><span className="l">Actual tracked</span><b className="num">{n0(bva.actual)}h</b></div>
+                <div className="bva-stat"><span className="l">Variance</span><b className="num" style={{ color: bva.variance < 0 ? "#d23f43" : "#0f9043" }}>{bva.variance > 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
+                <div className="bva-note">{bvaPct >= 100 ? "Over capacity — team is fully loaded." : bvaPct >= 70 ? "Healthy utilisation of available capacity." : "Spare capacity available."}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* EMPLOYEE FOCUS — single person: their tasks list */}
       {isEmp && empTasks.length > 0 && (<>
