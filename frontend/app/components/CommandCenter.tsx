@@ -1564,7 +1564,7 @@ function MetricTrend({ points, color, unit = "%" }: { points: { date: string; va
   const area = `M${pts} L${X(n - 1).toFixed(1)},${h - padB} L${X(0).toFixed(1)},${h - padB} Z`;
   const gid = `mt-${color.replace("#", "")}`;
   const seg = (w - padL - padR) / Math.max(1, n - 1);
-  const fmtDate = (s: string) => { const [, m, d] = s.split("-"); return `${d} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m) - 1]}`; };
+  const fmtDate = (s: string) => { const [y, m, d] = s.split("-"); return `${d} ${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m) - 1]} ${y}`; };
   const hp = hi != null ? points[hi] : null;
   const leftPct = hi != null ? (X(hi) / w) * 100 : 0;
   const topPct = hi != null ? (Y(points[hi].value) / h) * 100 : 0;
@@ -1586,9 +1586,9 @@ function MetricTrend({ points, color, unit = "%" }: { points: { date: string; va
       </svg>
       {hp && (
         <div className={`mtrend-tip${flipBelow ? " below" : ""} ${nearEdge}`} style={{ left: `${leftPct}%`, top: `${topPct}%` }}>
+          <span className="mt-date">{fmtDate(hp.date)}</span>
           <b>{n1(hp.value)}{unit}</b>
           {hp.sub && <span className="mt-sub">{hp.sub}</span>}
-          <span className="mt-date">{fmtDate(hp.date)}</span>
         </div>
       )}
     </div>
