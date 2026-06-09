@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import {
-  ChevronDown, Search, Filter, CalendarDays,
+  ChevronDown, Search, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
@@ -447,9 +447,6 @@ export default function CommandCenter({
         </div>
         <div className="tb-r">
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
-          {caps.export && <button className="tb-act" title="Export employees to CSV" onClick={exportCsv}><Download size={15} /><span>Export</span></button>}
-          {caps.raw && <button className="tb-act" title="Raw data (developer)" onClick={openRaw}><Code2 size={15} /><span>Raw</span></button>}
-          {caps.filters && <div className={`filtbtn${showFilters ? " on" : ""}${activeCount ? " has" : ""}`} title="Filters" onClick={() => setShowFilters((s) => !s)}><Filter />{activeCount > 0 && <span className="filtbtn-c">{activeCount}</span>}</div>}
           <span className="tb-sep" />
           {(() => {
             const rd = ROLE_DEF.find((r) => r.id === role)!;
@@ -472,6 +469,8 @@ export default function CommandCenter({
                     <div className="acct-items">
                       <button className="acct-item" onClick={() => { setAcctOpen(false); if (caps.self) openEmployee(name); else setShowSettings(true); }}><UserIcon size={16} />Your profile</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setShowSettings(true); }}><Settings size={16} />Settings</button>
+                      {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
+                      {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
                       <button className="acct-item" onClick={() => { setAcctOpen(false); switchRole(); }}><Users size={16} />Users &amp; roles</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); window.open("https://github.com/dilranjankr/-finovate-pulse#readme", "_blank"); }}><BookOpen size={16} />Documentation</button>
