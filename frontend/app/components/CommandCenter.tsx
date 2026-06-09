@@ -741,45 +741,42 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* INSIGHTS & ALERTS — auto-generated, contextual to the current scope */}
-      {(insights.length > 0 || alerts.length > 0) && (
-        <div className="ia-row">
-          {insights.length > 0 && (
-            <div className="panel ia-panel">
-              <div className="ph"><h3><Sparkles size={15} style={{ color: "#7b3fc0", verticalAlign: "-2px", marginRight: 6 }} />Key Insights <span className="hl">for {data.context.label}</span></h3></div>
-              <div className="ins-list">
+      {/* HEADLINE — plain-English summary + key insights & alerts as chips */}
+      {(() => {
+        const billPct = total ? Math.round((billable / total) * 100) : 0;
+        const scope = caps.self ? selfName : (data.context.label === "Company (All)" ? "Across the company" : data.context.label);
+        const headlineText = caps.self
+          ? `${selfName} tracked ${n0(total)}h — ${billPct}% billable, ${n1(util)}% utilization, productivity ${n1(prod)}%${gradeStr !== "—" ? `, grade ${gradeStr}` : ""}.`
+          : `${scope} · ${n0(peopleN)} ${peopleN === 1 ? "person" : "people"} tracked ${n0(total)}h — ${billPct}% billable at ${n1(util)}% utilization${gradeStr !== "—" ? `, avg grade ${gradeStr}` : ""}.`;
+        return (
+          <div className="headline">
+            <div className="hl-top">
+              <span className="hl-spark"><Sparkles size={17} /></span>
+              <p className="hl-text">{headlineText}</p>
+            </div>
+            {(insights.length > 0 || alerts.length > 0) && (
+              <div className="hl-chips">
                 {insights.map((t, i) => {
                   const tg = insightTarget(t);
                   return (
-                    <div className={`ins-item${tg ? " clk" : ""}`} key={i} onClick={tg ? () => applyInsight(tg) : undefined} title={tg ? `View ${tg.value}` : undefined}>
-                      <span className="ins-n">{i + 1}</span>
-                      <span className="ins-t">{t}</span>
-                      {tg && <ArrowRight size={14} className="ins-go" />}
-                    </div>
+                    <button type="button" key={"i" + i} className={`hl-chip ins${tg ? " clk" : ""}`} disabled={!tg} onClick={tg ? () => applyInsight(tg) : undefined} title={t}>
+                      <span className="hl-dot" />{t}{tg && <ArrowRight size={12} />}
+                    </button>
                   );
                 })}
-              </div>
-            </div>
-          )}
-          {alerts.length > 0 && (
-            <div className="panel ia-panel">
-              <div className="ph"><h3><ShieldAlert size={15} style={{ color: "#e8930c", verticalAlign: "-2px", marginRight: 6 }} />Alerts <span className="hl">needs attention</span></h3></div>
-              <div className="alert-list">
                 {alerts.map((a, i) => {
                   const sev = sevClass(a.severity);
                   return (
-                    <div className={`alert-item ${sev} clk`} key={i} onClick={() => askAboutAlert(a.title)} title="Ask AI about this">
-                      <span className="alert-bar" />
-                      <span className="alert-t">{a.title}</span>
-                      {a.count > 0 && <span className="alert-c">{n0(a.count)}</span>}
-                    </div>
+                    <button type="button" key={"a" + i} className={`hl-chip alert ${sev}`} onClick={() => askAboutAlert(a.title)} title="Ask AI about this">
+                      {a.count > 0 && <b>{n0(a.count)}</b>}{a.title}
+                    </button>
                   );
                 })}
               </div>
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        );
+      })()}
 
 
       {/* BUDGET vs ACTUAL — capacity utilised gauge */}

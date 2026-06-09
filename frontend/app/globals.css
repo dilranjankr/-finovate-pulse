@@ -341,7 +341,39 @@ body { background: var(--bg); color: var(--ink);
 .scope-sync { display: inline-flex; align-items: center; gap: 6px; color: #2f6fbf; }
 .spin.sm { width: 12px; height: 12px; border-width: 2px; }
 
-/* ---- insights & alerts ---- */
+/* ---- headline (plain-english summary + insight/alert chips) ---- */
+.headline { background: linear-gradient(135deg, #f7f9fd, #edf2fb); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 20px; margin-bottom: 14px; box-shadow: var(--shadow); }
+.hl-top { display: flex; align-items: center; gap: 12px; }
+.hl-spark { flex-shrink: 0; width: 32px; height: 32px; border-radius: 9px; background: #efeaf9; color: #7b3fc0; display: flex; align-items: center; justify-content: center; }
+.hl-text { font-size: 15.5px; font-weight: 600; color: var(--ink); line-height: 1.45; letter-spacing: -.2px; margin: 0; }
+.hl-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 13px; }
+.hl-chip { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 600; padding: 5px 12px; border-radius: 20px; border: 1px solid var(--line); background: var(--panel); color: #3a4452; cursor: default; max-width: 380px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: border-color .14s, background .14s, box-shadow .14s; }
+.hl-chip svg { flex-shrink: 0; }
+.hl-dot { width: 7px; height: 7px; border-radius: 50%; background: #7b3fc0; flex-shrink: 0; }
+.hl-chip.ins.clk { cursor: pointer; }
+.hl-chip.ins.clk:hover { border-color: #c9b9ec; background: #faf7ff; box-shadow: 0 2px 8px rgba(123,63,192,.1); }
+.hl-chip.ins svg { color: var(--faint); }
+.hl-chip.ins:disabled { opacity: 1; }
+.hl-chip.alert { cursor: pointer; }
+.hl-chip.alert b { font-weight: 800; }
+.hl-chip.alert:hover { box-shadow: 0 2px 8px rgba(20,30,60,.1); }
+.hl-chip.alert.danger { background: #fdeded; border-color: #f5d2d2; color: #b3261e; }
+.hl-chip.alert.warn { background: #fef6e9; border-color: #f3e2bf; color: #946400; }
+.hl-chip.alert.info { background: #eef4fc; border-color: #d4e3f6; color: #1f4f9c; }
+.hl-chip.alert.muted { background: #f1f4f9; border-color: var(--line); color: #5a6472; }
+
+/* ---- smooth load + interaction animations ---- */
+@keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
+.kpi-row, .headline, .sec, .row2, .row3, .row3a, .tt-row, .ia-row, .vtabs { animation: fadeInUp .4s ease both; }
+.kpi-row > *, .modbar-fill, .ringchart, .rank-fill, .bl-fill, .pipe-bar, .gd-seg, .gx-seg { will-change: auto; }
+.page > .panel { animation: fadeInUp .4s ease both; }
+.modal { animation: modalIn .2s ease both; }
+.drawer { animation: drawerIn .26s cubic-bezier(.4,0,.2,1) both; }
+@keyframes drawerIn { from { transform: translateX(100%); } to { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .kpi-row, .headline, .sec, .row2, .row3, .row3a, .tt-row, .ia-row, .vtabs, .page > .panel, .modal, .drawer { animation: none; } }
+
+/* ---- insights & alerts (legacy, now folded into headline) ---- */
 .ia-row { display: grid; grid-template-columns: 1.25fr 1fr; gap: 14px; margin-bottom: 14px; align-items: stretch; }
 @media (max-width: 900px) { .ia-row { grid-template-columns: 1fr; } }
 .ia-panel { padding: 16px 18px; }
