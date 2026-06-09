@@ -477,22 +477,8 @@ export function HoursTrend({ data, height = 290 }: { data: { date: string; billa
   const fmt = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]} ${MM[+p[1] - 1]}` : String(s); };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fk = (v: any) => { const n = Number(v ?? 0); return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(n)); };
-  // aggregate daily points into weeks (Mon-start) for a clean, smooth trend
-  const base = (() => {
-    if (data.length <= 28) return data;
-    const m = new Map<string, { date: string; billable: number; non_billable: number }>();
-    data.forEach((d) => {
-      const dt = new Date(d.date + "T00:00:00Z");
-      const dow = (dt.getUTCDay() + 6) % 7;
-      dt.setUTCDate(dt.getUTCDate() - dow);
-      const key = dt.toISOString().slice(0, 10);
-      const cur = m.get(key) || { date: key, billable: 0, non_billable: 0 };
-      cur.billable += d.billable || 0; cur.non_billable += d.non_billable || 0;
-      m.set(key, cur);
-    });
-    return [...m.values()].sort((a, b) => a.date.localeCompare(b.date));
-  })();
-  const rows = base.map((d) => ({ ...d, total: (d.billable || 0) + (d.non_billable || 0) }));
+  // every date in the selected range (daily)
+  const rows = data.map((d) => ({ ...d, total: (d.billable || 0) + (d.non_billable || 0) }));
   return (
     <Sized height={height} defaultWidth={640}>
       {(w, h) => (
