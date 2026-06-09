@@ -643,27 +643,6 @@ export default function CommandCenter({
           openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"))}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%", "productivity"))}
-        {(() => {
-          const gc = (g: string) => g.startsWith("A") ? "#16a34a" : g.startsWith("B") ? "#2f6fbf" : g === "C" ? "#e8930c" : "#d23f43";
-          const gtint = gradeStr.startsWith("A") ? "#e7f6ec" : gradeStr.startsWith("B") ? "#e8f1fd" : gradeStr === "C" ? "#fdf2e1" : gradeStr === "D" ? "#fdeaea" : "#eef1f6";
-          const gColor = gradeStr === "—" ? "#9aa3b2" : gc(gradeStr);
-          const order = ["A+", "A", "B+", "B", "C", "D"];
-          const dist = (data.grade_distribution || []);
-          const dtot = dist.reduce((s, x) => s + x.count, 0) || 1;
-          return (
-            <div className="kc2 kclk kc2-grade" key="k-grade" onClick={() => setGradeModal(true)}>
-              <div className="kc2-head">
-                <span className="kc2-ic" style={{ background: gtint, color: gColor }}><Award size={16} /></span>
-                <span className="kc2-lbl">Avg Grade</span>
-              </div>
-              <div className="grade-badge" style={{ color: gColor, background: gtint }}>{gradeStr}</div>
-              <div className="grade-dist">
-                {order.map((g) => { const c = dist.find((d) => d.grade === g)?.count || 0; return c > 0 ? <span key={g} style={{ flex: c, background: gc(g) }} title={`${g}: ${c}`} /> : null; })}
-              </div>
-              <div className="grade-foot">{n0(dtot)} people graded</div>
-            </div>
-          );
-        })()}
       </div>
 
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
