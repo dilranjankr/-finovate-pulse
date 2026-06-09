@@ -162,6 +162,7 @@ export default function CommandCenter({
   const [unaData, setUnaData] = useState<UnassignedData | null>(null);
   const [hoursModal, setHoursModal] = useState(false);
   const [hoursData, setHoursData] = useState<HoursDetailData | null>(null);
+  const [hoursSearch, setHoursSearch] = useState("");
   useEffect(() => {
     try {
       const r = localStorage.getItem("fin_role") as Role | null;
@@ -275,9 +276,10 @@ export default function CommandCenter({
   }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
   function openUnassigned() { setUnaModal(true); setUnaData(null); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
-  function openHours() { setHoursModal(true); setHoursData(null); getHoursDetail(draft).then(setHoursData).catch(() => setHoursData({ rows: [], count: 0 })); }
+  function openHours() { setHoursModal(true); setHoursData(null); setHoursSearch(""); getHoursDetail(draft).then(setHoursData).catch(() => setHoursData({ rows: [], count: 0 })); }
   function exportHoursCsv() {
-    const rows = hoursData?.rows || [];
+    const q = hoursSearch.trim().toLowerCase();
+    const rows = (hoursData?.rows || []).filter((r) => !q || r.employee.toLowerCase().includes(q) || r.project.toLowerCase().includes(q) || r.task.toLowerCase().includes(q));
     const head = ["Employee", "Project", "Task", "Billable_h", "NonBillable_h", "Total_h"];
     const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
     const lines = [head.join(",")];
@@ -1425,7 +1427,9 @@ export default function CommandCenter({
 
       {/* TOTAL HOURS DETAIL — employee x project x task, billable / non-billable */}
       {hoursModal && (() => {
-        const rows = hoursData?.rows || [];
+        const allRows = hoursData?.rows || [];
+        const hq = hoursSearch.trim().toLowerCase();
+        const rows = hq ? allRows.filter((r) => r.employee.toLowerCase().includes(hq) || r.project.toLowerCase().includes(hq) || r.task.toLowerCase().includes(hq)) : allRows;
         const tot = rows.reduce((s, r) => s + r.total, 0);
         const bil = rows.reduce((s, r) => s + r.billable, 0);
         return (
@@ -1442,9 +1446,11 @@ export default function CommandCenter({
                 </div>
               </div>
               <div className="modal-b">
-                {!hoursData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div>
-                  : rows.length === 0 ? <div className="empty-s">No tracked time in scope</div> : (
-                    <div className="scrollwrap" style={{ maxHeight: 520 }}>
+                {!hoursData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : (
+                  <>
+                    <div className="hd-search"><Search size={14} /><input autoFocus placeholder="Search employee, project or task…" value={hoursSearch} onChange={(e) => setHoursSearch(e.target.value)} />{hoursSearch && <button className="hd-clr" onClick={() => setHoursSearch("")}><X size={13} /></button>}</div>
+                    {rows.length === 0 ? <div className="empty-s">{hq ? `No matches for “${hoursSearch}”` : "No tracked time in scope"}</div> : (
+                    <div className="scrollwrap" style={{ maxHeight: 480 }}>
                       <table className="hd-table">
                         <thead><tr><th className="l">#</th><th className="l">Employee</th><th className="l">Project</th><th className="l">Task</th><th className="l">Billable / Non-Billable</th><th>Total</th></tr></thead>
                         <tbody>
@@ -1464,7 +1470,9 @@ export default function CommandCenter({
                         </tbody>
                       </table>
                     </div>
-                  )}
+                    )}
+                  </>
+                )}
               </div>
             </div>
           </div>
