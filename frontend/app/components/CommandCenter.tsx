@@ -1510,7 +1510,7 @@ export default function CommandCenter({
         const ppl = [...data.employees].sort((a, b) => order.indexOf(a.grade) - order.indexOf(b.grade) || b.utilization - a.utilization);
         return (
           <div className="modal-bg" onClick={() => setGradeModal(false)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal wide" onClick={(e) => e.stopPropagation()}>
               <div className="modal-h">
                 <div>
                   <h3><Award size={15} style={{ verticalAlign: -2, color: "#e11d63" }} /> Avg Grade — {gradeStr}</h3>
