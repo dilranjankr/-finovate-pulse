@@ -6,7 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight,
+  Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, askAI, defaultRange,
@@ -126,7 +126,7 @@ export default function CommandCenter({
   const [draft, setDraft] = useState<Filters>(initialOpts ? defaultRange(initialOpts) : {});
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
+  const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string }>(null);
   const [bd, setBd] = useState<BreakdownData | null>(null);
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
@@ -147,6 +147,14 @@ export default function CommandCenter({
   const [selfName, setSelfName] = useState<string>("");
   const [roleReady, setRoleReady] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [acctOpen, setAcctOpen] = useState(false);
+  const acctRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!acctOpen) return;
+    const h = (e: MouseEvent) => { if (acctRef.current && !acctRef.current.contains(e.target as Node)) setAcctOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [acctOpen]);
   const [rawModal, setRawModal] = useState(false);
   const [rawData, setRawData] = useState<RawData | null>(null);
   useEffect(() => {
@@ -441,16 +449,41 @@ export default function CommandCenter({
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
           {caps.export && <button className="tb-act" title="Export employees to CSV" onClick={exportCsv}><Download size={15} /><span>Export</span></button>}
           {caps.raw && <button className="tb-act" title="Raw data (developer)" onClick={openRaw}><Code2 size={15} /><span>Raw</span></button>}
-          {caps.settings && <button className="tb-act" title="Settings" onClick={() => setShowSettings(true)}><Settings size={15} /></button>}
           {caps.filters && <div className={`filtbtn${showFilters ? " on" : ""}${activeCount ? " has" : ""}`} title="Filters" onClick={() => setShowFilters((s) => !s)}><Filter />{activeCount > 0 && <span className="filtbtn-c">{activeCount}</span>}</div>}
           <span className="tb-sep" />
-          {(() => { const rd = ROLE_DEF.find((r) => r.id === role)!; return (
-            <div className="role-chip" title={`Signed in as ${rd.label}${selfName ? " · " + selfName : ""}`}>
-              <span className="role-chip-ic" style={{ background: rd.color }}><rd.Icon size={13} /></span>
-              <span className="role-chip-l">{selfName || rd.label}</span>
-              <button className="role-chip-x" title="Switch role" onClick={switchRole}><LogOut size={13} /></button>
-            </div>
-          ); })()}
+          {(() => {
+            const rd = ROLE_DEF.find((r) => r.id === role)!;
+            const name = selfName || rd.label;
+            const email = (caps.self ? name.toLowerCase().split(" ")[0].replace(/[^a-z0-9]/g, "") : role) + "@finovate.app";
+            return (
+              <div className="acct" ref={acctRef}>
+                <button className={`acct-btn${acctOpen ? " on" : ""}`} onClick={() => setAcctOpen((o) => !o)} title="Account">
+                  <span className="acct-av" style={{ background: rd.color }}>{caps.self ? initials(name) : <rd.Icon size={14} />}</span>
+                  <span className="acct-nm">{name}</span>
+                  <ChevronDown size={14} />
+                </button>
+                {acctOpen && (
+                  <div className="acct-menu" role="menu">
+                    <div className="acct-head">
+                      <div className="acct-h-nm">{name}</div>
+                      <div className="acct-h-em">{email}</div>
+                      <span className="acct-badge" style={{ color: rd.color, background: rd.color + "1a" }}>{rd.label.toUpperCase()}</span>
+                    </div>
+                    <div className="acct-items">
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); if (caps.self) openEmployee(name); else setShowSettings(true); }}><UserIcon size={16} />Your profile</button>
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); setShowSettings(true); }}><Settings size={16} />Settings</button>
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); switchRole(); }}><Users size={16} />Users &amp; roles</button>
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); window.open("https://github.com/dilranjankr/-finovate-pulse#readme", "_blank"); }}><BookOpen size={16} />Documentation</button>
+                    </div>
+                    <div className="acct-foot">
+                      <button className="acct-item danger" onClick={() => { setAcctOpen(false); switchRole(); }}><LogOut size={16} />Sign out</button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </div>
       </div>
 

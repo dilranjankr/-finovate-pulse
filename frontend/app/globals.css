@@ -382,6 +382,27 @@ body { background: var(--bg); color: var(--ink);
 .tb-act:hover { background: #f1f4f9; border-color: #cdd6e4; color: var(--ink); }
 .tb-act svg { color: var(--muted); }
 .tb-act:hover svg { color: var(--navy); }
+/* account dropdown (top-right) */
+.acct { position: relative; }
+.acct-btn { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 9px 0 6px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); cursor: pointer; transition: background .12s, border-color .12s; }
+.acct-btn:hover, .acct-btn.on { background: #f1f4f9; border-color: #cdd6e4; }
+.acct-av { width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 10.5px; font-weight: 800; }
+.acct-nm { font-size: 12.5px; font-weight: 700; color: var(--ink); max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.acct-btn svg:last-child { color: var(--muted); }
+.acct-menu { position: absolute; top: calc(100% + 8px); right: 0; width: 248px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 16px 44px rgba(20,30,60,.16); z-index: 60; overflow: hidden; animation: acctIn .14s ease; }
+@keyframes acctIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.acct-head { padding: 15px 16px 13px; border-bottom: 1px solid var(--line-2); }
+.acct-h-nm { font-size: 14px; font-weight: 780; color: var(--ink); letter-spacing: -.2px; }
+.acct-h-em { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.acct-badge { display: inline-block; margin-top: 9px; font-size: 10px; font-weight: 800; letter-spacing: .5px; padding: 3px 9px; border-radius: 5px; }
+.acct-items { padding: 6px; }
+.acct-foot { padding: 6px; border-top: 1px solid var(--line-2); }
+.acct-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 11px; border: 0; background: transparent; border-radius: 7px; font-size: 13px; font-weight: 600; color: #36404e; cursor: pointer; text-align: left; transition: background .1s; }
+.acct-item svg { color: var(--muted); flex-shrink: 0; }
+.acct-item:hover { background: #f3f6fb; }
+.acct-item.danger { color: #d23f43; }
+.acct-item.danger svg { color: #d23f43; }
+.acct-item.danger:hover { background: #fdeaea; }
 .role-chip { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 6px 0 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
 .role-chip-ic { width: 22px; height: 22px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: #fff; }
 .role-chip-l { font-size: 12.5px; font-weight: 700; color: var(--ink); max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
