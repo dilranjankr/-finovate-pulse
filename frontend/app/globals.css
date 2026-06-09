@@ -265,6 +265,12 @@ body { background: var(--bg); color: var(--ink);
 .scope-sync { display: inline-flex; align-items: center; gap: 6px; color: #2f6fbf; }
 .spin.sm { width: 12px; height: 12px; border-width: 2px; }
 
+/* ---- section tabs ---- */
+.vtabs { display: inline-flex; gap: 3px; padding: 4px; background: #eef1f6; border: 1px solid var(--line); border-radius: 10px; margin-bottom: 16px; }
+.vtab { padding: 7px 18px; border: 0; background: transparent; font-size: 13px; font-weight: 700; color: var(--muted); border-radius: 7px; cursor: pointer; transition: color .14s, background .14s, box-shadow .14s; }
+.vtab:hover { color: var(--ink); }
+.vtab.on { background: var(--panel); color: var(--navy); box-shadow: 0 1px 3px rgba(20,30,60,.12); }
+
 /* ---- insights & alerts ---- */
 .ia-row { display: grid; grid-template-columns: 1.25fr 1fr; gap: 14px; margin-bottom: 14px; align-items: stretch; }
 @media (max-width: 900px) { .ia-row { grid-template-columns: 1fr; } }

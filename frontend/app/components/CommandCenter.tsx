@@ -134,6 +134,7 @@ export default function CommandCenter({
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
   const [clientTab, setClientTab] = useState<"top" | "bottom">("top");
   const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
+  const [tab, setTab] = useState("overview");
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
   const [chatOpen, setChatOpen] = useState(false);
   const [aiQ, setAiQ] = useState("");
@@ -419,6 +420,17 @@ export default function CommandCenter({
   if (draft.atl) crumbs.push({ label: crumbLbl(draft.atl, "Teams"), sub: "Team", on: draft.employee ? goTeam : undefined, active: !!draft.atl && !draft.employee });
   if (draft.employee) crumbs.push({ label: crumbLbl(draft.employee, "Employees"), sub: "Employee", active: true });
 
+  // ---- section tabs: keep KPIs always visible, group the rest to reduce clutter ----
+  const hasPeople = !!compare || !!rankInfo || (showPeople) || showComparison;
+  const hasTasks = taskStatusTotal > 0 || tpTotal > 0 || (isEmp && empTasks.length > 0);
+  const TABS: { id: string; label: string }[] = [
+    { id: "overview", label: "Overview" },
+    ...(hasPeople ? [{ id: "people", label: "People" }] : []),
+    { id: "clients", label: "Clients" },
+    ...(hasTasks ? [{ id: "tasks", label: "Tasks" }] : []),
+  ];
+  const activeTab = TABS.some((t) => t.id === tab) ? tab : "overview";
+
   return (
     <div className="page">
       {/* HEADER */}
@@ -552,8 +564,15 @@ export default function CommandCenter({
         {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
 
+      {/* SECTION TABS — group detail sections so the page reads clean */}
+      <div className="vtabs" role="tablist">
+        {TABS.map((t) => (
+          <button key={t.id} type="button" role="tab" className={`vtab${activeTab === t.id ? " on" : ""}`} onClick={() => setTab(t.id)}>{t.label}</button>
+        ))}
+      </div>
+
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
-      {compare && (() => {
+      {activeTab === "people" && compare && (() => {
         const maxTotal = Math.max(1, ...compare.ents.map((e) => e.total));
         const bestIdx = (key: keyof CmpEnt) => {
           let bi = 0, bv = -Infinity;
@@ -617,7 +636,7 @@ export default function CommandCenter({
       })()}
 
       {/* INSIGHTS & ALERTS — auto-generated, contextual to the current scope */}
-      {(insights.length > 0 || alerts.length > 0) && (
+      {activeTab === "overview" && (insights.length > 0 || alerts.length > 0) && (
         <div className="ia-row">
           {insights.length > 0 && (
             <div className="panel ia-panel">
@@ -654,7 +673,7 @@ export default function CommandCenter({
 
 
       {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
-      {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
+      {activeTab === "overview" && bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
         const totH = bd.task_h + bd.project_h;
         const taskPct = totH ? Math.round((bd.task_h / totH) * 100) : 0;
         const wlCard = (label: string, badge: string, tint: string, Icon: React.ComponentType<{ size?: number }>, hours: number, bil: number, nb: number, kind: "task" | "project") => (
@@ -720,7 +739,7 @@ export default function CommandCenter({
       })()}
 
       {/* HOURS TREND */}
-      {data.hours_trend.length > 1 && (
+      {activeTab === "overview" && data.hours_trend.length > 1 && (
         <>
           <div className="sec"><h4>Hours Trend</h4></div>
           <div className="panel" style={{ marginBottom: 14 }}>
@@ -731,7 +750,7 @@ export default function CommandCenter({
       )}
 
       {/* TASKS — status + priority (contextual) */}
-      {(taskStatusTotal > 0 || tpTotal > 0) && (
+      {activeTab === "tasks" && (taskStatusTotal > 0 || tpTotal > 0) && (
         <>
           <div className="sec"><h4>Tasks</h4></div>
           <div className="row2">
@@ -773,7 +792,7 @@ export default function CommandCenter({
       )}
 
       {/* LEADERBOARD — department → teams, team → members (context-specific) */}
-      {rankInfo && rankItems.length > 0 && (
+      {activeTab === "people" && rankInfo && rankItems.length > 0 && (
         <>
           <div className="sec"><h4>{rankInfo.title}</h4></div>
           <div className="panel" style={{ marginBottom: 14 }}>
@@ -798,6 +817,7 @@ export default function CommandCenter({
       )}
 
       {/* CLIENTS */}
+      {activeTab === "clients" && (<>
       <div className="sec"><h4>Clients</h4></div>
       <div className="row2">
         <div className="panel">
@@ -836,9 +856,10 @@ export default function CommandCenter({
           ) : <div className="empty-s">No client data in scope</div>}
         </div>
       </div>
+      </>)}
 
       {/* PERFORMANCE — only when there are ≥2 people to compare */}
-      {showPeople && (<>
+      {activeTab === "people" && showPeople && (<>
       <div className="sec"><h4>Performance</h4></div>
       <div className="row2">
         <div className="panel">
@@ -869,7 +890,7 @@ export default function CommandCenter({
       </>)}
 
       {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
-      {showComparison && (() => {
+      {activeTab === "people" && showComparison && (() => {
         const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
         if (!rows.length) return null;
         const maxH = Math.max(1, ...rows.map((r) => r.total));
@@ -931,7 +952,7 @@ export default function CommandCenter({
       })()}
 
       {/* EMPLOYEE → CLIENTS — only when there are multiple people to map */}
-      {showPeople && (<>
+      {activeTab === "people" && showPeople && (<>
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="ph"><h3>Which employee works on which clients <span className="hl">all clients each person handles · billable hours</span></h3></div>
@@ -964,7 +985,7 @@ export default function CommandCenter({
       </>)}
 
       {/* EMPLOYEE FOCUS — single person: their tasks list */}
-      {isEmp && empTasks.length > 0 && (<>
+      {activeTab === "tasks" && isEmp && empTasks.length > 0 && (<>
         <div className="sec"><h4>Tasks · {data.context.label}</h4></div>
         <div className="panel" style={{ marginBottom: 14 }}>
           <div className="ph"><h3>Assigned tasks <span className="hl">{empTasks.length} tasks · estimated vs tracked</span></h3></div>
