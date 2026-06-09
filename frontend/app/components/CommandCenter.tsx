@@ -270,11 +270,12 @@ export default function CommandCenter({
           const m: Record<string, { h: number; n: number }> = { Fixed: { h: 0, n: 0 }, Hourly: { h: 0, n: 0 }, Project: { h: 0, n: 0 } };
           data.clients_summary.forEach((c) => { const k = c.category === "Fixed" ? "Fixed" : c.category === "Hourly" ? "Hourly" : "Project"; m[k].h += c.hours; m[k].n += 1; });
           return ([
-            { name: "Fixed", value: Math.round(m.Fixed.h), count: m.Fixed.n, color: "#2f6fbf" },
-            { name: "Hourly", value: Math.round(m.Hourly.h), count: m.Hourly.n, color: "#0f9043" },
-            { name: "Project", value: Math.round(m.Project.h), count: m.Project.n, color: "#8b5cf6" },
+            { name: "Fixed", value: Math.round(m.Fixed.h), count: m.Fixed.n, color: "#6366f1", c2: "#818cf8" },
+            { name: "Hourly", value: Math.round(m.Hourly.h), count: m.Hourly.n, color: "#0ea5a4", c2: "#2dd4bf" },
+            { name: "Project", value: Math.round(m.Project.h), count: m.Project.n, color: "#f59e0b", c2: "#fbbf24" },
           ]).filter((x) => x.count > 0);
         })();
+        const billMax = Math.max(...billStats.map((c) => c.value), 1);
         return (
           <div className="tt-row">
             <div className="panel wl-panel">
@@ -297,17 +298,17 @@ export default function CommandCenter({
             </div>
             <div className="panel pipe-panel">
               <div className="ph"><h3><Receipt size={15} style={{ color: "#2f6fbf", verticalAlign: "-2px", marginRight: 6 }} />Billing Type <span className="hl">hours &amp; clients by category</span></h3></div>
-              <div className="pipe-stats">
+              <div className="pipe-chart">
                 {billStats.map((c) => (
-                  <div className="pipe-col" key={c.name}>
+                  <div className="pipe-item" key={c.name} title={`${c.name}: ${n0(c.value)}h · ${c.count} clients`}>
+                    <div className="pipe-val num" style={{ color: c.color }}>{n0(c.value)}<span>h</span></div>
+                    <div className="pipe-track">
+                      <div className="pipe-bar" style={{ height: `${Math.max((c.value / billMax) * 100, 6)}%`, background: `linear-gradient(180deg, ${c.c2}, ${c.color})` }} />
+                    </div>
                     <div className="pipe-lbl">{c.name}</div>
-                    <div className="pipe-val num">{n0(c.value)}<span>h</span></div>
-                    <div className="pipe-cnt">{c.count} clients</div>
+                    <div className="pipe-cnt"><i style={{ background: c.color }} />{c.count} clients</div>
                   </div>
                 ))}
-              </div>
-              <div className="pipe-bars">
-                {billStats.map((c) => <span className="pipe-bar" key={c.name} style={{ flex: Math.max(c.value, 1), background: c.color }} title={`${c.name}: ${n0(c.value)}h · ${c.count} clients`} />)}
               </div>
             </div>
           </div>
