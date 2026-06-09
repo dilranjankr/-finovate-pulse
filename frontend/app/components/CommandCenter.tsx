@@ -168,12 +168,6 @@ export default function CommandCenter({
   const clColor = (cat: string) => (cat === "Fixed" ? "#2f6fbf" : cat === "Hourly" ? "#0f9043" : "#9aa3b2");
   const topClients = clientsAll.slice(0, 5);
   const botClients = clientsAll.length > 5 ? clientsAll.slice(-5).reverse() : [];
-  const billType = (() => {
-    const m = { Fixed: 0, Hourly: 0, Project: 0 } as Record<string, number>;
-    data.clients_summary.forEach((c) => { const k = c.category === "Fixed" ? "Fixed" : c.category === "Hourly" ? "Hourly" : "Project"; m[k] += c.hours; });
-    return [{ name: "Fixed", value: Math.round(m.Fixed) }, { name: "Hourly", value: Math.round(m.Hourly) }, { name: "Project", value: Math.round(m.Project) }].filter((x) => x.value > 0);
-  })();
-  const billTypeTotal = billType.reduce((s, x) => s + x.value, 0);
   const ch = data.client_health;
   const chTotal = ch.active + ch.at_risk + ch.inactive;
   const chData = [{ name: "Active", value: ch.active }, { name: "At Risk", value: ch.at_risk }, { name: "Inactive", value: ch.inactive }];
@@ -272,22 +266,48 @@ export default function CommandCenter({
             </div>
           </div>
         );
+        const billStats = (() => {
+          const m: Record<string, { h: number; n: number }> = { Fixed: { h: 0, n: 0 }, Hourly: { h: 0, n: 0 }, Project: { h: 0, n: 0 } };
+          data.clients_summary.forEach((c) => { const k = c.category === "Fixed" ? "Fixed" : c.category === "Hourly" ? "Hourly" : "Project"; m[k].h += c.hours; m[k].n += 1; });
+          return ([
+            { name: "Fixed", value: Math.round(m.Fixed.h), count: m.Fixed.n, color: "#2f6fbf" },
+            { name: "Hourly", value: Math.round(m.Hourly.h), count: m.Hourly.n, color: "#0f9043" },
+            { name: "Project", value: Math.round(m.Project.h), count: m.Project.n, color: "#8b5cf6" },
+          ]).filter((x) => x.count > 0);
+        })();
         return (
-          <div className="panel wl-panel">
-            <div className="ph"><h3>Tracked Time — Task vs Project <span className="hl">where time was logged · billable split inside each</span></h3></div>
-            <div className="wl-grid">
-              <div className="wl-cards">
-                {wlCard("On a Task", "#e8930c", "#fdf2e1", Tag, bd.task_h, bd.task_billable_h, bd.task_non_billable_h, "task")}
-                {wlCard("Project Only (no task)", "#2f6fbf", "#e8f1fd", Briefcase, bd.project_h, bd.project_billable_h, bd.project_non_billable_h, "project")}
+          <div className="tt-row">
+            <div className="panel wl-panel">
+              <div className="ph"><h3>Tracked Time — Task vs Project <span className="hl">where time was logged · billable split inside each</span></h3></div>
+              <div className="wl-grid">
+                <div className="wl-cards">
+                  {wlCard("On a Task", "#e8930c", "#fdf2e1", Tag, bd.task_h, bd.task_billable_h, bd.task_non_billable_h, "task")}
+                  {wlCard("Project Only (no task)", "#2f6fbf", "#e8f1fd", Briefcase, bd.project_h, bd.project_billable_h, bd.project_non_billable_h, "project")}
+                </div>
+                <div className="wl-chart">
+                  <div className="wl-ring" style={{ background: `conic-gradient(#e8930c 0 ${taskPct}%, #cdd4e0 ${taskPct}% 100%)` }}>
+                    <div className="wl-hole"><b className="num">{taskPct}%</b><span>on tasks</span></div>
+                  </div>
+                  <div className="wl-leg">
+                    <span><i style={{ background: "#e8930c" }} />Task {n0(bd.task_h)}h</span>
+                    <span><i style={{ background: "#cdd4e0" }} />Project {n0(bd.project_h)}h</span>
+                  </div>
+                </div>
               </div>
-              <div className="wl-chart">
-                <div className="wl-ring" style={{ background: `conic-gradient(#e8930c 0 ${taskPct}%, #cdd4e0 ${taskPct}% 100%)` }}>
-                  <div className="wl-hole"><b className="num">{taskPct}%</b><span>on tasks</span></div>
-                </div>
-                <div className="wl-leg">
-                  <span><i style={{ background: "#e8930c" }} />Task {n0(bd.task_h)}h</span>
-                  <span><i style={{ background: "#cdd4e0" }} />Project {n0(bd.project_h)}h</span>
-                </div>
+            </div>
+            <div className="panel pipe-panel">
+              <div className="ph"><h3><Receipt size={15} style={{ color: "#2f6fbf", verticalAlign: "-2px", marginRight: 6 }} />Billing Type <span className="hl">hours &amp; clients by category</span></h3></div>
+              <div className="pipe-stats">
+                {billStats.map((c) => (
+                  <div className="pipe-col" key={c.name}>
+                    <div className="pipe-lbl">{c.name}</div>
+                    <div className="pipe-val num">{n0(c.value)}<span>h</span></div>
+                    <div className="pipe-cnt">{c.count} clients</div>
+                  </div>
+                ))}
+              </div>
+              <div className="pipe-bars">
+                {billStats.map((c) => <span className="pipe-bar" key={c.name} style={{ flex: Math.max(c.value, 1), background: c.color }} title={`${c.name}: ${n0(c.value)}h · ${c.count} clients`} />)}
               </div>
             </div>
           </div>
@@ -307,7 +327,7 @@ export default function CommandCenter({
 
       {/* CLIENTS */}
       <div className="sec"><h4>Clients</h4></div>
-      <div className="row3">
+      <div className="row2">
         <div className="panel">
           <div className="ph">
             <h3>Clients <span className="hl">by hours · {clientsAll.length}</span></h3>
@@ -342,19 +362,6 @@ export default function CommandCenter({
               </div>
             </div>
           ) : <div className="empty-s">No client data in scope</div>}
-        </div>
-        <div className="panel">
-          <div className="ph"><h3>Billing Type <span className="hl">hours · Fixed vs Hourly</span></h3></div>
-          {billTypeTotal > 0 ? (
-            <div className="donut-wrap">
-              <div style={{ width: 150 }}><Donut data={billType} colors={["#2f6fbf", "#0f9043", "#9aa3b2"]} height={180} center={{ value: n0(billTypeTotal) + "h", label: "Total" }} /></div>
-              <div className="legend">
-                {billType.map((s, i) => (
-                  <div className="li" key={s.name}><span className="dot" style={{ background: ["#2f6fbf", "#0f9043", "#9aa3b2"][i] }} /><span className="nm">{s.name}</span><span className="vl">{n0(s.value)}h</span><span className="pc">{billTypeTotal ? Math.round((s.value / billTypeTotal) * 100) : 0}%</span></div>
-                ))}
-              </div>
-            </div>
-          ) : <div className="empty-s">No billing data in scope</div>}
         </div>
       </div>
 
