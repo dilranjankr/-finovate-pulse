@@ -317,6 +317,18 @@ body { background: var(--bg); color: var(--ink);
 .cmp-split { display: flex; height: 8px; border-radius: 5px; overflow: hidden; background: #eef1f6; }
 .cmp-split .bil { background: #16a34a; height: 100%; } .cmp-split .nbil { background: #cbd2dd; height: 100%; }
 .cmp-split-l { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; color: var(--muted); margin-top: 6px; }
+/* grouped bar chart in the comparison panel */
+.cmp-chart { border: 1px solid var(--line-2); border-radius: 10px; padding: 16px 18px 14px; margin-bottom: 18px; background: #fcfdfe; }
+.cmp-legend { display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: center; margin-bottom: 14px; }
+.cmp-lg { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; color: #3a4452; }
+.cmp-lg i { width: 10px; height: 10px; border-radius: 3px; }
+.cmp-groups { display: flex; gap: 14px; align-items: flex-end; }
+.cmp-group { flex: 1; display: flex; flex-direction: column; align-items: center; min-width: 0; }
+.cmp-gbars { display: flex; gap: 8px; align-items: flex-end; justify-content: center; height: 138px; width: 100%; border-bottom: 1px solid var(--line); padding-bottom: 0; }
+.cmp-gbar { flex: 1; max-width: 48px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.cmp-gval { font-size: 11px; font-weight: 750; color: var(--ink); margin-bottom: 5px; }
+.cmp-gfill { width: 100%; border-radius: 5px 5px 0 0; min-height: 3px; box-shadow: 0 1px 3px rgba(20,30,60,.12); transition: height .45s cubic-bezier(.4,0,.2,1); }
+.cmp-glabel { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 11px; text-align: center; }
 .cmp-table-wrap { overflow-x: auto; }
 .cmp-table { width: 100%; border-collapse: collapse; }
 .cmp-table th, .cmp-table td { padding: 10px 12px; font-size: 13px; text-align: right; border-bottom: 1px solid var(--line-2); }

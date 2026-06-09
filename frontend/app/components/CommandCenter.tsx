@@ -625,6 +625,32 @@ export default function CommandCenter({
                   );
                 })}
               </div>
+              {/* grouped bar chart — key % metrics side by side */}
+              <div className="cmp-chart">
+                <div className="cmp-legend">
+                  {compare.ents.map((e, i) => (
+                    <span className="cmp-lg" key={e.name + i}><i style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}</span>
+                  ))}
+                </div>
+                <div className="cmp-groups">
+                  {([["Utilization", "utilization"], ["Productivity", "productivity"], ["Activity", "activity"]] as const).map(([label, key]) => (
+                    <div className="cmp-group" key={key}>
+                      <div className="cmp-gbars">
+                        {compare.ents.map((e, i) => {
+                          const v = Number(e[key as keyof CmpEnt]);
+                          return (
+                            <div className="cmp-gbar" key={e.name + i} title={`${e.name} · ${label}: ${n1(v)}%`}>
+                              <span className="cmp-gval">{Math.round(v)}%</span>
+                              <span className="cmp-gfill" style={{ height: `${Math.min(Math.max(v, 0), 100)}%`, background: CMP_COLORS[i % CMP_COLORS.length] }} />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="cmp-glabel">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
               {/* metric comparison table */}
               <div className="cmp-table-wrap">
                 <table className="cmp-table">
