@@ -223,13 +223,49 @@ export default function CommandCenter({
   const rankItems = rankInfo ? [...rankInfo.items].sort((a, b) => b.billable - a.billable) : [];
   const rankMax = Math.max(1, ...rankItems.map((r) => r.billable));
 
-  // breadcrumb crumbs from the active drill path
+  // ---- multi-select comparison: 2+ employees / teams / departments side by side ----
+  const selOf = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const selEmp = selOf(draft.employee), selTeam = selOf(draft.atl), selDept = selOf(draft.department);
+  type CmpEnt = { name: string; total: number; billable: number; non_billable: number; utilization: number; productivity: number; activity: number; grade: string };
+  const compare: { kind: "employee" | "team" | "department"; noun: string; ents: CmpEnt[] } | null = (() => {
+    const pick = (names: string[], rows: { name: string; total: number; billable: number; non_billable: number; utilization: number; productivity: number; activity: number; grade: string }[]) =>
+      names.map((nm) => rows.find((r) => r.name === nm)).filter(Boolean) as CmpEnt[];
+    if (selEmp.length >= 2) {
+      const rows = data.employees.map((e) => ({ name: e.name, total: e.billable + e.non_billable, billable: e.billable, non_billable: e.non_billable, utilization: e.utilization, productivity: e.productivity, activity: e.activity, grade: e.grade }));
+      const ents = pick(selEmp, rows);
+      if (ents.length >= 2) return { kind: "employee", noun: "Employees", ents };
+    }
+    if (selTeam.length >= 2) {
+      const rows = (data.teams || []).map((t) => ({ name: t.team, total: t.total, billable: t.billable, non_billable: t.non_billable, utilization: t.utilization, productivity: t.productivity, activity: t.activity ?? 0, grade: t.grade }));
+      const ents = pick(selTeam, rows);
+      if (ents.length >= 2) return { kind: "team", noun: "Teams", ents };
+    }
+    if (selDept.length >= 2) {
+      const rows = (data.departments || []).map((t) => ({ name: t.team, total: t.total, billable: t.billable, non_billable: t.non_billable, utilization: t.utilization, productivity: t.productivity, activity: t.activity ?? 0, grade: t.grade }));
+      const ents = pick(selDept, rows);
+      if (ents.length >= 2) return { kind: "department", noun: "Departments", ents };
+    }
+    return null;
+  })();
+  const CMP_COLORS = ["#2f6fbf", "#0f9043", "#e8930c", "#8b5cf6"];
+  // metric rows for the comparison table (higher is better → highlight max)
+  const cmpMetrics: { key: keyof CmpEnt; label: string; fmt: (v: number) => string; better: "high" }[] = [
+    { key: "total", label: "Total Hours", fmt: (v) => n0(v) + "h", better: "high" },
+    { key: "billable", label: "Billable Hours", fmt: (v) => n0(v) + "h", better: "high" },
+    { key: "non_billable", label: "Non-Billable", fmt: (v) => n0(v) + "h", better: "high" },
+    { key: "utilization", label: "Utilization", fmt: (v) => n1(v) + "%", better: "high" },
+    { key: "productivity", label: "Productivity", fmt: (v) => n1(v) + "%", better: "high" },
+    { key: "activity", label: "Activity", fmt: (v) => n1(v) + "%", better: "high" },
+  ];
+
+  // breadcrumb crumbs from the active drill path (multi-select → "N {noun}")
+  const crumbLbl = (raw: string, noun: string) => { const a = raw.split(",").map((s) => s.trim()).filter(Boolean); return a.length > 1 ? `${a.length} ${noun}` : a[0]; };
   const crumbs: { label: string; sub: string; on?: () => void; active: boolean }[] = [
     { label: "Company", sub: "All", on: draft.department || draft.atl || draft.employee ? goCompany : undefined, active: !draft.department && !draft.atl && !draft.employee },
   ];
-  if (draft.department) crumbs.push({ label: draft.department, sub: "Department", on: draft.atl || draft.employee ? goDept : undefined, active: !!draft.department && !draft.atl && !draft.employee });
-  if (draft.atl) crumbs.push({ label: draft.atl, sub: "Team", on: draft.employee ? goTeam : undefined, active: !!draft.atl && !draft.employee });
-  if (draft.employee) crumbs.push({ label: draft.employee, sub: "Employee", active: true });
+  if (draft.department) crumbs.push({ label: crumbLbl(draft.department, "Departments"), sub: "Department", on: draft.atl || draft.employee ? goDept : undefined, active: !!draft.department && !draft.atl && !draft.employee });
+  if (draft.atl) crumbs.push({ label: crumbLbl(draft.atl, "Teams"), sub: "Team", on: draft.employee ? goTeam : undefined, active: !!draft.atl && !draft.employee });
+  if (draft.employee) crumbs.push({ label: crumbLbl(draft.employee, "Employees"), sub: "Employee", active: true });
 
   return (
     <div className="page">
@@ -327,6 +363,70 @@ export default function CommandCenter({
           openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%"))}
         {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
+
+      {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
+      {compare && (() => {
+        const maxTotal = Math.max(1, ...compare.ents.map((e) => e.total));
+        const bestIdx = (key: keyof CmpEnt) => {
+          let bi = 0, bv = -Infinity;
+          compare.ents.forEach((e, i) => { const v = Number(e[key]); if (v > bv) { bv = v; bi = i; } });
+          return bi;
+        };
+        return (
+          <>
+            <div className="sec"><h4>Comparison <span className="sec-tag">{compare.ents.length} {compare.noun.toLowerCase()}</span></h4></div>
+            <div className="panel cmp-panel" style={{ marginBottom: 14 }}>
+              <div className="ph"><h3>Side-by-side <span className="hl">selected {compare.noun.toLowerCase()} · best value highlighted</span></h3></div>
+              {/* entity header cards */}
+              <div className="cmp-cards" style={{ gridTemplateColumns: `repeat(${compare.ents.length}, 1fr)` }}>
+                {compare.ents.map((e, i) => {
+                  const col = CMP_COLORS[i % CMP_COLORS.length];
+                  const bilPct = e.total ? (e.billable / e.total) * 100 : 0;
+                  return (
+                    <div className="cmp-card" key={e.name + i} style={{ borderTopColor: col }}>
+                      <div className="cmp-card-h">
+                        {compare.kind === "employee"
+                          ? <span className="avatar sm" style={{ background: col }}>{initials(e.name)}</span>
+                          : <span className="rank-ic" style={{ background: col, width: 26, height: 26 }}><Network size={13} /></span>}
+                        <span className="cmp-nm" title={e.name}>{e.name}</span>
+                        <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
+                      </div>
+                      <div className="cmp-tot num">{n0(e.total)}<span>h</span></div>
+                      <div className="cmp-bar"><span style={{ width: `${(e.total / maxTotal) * 100}%`, background: col }} /></div>
+                      <div className="cmp-split"><i className="bil" style={{ width: `${bilPct}%` }} /><i className="nbil" style={{ width: `${100 - bilPct}%` }} /></div>
+                      <div className="cmp-split-l"><span>Billable {n0(e.billable)}h</span><span>NB {n0(e.non_billable)}h</span></div>
+                    </div>
+                  );
+                })}
+              </div>
+              {/* metric comparison table */}
+              <div className="cmp-table-wrap">
+                <table className="cmp-table">
+                  <thead>
+                    <tr><th className="l">Metric</th>{compare.ents.map((e, i) => <th key={e.name + i}><span className="cmp-dot" style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}</th>)}</tr>
+                  </thead>
+                  <tbody>
+                    {cmpMetrics.map((mt) => {
+                      const bi = bestIdx(mt.key);
+                      return (
+                        <tr key={mt.key}>
+                          <td className="l cmp-mlbl">{mt.label}</td>
+                          {compare.ents.map((e, i) => (
+                            <td key={e.name + i} className={`num${i === bi && compare.ents.length > 1 ? " cmp-best" : ""}`}>
+                              {mt.fmt(Number(e[mt.key]))}
+                              {i === bi && compare.ents.length > 1 && <span className="cmp-win">▲</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        );
+      })()}
 
       {/* INSIGHTS & ALERTS — auto-generated, contextual to the current scope */}
       {(insights.length > 0 || alerts.length > 0) && (
