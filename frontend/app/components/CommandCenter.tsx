@@ -131,6 +131,7 @@ export default function CommandCenter({
   const [bd, setBd] = useState<BreakdownData | null>(null);
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
   const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
+  const [projFilter, setProjFilter] = useState<string | null>(null);
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
   const [clientTab, setClientTab] = useState<"top" | "bottom">("top");
   const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
@@ -208,6 +209,7 @@ export default function CommandCenter({
 
   function openBdList(kind: "task" | "project", mode: "all" | "billable" | "nonbillable") {
     setBdModal({ kind, mode });
+    setProjFilter(null);
     setBdList(null);
     getBreakdownList(draft).then(setBdList).catch(() => setBdList({ by_task: [], by_project: [] }));
   }
@@ -1123,23 +1125,29 @@ export default function CommandCenter({
       {/* TASK / PROJECT drill-down list */}
       {bdModal && (() => {
         const { kind, mode } = bdModal;
-        const src = (kind === "task" ? bdList?.by_task : bdList?.by_project) || [];
+        let src = (kind === "task" ? bdList?.by_task : bdList?.by_project) || [];
+        if (kind === "task" && projFilter) src = src.filter((r) => r.project === projFilter);
         const pick = (r: { total: number; billable: number; non_billable: number }) =>
           mode === "nonbillable" ? r.non_billable : mode === "billable" ? r.billable : r.total;
         const rows = src.filter((r) => pick(r) > 0).sort((a, b) => pick(b) - pick(a));
         const max = Math.max(1, ...rows.map(pick));
         const kLbl = kind === "task" ? "Task" : "Project";
         const color = mode === "nonbillable" ? "#9aa3b2" : "#0f9043";
-        const title = mode === "billable" ? `Billable ${kLbl}s` : mode === "nonbillable" ? `Non-Billable ${kLbl}s` : `Time by ${kLbl}`;
+        const title = projFilter ? "Tasks in project" : mode === "billable" ? `Billable ${kLbl}s` : mode === "nonbillable" ? `Non-Billable ${kLbl}s` : `Time by ${kLbl}`;
+        // open a project's tasks: switch to the task list filtered to that project
+        const openProjectTasks = (proj: string) => { setBdModal({ kind: "task", mode: "all" }); setProjFilter(proj); };
         return (
           <div className="modal-bg" onClick={() => setBdModal(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()}>
               <div className="modal-h">
                 <div>
                   <h3>{title}</h3>
-                  <div className="sub">{bdList ? `${rows.length} ${kLbl.toLowerCase()}s${kind === "project" ? " (no task)" : ""}` : "loading…"} · {data.context.label}</div>
+                  <div className="sub">{bdList ? `${rows.length} ${kLbl.toLowerCase()}s${kind === "project" && !projFilter ? " (no task)" : ""}` : "loading…"} · {projFilter || data.context.label}</div>
                 </div>
-                <div className="modal-x" onClick={() => setBdModal(null)}><X size={16} /></div>
+                <div className="modal-h-r">
+                  {projFilter && <button className="tb-act" onClick={() => { setBdModal({ kind: "project", mode: "all" }); setProjFilter(null); }}><ArrowRight size={14} style={{ transform: "rotate(180deg)" }} /><span>All projects</span></button>}
+                  <div className="modal-x" onClick={() => setBdModal(null)}><X size={16} /></div>
+                </div>
               </div>
               <div className="modal-b">
                 {!bdList ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : (
@@ -1152,8 +1160,8 @@ export default function CommandCenter({
                         return (
                           <tr key={r.name + i}>
                             <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
-                            {kind === "task" && <td className="l" style={{ color: "var(--muted)", fontWeight: 600 }}>{r.project || "—"}</td>}
-                            <td className="l tname">{r.name}</td>
+                            {kind === "task" && <td className="l">{r.project && r.project !== "(no project)" && !projFilter ? <button type="button" className="proj-link" onClick={() => openProjectTasks(r.project!)} title="See this project's tasks">{r.project}</button> : <span style={{ color: "var(--muted)", fontWeight: 600 }}>{r.project || "—"}</span>}</td>}
+                            <td className="l tname">{kind === "project" ? <button type="button" className="proj-link" onClick={() => openProjectTasks(r.name)} title="See this project's tasks">{r.name}</button> : r.name}</td>
                             <td className="l">
                               {mode === "all"
                                 ? <span className="brkbar"><span className="brkbar-t"><span className="bil" style={{ width: `${bilW}%` }} /><span className="nbil" style={{ width: `${100 - bilW}%` }} /></span></span>

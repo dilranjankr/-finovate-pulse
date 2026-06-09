@@ -223,6 +223,8 @@ body { background: var(--bg); color: var(--ink);
 .unassigned-link:hover { background: #fdeccd; }
 .modal-h-r { display: flex; align-items: center; gap: 10px; }
 .una-reason { display: inline-block; font-size: 11.5px; font-weight: 650; color: #b5751a; background: #fef6e9; border: 1px solid #f3e2bf; padding: 2px 9px; border-radius: 5px; }
+.proj-link { border: 0; background: transparent; padding: 0; font: inherit; font-weight: 650; color: #2f6fbf; cursor: pointer; text-align: left; }
+.proj-link:hover { text-decoration: underline; color: #1f4f9c; }
 @media (max-width: 1250px) { .kc2-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 720px) { .kc2-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 440px) { .kc2-grid { grid-template-columns: 1fr; } }
