@@ -836,31 +836,9 @@ export default function CommandCenter({
               <div className="ph"><h3>Hours Trend <span className="hl">billable vs non-billable per day</span></h3></div>
               {data.hours_trend.length > 1 ? <HoursTrend data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={250} /> : <div className="empty-s">Not enough data in range</div>}
             </div>
-            <div className="hp-right">
-              <div className="panel">
-                <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3></div>
-                {bubble.length > 1 ? <Bubble points={bubble} height={200} /> : <div className="empty-s">Select a broader scope to compare people</div>}
-              </div>
-              <div className="panel">
-                <div className="ph">
-                  <h3>Performers <span className="hl">by grade</span></h3>
-                  <div className="seg-pill">
-                    <button type="button" className={perfTab === "top" ? "on" : ""} onClick={() => setPerfTab("top")}>▲ Top 3</button>
-                    <button type="button" className={perfTab === "bottom" ? "on" : ""} onClick={() => setPerfTab("bottom")}>▼ Bottom 3</button>
-                  </div>
-                </div>
-                <div className="tb-card">
-                  {(perfTab === "top" ? data.top3 : data.bottom3).map((e, i) => (
-                    <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
-                      <span className="tb-rank">{i + 1}</span>
-                      <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
-                      <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
-                      <span className="num pf-u">{n0(e.utilization)}%</span>
-                      <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+            <div className="panel">
+              <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3></div>
+              {bubble.length > 1 ? <Bubble points={bubble} height={250} /> : <div className="empty-s">Select a broader scope to compare people</div>}
             </div>
           </div>
         ) : (data.hours_trend.length > 1 && (
@@ -927,11 +905,11 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* TASKS — status + priority (contextual) */}
-      {(taskStatusTotal > 0 || tpTotal > 0) && (
+      {/* TASKS — status + priority + performers (contextual) */}
+      {(taskStatusTotal > 0 || tpTotal > 0 || showPeople) && (
         <>
-          <div className="sec"><h4>Tasks</h4></div>
-          <div className="row2">
+          <div className="sec"><h4>Tasks &amp; Performers</h4></div>
+          <div className={showPeople ? "row3" : "row2"}>
             {taskStatusTotal > 0 && (
               <div className="panel">
                 <div className="ph"><h3>Task Status <span className="hl">{n0(taskStatusTotal)} active tasks in scope</span></h3></div>
@@ -960,6 +938,28 @@ export default function CommandCenter({
                       <div className="prio-v num">{n0(v)}</div>
                       <div className="prio-l">{lbl}</div>
                       <div className="prio-p">{tpTotal ? Math.round((v / tpTotal) * 100) : 0}%</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {showPeople && (
+              <div className="panel">
+                <div className="ph">
+                  <h3>Performers <span className="hl">by grade</span></h3>
+                  <div className="seg-pill">
+                    <button type="button" className={perfTab === "top" ? "on" : ""} onClick={() => setPerfTab("top")}>▲ Top 3</button>
+                    <button type="button" className={perfTab === "bottom" ? "on" : ""} onClick={() => setPerfTab("bottom")}>▼ Bottom 3</button>
+                  </div>
+                </div>
+                <div className="tb-card">
+                  {(perfTab === "top" ? data.top3 : data.bottom3).map((e, i) => (
+                    <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
+                      <span className="tb-rank">{i + 1}</span>
+                      <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                      <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
+                      <span className="num pf-u">{n0(e.utilization)}%</span>
+                      <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
                     </div>
                   ))}
                 </div>
@@ -996,7 +996,7 @@ export default function CommandCenter({
 
       {/* CLIENTS */}
       <div className="sec"><h4>Clients</h4></div>
-      <div className="row2">
+      <div className={bva.budget > 0 ? "row3" : "row2"}>
         <div className="panel">
           <div className="ph">
             <h3>Clients <span className="hl">by hours · {clientsAll.length}</span></h3>
@@ -1032,6 +1032,22 @@ export default function CommandCenter({
             </div>
           ) : <div className="empty-s">No client data in scope</div>}
         </div>
+        {bva.budget > 0 && (
+          <div className="panel">
+            <div className="ph"><h3>Budget vs Actual <span className="hl">capacity utilised</span></h3></div>
+            <div className="bva-body compact">
+              <div className="bva-gauge">
+                <GaugeChart value={bvaPct} color={bvaPct > 100 ? "#d23f43" : bvaPct >= 70 ? "#16a34a" : "#e8930c"} />
+                <div className="bva-read"><b className="num">{bvaPct}%</b><span className="bva-cap">of budget</span></div>
+              </div>
+              <div className="bva-stats">
+                <div className="bva-stat"><span className="l">Budgeted</span><b className="num">{n0(bva.budget)}h</b></div>
+                <div className="bva-stat"><span className="l">Actual</span><b className="num">{n0(bva.actual)}h</b></div>
+                <div className="bva-stat"><span className="l">Variance</span><b className="num" style={{ color: bva.variance < 0 ? "#d23f43" : "#0f9043" }}>{bva.variance > 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* EMPLOYEE → CLIENTS — only when there are multiple people to map */}
@@ -1066,32 +1082,6 @@ export default function CommandCenter({
         </div>
       </div>
       </>)}
-
-      {/* BUDGET vs ACTUAL — capacity utilised gauge (moved to end) */}
-      {bva.budget > 0 && (
-        <>
-          <div className="sec"><h4>Budget vs Actual</h4></div>
-          <div className="panel" style={{ marginBottom: 14 }}>
-            <div className="ph"><h3>Capacity utilised <span className="hl">tracked hours vs budgeted capacity (8h/day)</span></h3></div>
-            <div className="bva-body">
-              <div className="bva-gauge">
-                <GaugeChart value={bvaPct} color={bvaPct > 100 ? "#d23f43" : bvaPct >= 70 ? "#16a34a" : "#e8930c"} />
-                <div className="bva-read">
-                  <b className="num">{bvaPct}%</b>
-                  {cmp && bvaDelta !== null && <span className="bva-delta" style={{ color: bvaDelta >= 0 ? "#0f9043" : "#d23f43" }}>{bvaDelta > 0 ? "+" : ""}{bvaDelta}%</span>}
-                  <span className="bva-cap">of budget · last {pv?.days || 90}d</span>
-                </div>
-              </div>
-              <div className="bva-stats">
-                <div className="bva-stat"><span className="l">Budgeted capacity</span><b className="num">{n0(bva.budget)}h</b></div>
-                <div className="bva-stat"><span className="l">Actual tracked</span><b className="num">{n0(bva.actual)}h</b></div>
-                <div className="bva-stat"><span className="l">Variance</span><b className="num" style={{ color: bva.variance < 0 ? "#d23f43" : "#0f9043" }}>{bva.variance > 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
-                <div className="bva-note">{bvaPct >= 100 ? "Over capacity — team is fully loaded." : bvaPct >= 70 ? "Healthy utilisation of available capacity." : "Spare capacity available."}</div>
-              </div>
-            </div>
-          </div>
-        </>
-      )}
 
       {/* EMPLOYEE FOCUS — single person: their tasks list */}
       {isEmp && empTasks.length > 0 && (<>
