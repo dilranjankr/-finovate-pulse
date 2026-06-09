@@ -332,7 +332,7 @@ body { background: var(--bg); color: var(--ink);
 @media (max-width: 560px) { .role-grid { grid-template-columns: 1fr; } }
 .role-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 16px 16px 15px; border: 1.5px solid var(--line); border-radius: 13px; background: #fcfdfe; cursor: pointer; transition: border-color .15s, box-shadow .15s, transform .05s; }
 .role-card:hover { border-color: var(--rc); box-shadow: 0 6px 18px rgba(20,30,60,.07); }
-.role-card.on { border-color: var(--rc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--rc) 16%, transparent); }
+.role-card.on { border-color: var(--rc); box-shadow: 0 0 0 3px rgba(47,111,191,.16); }
 .role-ic { width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #fff; margin-bottom: 6px; }
 .role-lbl { font-size: 15.5px; font-weight: 800; color: var(--ink); letter-spacing: -.3px; }
 .role-tag { font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--rc); }
