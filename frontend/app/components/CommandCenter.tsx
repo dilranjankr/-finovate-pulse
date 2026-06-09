@@ -6,6 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
+  Check, ArrowRight,
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, askAI, defaultRange,
@@ -64,39 +65,55 @@ function RoleScreen({ opts, onPick }: { opts: FilterOptions | null; onPick: (r: 
   const [q, setQ] = useState("");
   const people = (opts?.employees || []).filter((e) => e.toLowerCase().includes(q.toLowerCase()));
   const canGo = sel && (sel !== "user" || name);
+  const FEATS = ["Real-time utilization & productivity", "Team, client & billing intelligence", "Secure role-based access"];
   return (
     <div className="role-screen">
-      <div className="role-box">
-        <div className="role-head">
-          <img src="/finovate-logo.png" alt="Finovate" className="role-logo" />
-          <h1>Welcome to <span className="pulse">Insight</span></h1>
-          <p>Choose how you want to sign in. Your view adapts to your role.</p>
-        </div>
-        <div className="role-grid">
-          {ROLE_DEF.map((r) => (
-            <button key={r.id} type="button" className={`role-card${sel === r.id ? " on" : ""}`} onClick={() => { setSel(r.id); setName(""); }} style={{ ["--rc" as string]: r.color }}>
-              <span className="role-ic" style={{ background: r.color }}><r.Icon size={20} /></span>
-              <span className="role-lbl">{r.label}</span>
-              <span className="role-tag">{r.tag}</span>
-              <span className="role-desc">{r.desc}</span>
-            </button>
-          ))}
-        </div>
-        {sel === "user" && (
-          <div className="role-user">
-            <label>Who are you?</label>
-            <div className="role-search"><Search size={14} /><input autoFocus placeholder="Search your name…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-            <div className="role-names">
-              {people.slice(0, 60).map((p) => (
-                <button key={p} type="button" className={`role-name${name === p ? " on" : ""}`} onClick={() => setName(p)}>{p}</button>
-              ))}
-              {people.length === 0 && <span className="role-empty">No matching name</span>}
-            </div>
+      <div className="role-shell">
+        {/* brand panel */}
+        <aside className="role-brand">
+          <div className="role-brand-mark"><span className="rb-dot" />Insight</div>
+          <div className="role-brand-mid">
+            <h2>Operations<br />Intelligence</h2>
+            <p>Live workforce, client and billing analytics — unified from Hubstaff &amp; ClickUp in one command center.</p>
+            <ul className="role-feats">
+              {FEATS.map((f) => <li key={f}><span className="rf-ic"><Check size={12} /></span>{f}</li>)}
+            </ul>
           </div>
-        )}
-        <button type="button" className="role-go" disabled={!canGo} onClick={() => sel && onPick(sel, sel === "user" ? name : undefined)}>
-          {sel === "user" && !name ? "Select your name to continue" : "Continue"}
-        </button>
+          <div className="role-brand-foot">FINOVATE · Operations Command Center</div>
+        </aside>
+        {/* role chooser */}
+        <main className="role-pick">
+          <div className="role-pick-head">
+            <span className="role-eyebrow">Sign in</span>
+            <h1>Select your access</h1>
+            <p>Your dashboard adapts to the role you choose.</p>
+          </div>
+          <div className="role-opts">
+            {ROLE_DEF.map((r) => (
+              <button key={r.id} type="button" className={`role-opt${sel === r.id ? " on" : ""}`} onClick={() => { setSel(r.id); setName(""); }} style={{ ["--rc" as string]: r.color }}>
+                <span className="role-opt-ic" style={{ background: r.color }}><r.Icon size={17} /></span>
+                <span className="role-opt-txt"><b>{r.label} <em>{r.tag}</em></b><i>{r.desc}</i></span>
+                <span className="role-opt-rad" />
+              </button>
+            ))}
+          </div>
+          {sel === "user" && (
+            <div className="role-user">
+              <label>Who are you?</label>
+              <div className="role-search"><Search size={14} /><input autoFocus placeholder="Search your name…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+              <div className="role-names">
+                {people.slice(0, 60).map((p) => (
+                  <button key={p} type="button" className={`role-name${name === p ? " on" : ""}`} onClick={() => setName(p)}>{p}</button>
+                ))}
+                {people.length === 0 && <span className="role-empty">No matching name</span>}
+              </div>
+            </div>
+          )}
+          <button type="button" className="role-go" disabled={!canGo} onClick={() => sel && onPick(sel, sel === "user" ? name : undefined)}>
+            {sel === "user" && !name ? "Select your name" : "Continue"}<ArrowRight size={16} />
+          </button>
+          <div className="role-note"><Lock size={11} /> Demo access — no password required.</div>
+        </main>
       </div>
     </div>
   );
@@ -190,6 +207,27 @@ export default function CommandCenter({
     getBreakdown(f).then(setBd).catch(() => setBd(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
   }
+  // date range helpers (used by quick presets in the period bar)
+  function setRange(from: string, to: string) { const next = { ...draft, date_from: from, date_to: to }; setDraft(next); apply(next); }
+  function presetDays(n: number | null) {
+    if (!opts) return;
+    if (n === null) { setRange(opts.date_min, opts.date_max); return; }
+    const d = new Date(opts.date_max + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - (n - 1));
+    const from = d.toISOString().slice(0, 10);
+    setRange(from < opts.date_min ? opts.date_min : from, opts.date_max);
+  }
+  const PRESETS: [string, number | null][] = [["7D", 7], ["30D", 30], ["90D", 90], ["1Y", 365], ["All", null]];
+  const activePreset = (() => {
+    if (!opts || !draft.date_to || draft.date_to !== opts.date_max) return draft.date_from || draft.date_to ? "" : "";
+    if (draft.date_from === opts.date_min) return "All";
+    for (const [lbl, n] of PRESETS) {
+      if (n === null) continue;
+      const d = new Date(opts.date_max + "T00:00:00Z"); d.setUTCDate(d.getUTCDate() - (n - 1));
+      const f = d.toISOString().slice(0, 10);
+      if ((f < opts.date_min ? opts.date_min : f) === draft.date_from) return lbl;
+    }
+    return "";
+  })();
   async function refetchOpts(scope: { department?: string; atl?: string }) {
     try { setOpts(await getFilters(scope)); } catch { /* keep */ }
   }
@@ -432,6 +470,11 @@ export default function CommandCenter({
                 <button key={v || "all"} type="button" className={(draft.billable || "") === v ? "on" : ""} onClick={() => setField("billable", v)}>{lbl}</button>
               ))}
             </div>
+            <div className="fpreset" role="group" aria-label="Quick range">
+              {PRESETS.map(([lbl, n]) => (
+                <button key={lbl} type="button" className={activePreset === lbl ? "on" : ""} onClick={() => presetDays(n)}>{lbl}</button>
+              ))}
+            </div>
             {activeCount > 0 && (
               <button className="fclear" onClick={clearFilters} title="Clear all filters">
                 <RotateCcw size={13} />Clear all<span className="fcnt">{activeCount}</span>
@@ -440,6 +483,24 @@ export default function CommandCenter({
           </div>
         );
       })()}
+
+      {/* PERIOD BAR — employees (self view) can still filter by date */}
+      {caps.self && (
+        <div className="filterbar period">
+          <span className="fb-lead">PERIOD</span>
+          <label className="fdate">
+            <CalendarDays size={13} />
+            <input type="date" value={draft.date_from || ""} onChange={(e) => setField("date_from", e.target.value)} aria-label="From" />
+            <span className="dsep">–</span>
+            <input type="date" value={draft.date_to || ""} onChange={(e) => setField("date_to", e.target.value)} aria-label="To" />
+          </label>
+          <div className="fpreset" role="group" aria-label="Quick range">
+            {PRESETS.map(([lbl, n]) => (
+              <button key={lbl} type="button" className={activePreset === lbl ? "on" : ""} onClick={() => presetDays(n)}>{lbl}</button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* SCOPE BREADCRUMB — current drill path, click a crumb to jump up */}
       <div className="scopebar">
