@@ -112,6 +112,10 @@ export default function CommandCenter({
   function setDept(v: string) { const next = { ...draft, department: v || undefined, atl: undefined, employee: undefined }; setDraft(next); refetchOpts({ department: v || undefined }); apply(next); }
   function setAtl(v: string) { const next = { ...draft, atl: v || undefined, employee: undefined }; setDraft(next); refetchOpts({ department: draft.department, atl: v || undefined }); apply(next); }
   function clearFilters() { const base: Filters = opts ? defaultRange(opts) : {}; setDraft(base); refetchOpts({}); apply(base); }
+  // breadcrumb drill-up: jump to a parent scope, clearing deeper filters
+  function goCompany() { const n = { ...draft, department: undefined, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({}); apply(n); }
+  function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({ department: draft.department }); apply(n); }
+  function goTeam() { const n = { ...draft, employee: undefined }; setDraft(n); apply(n); }
 
   if (!data) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
 
@@ -173,6 +177,33 @@ export default function CommandCenter({
   const chData = [{ name: "Active", value: ch.active }, { name: "At Risk", value: ch.at_risk }, { name: "Inactive", value: ch.inactive }];
   const empClients = [...data.employees].filter((e) => e.billable > 0).sort((a, b) => b.billable - a.billable);
 
+  // ---- context level: company › department › team › employee (+ client scope) ----
+  const lvl = data.context.level; // "company" | "department" | "atl" | "employee"
+  const isEmp = lvl === "employee";
+  const isTeam = lvl === "atl";
+  const isDept = lvl === "department";
+  const peopleN = data.employees.length;
+  const multiPeople = peopleN > 1;                 // comparisons need ≥2 people
+  const showComparison = !isEmp && !isTeam;        // dept/team bars only above team level
+  const showPeople = multiPeople;                  // performers / bubble / people table
+
+  // task status + priority (contextual)
+  const tp = data.task_priority || { urgent: 0, high: 0, normal: 0, low: 0 };
+  const tpTotal = tp.urgent + tp.high + tp.normal + tp.low;
+  const taskStatus = (data.task_summary || []).filter((s) => s.value > 0);
+  const taskStatusTotal = taskStatus.reduce((s, x) => s + x.value, 0);
+  const alerts = data.alerts || [];
+  const insights = (data.insights || []).slice(0, 4);
+  const empTasks = (data.table?.level === "employee" ? data.table.rows : []) as Array<Record<string, unknown>>;
+
+  // breadcrumb crumbs from the active drill path
+  const crumbs: { label: string; sub: string; on?: () => void; active: boolean }[] = [
+    { label: "Company", sub: "All", on: draft.department || draft.atl || draft.employee ? goCompany : undefined, active: !draft.department && !draft.atl && !draft.employee },
+  ];
+  if (draft.department) crumbs.push({ label: draft.department, sub: "Department", on: draft.atl || draft.employee ? goDept : undefined, active: !!draft.department && !draft.atl && !draft.employee });
+  if (draft.atl) crumbs.push({ label: draft.atl, sub: "Team", on: draft.employee ? goTeam : undefined, active: !!draft.atl && !draft.employee });
+  if (draft.employee) crumbs.push({ label: draft.employee, sub: "Employee", active: true });
+
   return (
     <div className="page">
       {/* HEADER */}
@@ -224,6 +255,28 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* SCOPE BREADCRUMB — current drill path, click a crumb to jump up */}
+      <div className="scopebar">
+        <div className="crumbs">
+          {crumbs.map((c, i) => (
+            <span className="crumb-wrap" key={c.label + i}>
+              {i > 0 && <span className="crumb-sep">›</span>}
+              <button type="button" className={`crumb${c.active ? " on" : ""}`} disabled={!c.on} onClick={c.on}>
+                <span className="crumb-sub">{c.sub}</span>
+                <span className="crumb-lbl">{c.label}</span>
+              </button>
+            </span>
+          ))}
+          {draft.client && <span className="crumb-tag"><Briefcase size={12} />{draft.client}</span>}
+          {draft.billable && <span className="crumb-tag bil">{draft.billable}</span>}
+        </div>
+        <div className="scope-meta">
+          <span><b>{peopleN}</b> {peopleN === 1 ? "person" : "people"}</span>
+          <span><b>{n0(total)}</b>h tracked</span>
+          {loading && <span className="scope-sync"><span className="spin sm" /> updating…</span>}
+        </div>
+      </div>
+
       {/* KPI — one row: Total Hours donut card + metric cards */}
       <div className="kpi-row">
         <div className="thd-card kclk" onClick={openMetric("Total Hours", "#16a34a", "Total tracked time from Hubstaff = Billable + Non-Billable. Per employee = sum of their daily tracked hours.", (e) => e.billable + e.non_billable, (v) => n0(v) + "h")}>
@@ -247,6 +300,34 @@ export default function CommandCenter({
           openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%"))}
         {kpiCard("k-grade", "Avg Grade", gradeStr, "rose", Award)}
       </div>
+
+      {/* INSIGHTS & ALERTS — auto-generated, contextual to the current scope */}
+      {(insights.length > 0 || alerts.length > 0) && (
+        <div className="ia-row">
+          {insights.length > 0 && (
+            <div className="panel ia-panel">
+              <div className="ph"><h3><Sparkles size={15} style={{ color: "#7b3fc0", verticalAlign: "-2px", marginRight: 6 }} />Key Insights <span className="hl">for {data.context.label}</span></h3></div>
+              <ul className="ia-list">
+                {insights.map((t, i) => <li key={i}><span className="ia-dot" />{t}</li>)}
+              </ul>
+            </div>
+          )}
+          {alerts.length > 0 && (
+            <div className="panel ia-panel">
+              <div className="ph"><h3><ShieldAlert size={15} style={{ color: "#e8930c", verticalAlign: "-2px", marginRight: 6 }} />Alerts <span className="hl">needs attention</span></h3></div>
+              <div className="alert-list">
+                {alerts.map((a, i) => (
+                  <div className={`alert-item ${a.severity}`} key={i}>
+                    <span className="alert-ic">{a.severity === "high" ? <ShieldAlert size={15} /> : <ShieldCheck size={15} />}</span>
+                    <span className="alert-t">{a.title}</span>
+                    {a.count > 0 && <span className="alert-c">{a.count}</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
 
       {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
@@ -326,6 +407,48 @@ export default function CommandCenter({
         </>
       )}
 
+      {/* TASKS — status + priority (contextual) */}
+      {(taskStatusTotal > 0 || tpTotal > 0) && (
+        <>
+          <div className="sec"><h4>Tasks</h4></div>
+          <div className="row2">
+            {taskStatusTotal > 0 && (
+              <div className="panel">
+                <div className="ph"><h3>Task Status <span className="hl">{n0(taskStatusTotal)} active tasks in scope</span></h3></div>
+                <div className="bl-list">
+                  {taskStatus.sort((a, b) => b.value - a.value).map((s) => {
+                    const pct = taskStatusTotal ? (s.value / taskStatusTotal) * 100 : 0;
+                    const col = /done|complete|closed/i.test(s.name) ? "#0f9043" : /progress|active|review/i.test(s.name) ? "#2f6fbf" : /block|overdue|hold/i.test(s.name) ? "#d23f43" : "#8b8f9a";
+                    return (
+                      <div className="bl-row" key={s.name}>
+                        <span className="bl-lbl" title={s.name}>{s.name}</span>
+                        <span className="bl-track"><span className="bl-fill" style={{ width: `${Math.max(pct, 2)}%`, background: col }} /></span>
+                        <b className="bl-val num">{n0(s.value)}</b>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {tpTotal > 0 && (
+              <div className="panel">
+                <div className="ph"><h3>Priority Mix <span className="hl">open tasks by urgency</span></h3></div>
+                <div className="prio-grid">
+                  {([["Urgent", tp.urgent, "#d23f43"], ["High", tp.high, "#e8930c"], ["Normal", tp.normal, "#2f6fbf"], ["Low", tp.low, "#8b8f9a"]] as const).map(([lbl, v, col]) => (
+                    <div className="prio-card" key={lbl} style={{ borderColor: col + "33" }}>
+                      <span className="prio-bar" style={{ background: col }} />
+                      <div className="prio-v num">{n0(v)}</div>
+                      <div className="prio-l">{lbl}</div>
+                      <div className="prio-p">{tpTotal ? Math.round((v / tpTotal) * 100) : 0}%</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
       {/* CLIENTS */}
       <div className="sec"><h4>Clients</h4></div>
       <div className="row2">
@@ -366,7 +489,8 @@ export default function CommandCenter({
         </div>
       </div>
 
-      {/* PERFORMANCE */}
+      {/* PERFORMANCE — only when there are ≥2 people to compare */}
+      {showPeople && (<>
       <div className="sec"><h4>Performance</h4></div>
       <div className="row2">
         <div className="panel">
@@ -394,9 +518,10 @@ export default function CommandCenter({
           </div>
         </div>
       </div>
+      </>)}
 
       {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
-      {(() => {
+      {showComparison && (() => {
         const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
         if (!rows.length) return null;
         const maxH = Math.max(1, ...rows.map((r) => r.total));
@@ -457,7 +582,8 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* EMPLOYEE → CLIENTS */}
+      {/* EMPLOYEE → CLIENTS — only when there are multiple people to map */}
+      {showPeople && (<>
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="ph"><h3>Which employee works on which clients <span className="hl">all clients each person handles · billable hours</span></h3></div>
@@ -487,6 +613,36 @@ export default function CommandCenter({
           </table>
         </div>
       </div>
+      </>)}
+
+      {/* EMPLOYEE FOCUS — single person: their tasks list */}
+      {isEmp && empTasks.length > 0 && (<>
+        <div className="sec"><h4>Tasks · {data.context.label}</h4></div>
+        <div className="panel" style={{ marginBottom: 14 }}>
+          <div className="ph"><h3>Assigned tasks <span className="hl">{empTasks.length} tasks · estimated vs tracked</span></h3></div>
+          <div className="scrollwrap" style={{ maxHeight: 460 }}>
+            <table className="ec-table">
+              <thead><tr><th className="l">Task</th><th className="l">Client</th><th>Est.</th><th>Tracked</th><th className="l">Status</th><th>Due</th></tr></thead>
+              <tbody>
+                {empTasks.map((r, i) => {
+                  const st = String(r.status ?? "—");
+                  const stc = /done|complete|closed/i.test(st) ? "gA" : /progress|active|review/i.test(st) ? "gB" : /block|overdue|hold/i.test(st) ? "gD" : "gBb";
+                  return (
+                    <tr key={String(r.task ?? i) + i}>
+                      <td className="l tname" title={String(r.task ?? "")}>{String(r.task ?? "—")}</td>
+                      <td className="l">{String(r.client ?? "—")}</td>
+                      <td className="num">{r.estimated != null ? n1(Number(r.estimated)) + "h" : "—"}</td>
+                      <td className="num">{r.tracked != null ? n1(Number(r.tracked)) + "h" : "—"}</td>
+                      <td className="l"><span className={`grade ${stc}`}>{st}</span></td>
+                      <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{String(r.due ?? "—")}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>)}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 
