@@ -468,10 +468,10 @@ export default function CommandCenter({
                     </div>
                     <div className="acct-items">
                       <button className="acct-item" onClick={() => { setAcctOpen(false); if (caps.self) openEmployee(name); else setShowSettings(true); }}><UserIcon size={16} />Your profile</button>
-                      <button className="acct-item" onClick={() => { setAcctOpen(false); setShowSettings(true); }}><Settings size={16} />Settings</button>
+                      {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); setShowSettings(true); }}><Settings size={16} />Settings</button>}
                       {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
                       {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
-                      <button className="acct-item" onClick={() => { setAcctOpen(false); switchRole(); }}><Users size={16} />Users &amp; roles</button>
+                      {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); switchRole(); }}><Users size={16} />Users &amp; roles</button>}
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); window.open("https://github.com/dilranjankr/-finovate-pulse#readme", "_blank"); }}><BookOpen size={16} />Documentation</button>
                     </div>
