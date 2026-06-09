@@ -5,10 +5,11 @@ import {
   ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
+  Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, askAI, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, askAI, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
@@ -41,6 +42,66 @@ type AiMsg = {
   donut?: { data: { name: string; value: number }[]; colors: string[]; center?: { value: string; label: string } };
 };
 
+// ---- roles & capabilities (demo role-switcher) ----
+type Role = "owner" | "admin" | "developer" | "user";
+type Caps = { company: boolean; filters: boolean; export: boolean; raw: boolean; settings: boolean; self: boolean };
+const ROLE_CAPS: Record<Role, Caps> = {
+  owner: { company: true, filters: true, export: true, raw: true, settings: true, self: false },
+  admin: { company: true, filters: true, export: true, raw: false, settings: false, self: false },
+  developer: { company: true, filters: true, export: true, raw: true, settings: false, self: false },
+  user: { company: false, filters: false, export: false, raw: false, settings: false, self: true },
+};
+const ROLE_DEF: { id: Role; label: string; tag: string; desc: string; Icon: React.ComponentType<{ size?: number }>; color: string }[] = [
+  { id: "owner", label: "Owner", tag: "Full control", desc: "Everything — all data, filters, exports, raw data and settings.", Icon: Crown, color: "#b8860b" },
+  { id: "admin", label: "Admin", tag: "Operations", desc: "All company data, filters, comparisons and CSV export. No system settings.", Icon: ShieldCheck, color: "#2f6fbf" },
+  { id: "developer", label: "Developer", tag: "Technical", desc: "Full read-only dashboard plus raw-data / API access for debugging.", Icon: Code2, color: "#0d9488" },
+  { id: "user", label: "User", tag: "Self only", desc: "Only your own dashboard — your hours, tasks and clients.", Icon: UserIcon, color: "#7b3fc0" },
+];
+
+function RoleScreen({ opts, onPick }: { opts: FilterOptions | null; onPick: (r: Role, name?: string) => void }) {
+  const [sel, setSel] = useState<Role | null>(null);
+  const [name, setName] = useState("");
+  const [q, setQ] = useState("");
+  const people = (opts?.employees || []).filter((e) => e.toLowerCase().includes(q.toLowerCase()));
+  const canGo = sel && (sel !== "user" || name);
+  return (
+    <div className="role-screen">
+      <div className="role-box">
+        <div className="role-head">
+          <img src="/finovate-logo.png" alt="Finovate" className="role-logo" />
+          <h1>Welcome to <span className="pulse">Insight</span></h1>
+          <p>Choose how you want to sign in. Your view adapts to your role.</p>
+        </div>
+        <div className="role-grid">
+          {ROLE_DEF.map((r) => (
+            <button key={r.id} type="button" className={`role-card${sel === r.id ? " on" : ""}`} onClick={() => { setSel(r.id); setName(""); }} style={{ ["--rc" as string]: r.color }}>
+              <span className="role-ic" style={{ background: r.color }}><r.Icon size={20} /></span>
+              <span className="role-lbl">{r.label}</span>
+              <span className="role-tag">{r.tag}</span>
+              <span className="role-desc">{r.desc}</span>
+            </button>
+          ))}
+        </div>
+        {sel === "user" && (
+          <div className="role-user">
+            <label>Who are you?</label>
+            <div className="role-search"><Search size={14} /><input autoFocus placeholder="Search your name…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+            <div className="role-names">
+              {people.slice(0, 60).map((p) => (
+                <button key={p} type="button" className={`role-name${name === p ? " on" : ""}`} onClick={() => setName(p)}>{p}</button>
+              ))}
+              {people.length === 0 && <span className="role-empty">No matching name</span>}
+            </div>
+          </div>
+        )}
+        <button type="button" className="role-go" disabled={!canGo} onClick={() => sel && onPick(sel, sel === "user" ? name : undefined)}>
+          {sel === "user" && !name ? "Select your name to continue" : "Continue"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function CommandCenter({
   initialOpts, initialData,
 }: { initialOpts: FilterOptions | null; initialData: CommandData | null }) {
@@ -63,6 +124,23 @@ export default function CommandCenter({
   const [messages, setMessages] = useState<AiMsg[]>([]);
   const chatRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [messages, aiBusy, chatOpen]);
+
+  // ---- role-based access (demo role-switcher; choice persisted in localStorage) ----
+  const [role, setRole] = useState<Role | null>(null);
+  const [selfName, setSelfName] = useState<string>("");
+  const [roleReady, setRoleReady] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [rawModal, setRawModal] = useState(false);
+  const [rawData, setRawData] = useState<RawData | null>(null);
+  useEffect(() => {
+    try {
+      const r = localStorage.getItem("fin_role") as Role | null;
+      const n = localStorage.getItem("fin_self") || "";
+      if (r && ROLE_CAPS[r]) { setRole(r); setSelfName(n); }
+    } catch { /* ignore */ }
+    setRoleReady(true);
+  }, []);
+  const caps = ROLE_CAPS[role || "user"];
 
   async function openEmployee(name: string) {
     setEmp({ name, data: null });
@@ -123,8 +201,43 @@ export default function CommandCenter({
   function goCompany() { const n = { ...draft, department: undefined, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({}); apply(n); }
   function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({ department: draft.department }); apply(n); }
   function goTeam() { const n = { ...draft, employee: undefined }; setDraft(n); apply(n); }
+  function pickRole(r: Role, name?: string) {
+    setRole(r);
+    try { localStorage.setItem("fin_role", r); } catch { /* ignore */ }
+    if (r === "user" && name) {
+      setSelfName(name);
+      try { localStorage.setItem("fin_self", name); } catch { /* ignore */ }
+      const base: Filters = opts ? defaultRange(opts) : {};
+      const next = { ...base, employee: name };
+      setDraft(next); apply(next);
+    } else {
+      setSelfName("");
+      try { localStorage.removeItem("fin_self"); } catch { /* ignore */ }
+    }
+  }
+  function switchRole() {
+    setRole(null); setSelfName(""); setShowSettings(false);
+    try { localStorage.removeItem("fin_role"); localStorage.removeItem("fin_self"); } catch { /* ignore */ }
+    const base: Filters = opts ? defaultRange(opts) : {};
+    setDraft(base); apply(base);
+  }
+  function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
+  // export the in-scope employees table to CSV (client-side, no backend)
+  function exportCsv() {
+    const rows = [...data!.employees].sort((a, b) => b.billable - a.billable);
+    const head = ["Employee", "Team", "Billable_h", "NonBillable_h", "Total_h", "Utilization_%", "Productivity_%", "Activity_%", "Grade", "Clients"];
+    const esc = (v: string | number) => { const s = String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+    const lines = [head.join(",")];
+    rows.forEach((e) => lines.push([e.name, e.team, Math.round(e.billable), Math.round(e.non_billable), Math.round(e.billable + e.non_billable), Math.round(e.utilization), Math.round(e.productivity), Math.round(e.activity), e.grade, (e.clients || []).join("; ")].map(esc).join(",")));
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `finovate_${data!.context.label.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+  }
 
-  if (!data) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
+  if (!roleReady || !data) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
+  if (!role) return <RoleScreen opts={opts} onPick={pickRole} />;
 
   const live = data.source === "supabase";
   const sm = data.summary;
@@ -282,12 +395,22 @@ export default function CommandCenter({
         </div>
         <div className="tb-r">
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
-          <div className={`filtbtn${showFilters ? " on" : ""}`} title="Toggle filters" onClick={() => setShowFilters((s) => !s)}><Filter /></div>
+          {caps.export && <button className="tb-act" title="Export employees to CSV" onClick={exportCsv}><Download size={15} /><span>Export</span></button>}
+          {caps.raw && <button className="tb-act" title="Raw data (developer)" onClick={openRaw}><Code2 size={15} /><span>Raw</span></button>}
+          {caps.settings && <button className="tb-act" title="Settings" onClick={() => setShowSettings(true)}><Settings size={15} /></button>}
+          {caps.filters && <div className={`filtbtn${showFilters ? " on" : ""}`} title="Toggle filters" onClick={() => setShowFilters((s) => !s)}><Filter /></div>}
+          {(() => { const rd = ROLE_DEF.find((r) => r.id === role)!; return (
+            <div className="role-chip" title={`Signed in as ${rd.label}${selfName ? " · " + selfName : ""}`}>
+              <span className="role-chip-ic" style={{ background: rd.color }}><rd.Icon size={13} /></span>
+              <span className="role-chip-l">{selfName || rd.label}</span>
+              <button className="role-chip-x" title="Switch role" onClick={switchRole}><LogOut size={13} /></button>
+            </div>
+          ); })()}
         </div>
       </div>
 
       {/* FILTERS */}
-      {showFilters && (() => {
+      {caps.filters && showFilters && (() => {
         const activeCount = [draft.department, draft.atl, draft.employee, draft.client, draft.client_type, draft.billable].filter(Boolean).length;
         return (
           <div className="filterbar">
@@ -321,7 +444,9 @@ export default function CommandCenter({
       {/* SCOPE BREADCRUMB — current drill path, click a crumb to jump up */}
       <div className="scopebar">
         <div className="crumbs">
-          {crumbs.map((c, i) => (
+          {caps.self ? (
+            <span className="crumb-wrap"><button type="button" className="crumb on" disabled><span className="crumb-sub">Your dashboard</span><span className="crumb-lbl">{selfName}</span></button></span>
+          ) : crumbs.map((c, i) => (
             <span className="crumb-wrap" key={c.label + i}>
               {i > 0 && <span className="crumb-sep">›</span>}
               <button type="button" className={`crumb${c.active ? " on" : ""}`} disabled={!c.on} onClick={c.on}>
@@ -330,11 +455,11 @@ export default function CommandCenter({
               </button>
             </span>
           ))}
-          {draft.client && <span className="crumb-tag"><Briefcase size={12} />{draft.client}</span>}
-          {draft.billable && <span className="crumb-tag bil">{draft.billable}</span>}
+          {!caps.self && draft.client && <span className="crumb-tag"><Briefcase size={12} />{draft.client}</span>}
+          {!caps.self && draft.billable && <span className="crumb-tag bil">{draft.billable}</span>}
         </div>
         <div className="scope-meta">
-          <span><b>{peopleN}</b> {peopleN === 1 ? "person" : "people"}</span>
+          {!caps.self && <span><b>{peopleN}</b> {peopleN === 1 ? "person" : "people"}</span>}
           <span><b>{n0(total)}</b>h tracked</span>
           {loading && <span className="scope-sync"><span className="spin sm" /> updating…</span>}
         </div>
@@ -994,6 +1119,56 @@ export default function CommandCenter({
           <div className="ai-chat-input">
             <input placeholder="Ask anything…" value={aiQ} disabled={aiBusy} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ask(aiQ); }} />
             <button onClick={() => ask(aiQ)} disabled={aiBusy || !aiQ.trim()}>{aiBusy ? <span className="spin sm" /> : <Send size={15} />}</button>
+          </div>
+        </div>
+      )}
+
+      {/* SETTINGS (Owner) */}
+      {showSettings && (
+        <div className="modal-bg" onClick={() => setShowSettings(false)}>
+          <div className="modal sm-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h"><div><h3>Settings</h3><div className="sub">data source &amp; role access</div></div><div className="modal-x" onClick={() => setShowSettings(false)}><X size={16} /></div></div>
+            <div className="modal-b">
+              <div className="set-grid">
+                <div className="set-row"><span>Data source</span><b>{live ? "Supabase (Live)" : "CSV (Demo)"}</b></div>
+                <div className="set-row"><span>Employees</span><b>{sm.employees}</b></div>
+                <div className="set-row"><span>Departments · Teams</span><b>{sm.departments} · {sm.teams}</b></div>
+                <div className="set-row"><span>Clients</span><b>{sm.clients}</b></div>
+                <div className="set-row"><span>Active days of data</span><b>{n0(sm.active_days)}</b></div>
+              </div>
+              <h4 className="set-h">Role access</h4>
+              <div className="set-roles">
+                {ROLE_DEF.map((r) => (
+                  <div className="set-role" key={r.id}>
+                    <span className="role-chip-ic" style={{ background: r.color }}><r.Icon size={13} /></span>
+                    <div><b>{r.label}</b><i>{r.desc}</i></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RAW DATA (Owner / Developer) */}
+      {rawModal && (
+        <div className="modal-bg" onClick={() => setRawModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h"><div><h3>Raw data <Code2 size={14} style={{ verticalAlign: -2 }} /></h3><div className="sub">{rawData ? `${rawData.shown} of ${n0(rawData.total)} rows · ${data.context.label}` : "loading…"}</div></div><div className="modal-x" onClick={() => setRawModal(false)}><X size={16} /></div></div>
+            <div className="modal-b">
+              {!rawData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : rawData.rows.length === 0 ? <div className="empty-s">No rows in scope</div> : (
+                <div className="scrollwrap" style={{ maxHeight: 460 }}>
+                  <table className="raw-table">
+                    <thead><tr>{Object.keys(rawData.rows[0]).map((c) => <th key={c} className="l">{c}</th>)}</tr></thead>
+                    <tbody>
+                      {rawData.rows.map((row, i) => (
+                        <tr key={i}>{Object.keys(rawData.rows[0]).map((c) => <td key={c} className="l">{String(row[c] ?? "")}</td>)}</tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
