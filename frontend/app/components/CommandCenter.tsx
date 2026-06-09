@@ -4,13 +4,13 @@ import { useState, useRef, useEffect } from "react";
 import {
   ChevronDown, Search, Filter, CalendarDays,
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
-  Gauge, Activity, Zap, Award, Tag,
+  Gauge, Activity, Zap, Award, Tag, Sparkles, Send,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, askAI, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail,
 } from "../lib/api";
-import { TrendLines, Donut, Bubble, ComboColumns } from "./Charts";
+import { TrendLines, Donut, Bubble, ComboColumns, BarList } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
@@ -27,6 +27,13 @@ function avatarColor(s: string) {
   return c[h % c.length];
 }
 const initials = (s: string) => s.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
+const utilColor = (u: number) => (u >= 75 ? "#0f9043" : u >= 60 ? "#bd8616" : "#d23f43");
+const AI_SUGGESTIONS = ["Top performers", "Lowest utilization team", "Billable mix", "At-risk clients", "Busiest department"];
+type AiMsg = {
+  role: "user" | "ai"; text: string; kind?: "bar" | "donut" | "none";
+  bars?: { label: string; value: number; color?: string }[];
+  donut?: { data: { name: string; value: number }[]; colors: string[]; center?: { value: string; label: string } };
+};
 
 export default function CommandCenter({
   initialOpts, initialData,
@@ -41,10 +48,50 @@ export default function CommandCenter({
   const [bdList, setBdList] = useState<BreakdownListData | null>(null);
   const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
+  const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [aiQ, setAiQ] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [messages, setMessages] = useState<AiMsg[]>([]);
+  const chatRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [messages, aiBusy, chatOpen]);
+
+  async function openEmployee(name: string) {
+    setEmp({ name, data: null });
+    try { setEmp({ name, data: await getEmployee(name, draft) }); } catch { setEmp({ name, data: { found: false } }); }
+  }
+  async function ask(q: string) {
+    const question = q.trim();
+    if (!question || aiBusy) return;
+    setAiQ(""); setMessages((m) => [...m, { role: "user", text: question }]); setAiBusy(true);
+    try {
+      const r = await askAI(question, draft);
+      setMessages((m) => [...m, { role: "ai", text: r.ok && r.text ? r.text : "Sorry, I couldn't answer that. Try rephrasing — e.g. 'top performers', 'lowest utilization team', 'billable mix', 'at-risk clients'.", kind: r.kind, bars: r.bars, donut: r.donut }]);
+    } catch {
+      setMessages((m) => [...m, { role: "ai", text: "AI is unavailable right now. Please try again." }]);
+    } finally { setAiBusy(false); }
+  }
 
   useEffect(() => {
     if (initialOpts) getBreakdown(defaultRange(initialOpts)).then(setBd).catch(() => setBd(null));
   }, [initialOpts]);
+
+  // resilient client-side load if SSR couldn't reach the backend (cold start)
+  useEffect(() => {
+    if (initialData) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        let o = initialOpts;
+        if (!o) { o = await getFilters(); if (cancelled) return; setOpts(o); setDraft(defaultRange(o)); }
+        const r = defaultRange(o);
+        const [cmd, b] = await Promise.all([getCommand(r), getBreakdown(r).catch(() => null)]);
+        if (cancelled) return;
+        setData(cmd); setBd(b);
+      } catch { /* retry on next interaction */ }
+    })();
+    return () => { cancelled = true; };
+  }, [initialData, initialOpts]);
 
   function openBdList(kind: "task" | "project", mode: "all" | "billable" | "nonbillable") {
     setBdModal({ kind, mode });
@@ -120,6 +167,12 @@ export default function CommandCenter({
   const clColor = (cat: string) => (cat === "Fixed" ? "#2f6fbf" : cat === "Hourly" ? "#0f9043" : "#9aa3b2");
   const topClients = clientsAll.slice(0, 5);
   const botClients = clientsAll.length > 5 ? clientsAll.slice(-5).reverse() : [];
+  const billType = (() => {
+    const m = { Fixed: 0, Hourly: 0, Project: 0 } as Record<string, number>;
+    data.clients_summary.forEach((c) => { const k = c.category === "Fixed" ? "Fixed" : c.category === "Hourly" ? "Hourly" : "Project"; m[k] += c.hours; });
+    return [{ name: "Fixed", value: Math.round(m.Fixed) }, { name: "Hourly", value: Math.round(m.Hourly) }, { name: "Project", value: Math.round(m.Project) }].filter((x) => x.value > 0);
+  })();
+  const billTypeTotal = billType.reduce((s, x) => s + x.value, 0);
   const ch = data.client_health;
   const chTotal = ch.active + ch.at_risk + ch.inactive;
   const chData = [{ name: "Active", value: ch.active }, { name: "At Risk", value: ch.at_risk }, { name: "Inactive", value: ch.inactive }];
@@ -253,7 +306,7 @@ export default function CommandCenter({
 
       {/* CLIENTS */}
       <div className="sec"><h4>Clients</h4></div>
-      <div className="row2">
+      <div className="row3">
         <div className="panel">
           <div className="ph"><h3>Top &amp; Bottom Clients <span className="hl">by hours · {clientsAll.length} clients</span></h3></div>
           {clientsAll.length ? (
@@ -298,6 +351,19 @@ export default function CommandCenter({
             </div>
           ) : <div className="empty-s">No client data in scope</div>}
         </div>
+        <div className="panel">
+          <div className="ph"><h3>Billing Type <span className="hl">hours · Fixed vs Hourly</span></h3></div>
+          {billTypeTotal > 0 ? (
+            <div className="donut-wrap">
+              <div style={{ width: 150 }}><Donut data={billType} colors={["#2f6fbf", "#0f9043", "#9aa3b2"]} height={180} center={{ value: n0(billTypeTotal) + "h", label: "Total" }} /></div>
+              <div className="legend">
+                {billType.map((s, i) => (
+                  <div className="li" key={s.name}><span className="dot" style={{ background: ["#2f6fbf", "#0f9043", "#9aa3b2"][i] }} /><span className="nm">{s.name}</span><span className="vl">{n0(s.value)}h</span><span className="pc">{billTypeTotal ? Math.round((s.value / billTypeTotal) * 100) : 0}%</span></div>
+                ))}
+              </div>
+            </div>
+          ) : <div className="empty-s">No billing data in scope</div>}
+        </div>
       </div>
 
       {/* PERFORMANCE */}
@@ -313,7 +379,7 @@ export default function CommandCenter({
             <div className="tb-grp">
               <div className="tb-h up">▲ Top 3</div>
               {data.top3.map((e, i) => (
-                <div className="tb-row perf" key={e.name + i}>
+                <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
                   <span className="tb-rank">{i + 1}</span>
                   <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
                   <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
@@ -325,7 +391,7 @@ export default function CommandCenter({
             <div className="tb-grp">
               <div className="tb-h down">▼ Bottom 3</div>
               {data.bottom3.map((e, i) => (
-                <div className="tb-row perf" key={e.name + i}>
+                <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
                   <span className="tb-rank">{i + 1}</span>
                   <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
                   <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
@@ -365,7 +431,7 @@ export default function CommandCenter({
                         <td className="num">{r.team_size}</td>
                         <td className="num">{n0(r.total)}h</td>
                         <td className="num">{n0(r.billable)}h</td>
-                        <td><span className="util"><span className="bar"><span className="fill" style={{ width: `${r.utilization}%`, background: r.utilization >= 75 ? "#0f9043" : r.utilization >= 60 ? "#bd8616" : "#d23f43" }} /></span><span className="pc">{n0(r.utilization)}%</span></span></td>
+                        <td><span className="util"><span className="bar"><span className="fill" style={{ width: `${r.utilization}%`, background: utilColor(r.utilization) }} /></span><span className="pc">{n0(r.utilization)}%</span></span></td>
                         <td className="num">{n0(r.activity || 0)}%</td>
                         <td className="num">{n0(r.productivity)}%</td>
                         <td><span className={`grade ${gradeCls(r.grade)}`}>{r.grade}</span></td>
@@ -390,7 +456,7 @@ export default function CommandCenter({
               {empClients.map((e, i) => {
                 const cls = e.clients || [];
                 return (
-                  <tr key={e.name + i}>
+                  <tr key={e.name + i} className="click" onClick={() => openEmployee(e.name)}>
                     <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span><span className="tname">{e.name}</span><span className="ec-team">{e.team}</span></span></span></td>
                     <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
                     <td className="num">{n0(e.billable)}h</td>
@@ -506,6 +572,103 @@ export default function CommandCenter({
           </div>
         );
       })()}
+
+      {/* EMPLOYEE DETAIL DRAWER */}
+      {emp && (
+        <div className="drawer-bg" onClick={() => setEmp(null)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()}>
+            {!emp.data ? <div className="loading" style={{ height: "100%" }}><span className="spin" /> Loading…</div> :
+              !emp.data.found ? <div className="loading" style={{ height: "100%" }}>Not found</div> : (() => {
+                const p = emp.data.profile!;
+                const daily = emp.data.daily || [];
+                const tasks = emp.data.tasks || [];
+                return (
+                  <>
+                    <div className="drawer-h">
+                      <div className="emp-hero">
+                        <span className="avatar lg" style={{ background: avatarColor(p.name) }}>{initials(p.name)}</span>
+                        <div><div className="nm">{p.name}</div><div className="tm">{p.team} · {p.department}{p.role ? ` · ${p.role}` : ""}</div></div>
+                      </div>
+                      <div className="modal-x" onClick={() => setEmp(null)}><X size={16} /></div>
+                    </div>
+                    <div className="drawer-b">
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <span className={`grade ${gradeCls(p.grade)}`} style={{ fontSize: 13, padding: "4px 11px" }}>{p.grade}</span>
+                        <span className={`stt ${p.task_status}`}><span className="d" />{p.task_status} · {p.active_tasks} active tasks</span>
+                      </div>
+                      <div className="mini-kpis">
+                        <div className="mini-k"><div className="l">Billable</div><div className="v num">{n0(p.billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Non-Bill</div><div className="v num">{n0(p.non_billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Utilization</div><div className="v num">{n0(p.utilization)}%</div></div>
+                        <div className="mini-k"><div className="l">Activity</div><div className="v num">{n0(p.activity)}%</div></div>
+                        <div className="mini-k"><div className="l">Productivity</div><div className="v num">{n0(p.productivity)}%</div></div>
+                        <div className="mini-k"><div className="l">Active Days</div><div className="v num">{p.days}</div></div>
+                      </div>
+                      <div className="drawer-sec">Daily Hours Trend</div>
+                      <TrendLines data={daily.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={200} />
+                      <div className="drawer-sec">Assigned Tasks ({tasks.length})</div>
+                      <div className="scrollwrap" style={{ maxHeight: 280 }}>
+                        <table>
+                          <thead><tr><th className="l">Task</th><th className="l">Client</th><th className="l">Status</th><th>Tracked</th></tr></thead>
+                          <tbody>
+                            {tasks.slice(0, 50).map((t, i) => (
+                              <tr key={i}><td className="l tname">{String(t.task)}</td><td className="l" style={{ color: "var(--muted)" }}>{String(t.client || "—")}</td><td className="l" style={{ color: "var(--muted)" }}>{String(t.status || "—")}</td><td className="num">{n1(Number(t.tracked || 0))}h</td></tr>
+                            ))}
+                            {tasks.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No tasks</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+          </div>
+        </div>
+      )}
+
+      {/* FLOATING AI CHAT */}
+      <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Insight AI" aria-label="Ask AI">
+        {chatOpen ? <X size={20} /> : <Sparkles size={20} />}
+      </button>
+      {chatOpen && (
+        <div className="ai-chat">
+          <div className="ai-chat-h">
+            <div className="ai-chat-title"><span className="ai-chat-ic"><Sparkles size={16} /></span><div><b>Insight AI</b><span>powered by Gemini · live data</span></div></div>
+            <button className="ai-chat-x" onClick={() => setChatOpen(false)}><X size={16} /></button>
+          </div>
+          <div className="ai-chat-body" ref={chatRef}>
+            {messages.length === 0 && (
+              <div className="ai-welcome">
+                <span className="ai-welcome-ic"><Sparkles size={22} /></span>
+                <p>Hi! Main aapka operations assistant hoon — teams, clients, hours, performance pe koi bhi sawaal poochho. Chart ke saath jawab dunga.</p>
+                <div className="chipsai">{AI_SUGGESTIONS.map((s) => <span key={s} className="aichip" onClick={() => ask(s)}>{s}</span>)}</div>
+              </div>
+            )}
+            {messages.map((m, i) => (m.role === "user" ? (
+              <div className="msg user" key={i}>{m.text}</div>
+            ) : (
+              <div className="msg ai" key={i}>
+                <span className="msg-ic"><Sparkles size={13} /></span>
+                <div className="msg-body">
+                  <div className="msg-text">{m.text}</div>
+                  {m.kind === "bar" && m.bars && m.bars.length > 0 && <div className="msg-chart"><BarList items={m.bars} /></div>}
+                  {m.kind === "donut" && m.donut && (
+                    <div className="donut-wrap msg-chart" style={{ marginTop: 8 }}>
+                      <div style={{ width: 110 }}><Donut data={m.donut.data} colors={m.donut.colors} height={130} center={m.donut.center} /></div>
+                      <div className="legend">{m.donut.data.map((d, j) => <div className="li" key={d.name + j}><span className="dot" style={{ background: m.donut!.colors[j % m.donut!.colors.length] }} /><span className="nm">{d.name}</span><span className="vl">{n0(d.value)}</span></div>)}</div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )))}
+            {aiBusy && <div className="msg ai"><span className="msg-ic"><Sparkles size={13} /></span><div className="msg-body"><div className="typing"><span /><span /><span /></div></div></div>}
+          </div>
+          <div className="ai-chat-input">
+            <input placeholder="Ask anything…" value={aiQ} disabled={aiBusy} onChange={(e) => setAiQ(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") ask(aiQ); }} />
+            <button onClick={() => ask(aiQ)} disabled={aiBusy || !aiQ.trim()}>{aiBusy ? <span className="spin sm" /> : <Send size={15} />}</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
