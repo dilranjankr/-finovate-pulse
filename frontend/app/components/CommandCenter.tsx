@@ -315,6 +315,7 @@ export default function CommandCenter({
     const c = KPICOL[colorKey];
     const t = deltaKey ? (data.kpis[deltaKey]?.trend ?? 0) : null;
     const dColor = t !== null && t > 0 ? "#0f9043" : t !== null && t < 0 ? "#d23f43" : "var(--muted)";
+    const spark = (deltaKey ? data.kpis[deltaKey]?.spark : null) || [];
     return (
       <div className={`kc2${onClick ? " kclk" : ""}`} key={key} onClick={onClick}>
         <div className="kc2-head">
@@ -322,6 +323,7 @@ export default function CommandCenter({
           <span className="kc2-lbl">{label}</span>
         </div>
         <div className="kc2-val num">{value}</div>
+        {spark.length > 1 && <div className="kc2-spark"><Sparkline data={spark} color={c.badge} id={key} /></div>}
         {cmp && t !== null
           ? <div className="kc2-delta" style={{ color: dColor }}><Clock size={12} /><b>{t > 0 ? "+" : ""}{t}%</b><span>vs last {pv?.days}d</span></div>
           : <div className="kc2-delta dash"><span>—</span></div>}
@@ -361,6 +363,28 @@ export default function CommandCenter({
   const alerts = data.alerts || [];
   const insights = (data.insights || []).slice(0, 4);
   const empTasks = (data.table?.level === "employee" ? data.table.rows : []) as Array<Record<string, unknown>>;
+
+  // budget vs actual (capacity utilised) — for the gauge
+  const bva = data.budget_vs_actual || { budget: 0, actual: 0, variance: 0 };
+  const bvaPct = bva.budget > 0 ? Math.round((bva.actual / bva.budget) * 100) : 0;
+  const bvaDelta = data.kpis.actual_hours?.trend ?? null;
+
+  // clickable insight → jump to the team/department/client it names (frontend match)
+  function insightTarget(text: string): { kind: "team" | "dept" | "client"; value: string } | null {
+    const team = (data?.teams || []).find((t) => t.team && t.team !== "Unassigned" && text.includes(t.team));
+    if (team) return { kind: "team", value: team.team };
+    const dept = (data?.departments || []).find((d) => d.team && d.team !== "Unassigned" && text.includes(d.team));
+    if (dept) return { kind: "dept", value: dept.team };
+    const cl = (data?.clients_summary || []).find((c) => c.client && c.client !== "Unassigned" && text.includes(c.client));
+    if (cl) return { kind: "client", value: cl.client };
+    return null;
+  }
+  function applyInsight(tg: { kind: "team" | "dept" | "client"; value: string }) {
+    if (tg.kind === "team") setAtl(tg.value);
+    else if (tg.kind === "dept") setDept(tg.value);
+    else setField("client", tg.value);
+  }
+  function askAboutAlert(title: string) { setChatOpen(true); ask(`${title}: which ones, and what should I look at?`); }
 
 
   // department/team level: a simple ranked leaderboard (teams or members)
@@ -687,12 +711,16 @@ export default function CommandCenter({
             <div className="panel ia-panel">
               <div className="ph"><h3><Sparkles size={15} style={{ color: "#7b3fc0", verticalAlign: "-2px", marginRight: 6 }} />Key Insights <span className="hl">for {data.context.label}</span></h3></div>
               <div className="ins-list">
-                {insights.map((t, i) => (
-                  <div className="ins-item" key={i}>
-                    <span className="ins-n">{i + 1}</span>
-                    <span className="ins-t">{t}</span>
-                  </div>
-                ))}
+                {insights.map((t, i) => {
+                  const tg = insightTarget(t);
+                  return (
+                    <div className={`ins-item${tg ? " clk" : ""}`} key={i} onClick={tg ? () => applyInsight(tg) : undefined} title={tg ? `View ${tg.value}` : undefined}>
+                      <span className="ins-n">{i + 1}</span>
+                      <span className="ins-t">{t}</span>
+                      {tg && <ArrowRight size={14} className="ins-go" />}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -703,7 +731,7 @@ export default function CommandCenter({
                 {alerts.map((a, i) => {
                   const sev = sevClass(a.severity);
                   return (
-                    <div className={`alert-item ${sev}`} key={i}>
+                    <div className={`alert-item ${sev} clk`} key={i} onClick={() => askAboutAlert(a.title)} title="Ask AI about this">
                       <span className="alert-bar" />
                       <span className="alert-t">{a.title}</span>
                       {a.count > 0 && <span className="alert-c">{n0(a.count)}</span>}
@@ -716,6 +744,32 @@ export default function CommandCenter({
         </div>
       )}
 
+
+      {/* BUDGET vs ACTUAL — capacity utilised gauge */}
+      {bva.budget > 0 && (
+        <>
+          <div className="sec"><h4>Budget vs Actual</h4></div>
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3>Capacity utilised <span className="hl">tracked hours vs budgeted capacity (8h/day)</span></h3></div>
+            <div className="bva-body">
+              <div className="bva-gauge">
+                <GaugeChart value={bvaPct} color={bvaPct > 100 ? "#d23f43" : bvaPct >= 70 ? "#16a34a" : "#e8930c"} />
+                <div className="bva-read">
+                  <b className="num">{bvaPct}%</b>
+                  {cmp && bvaDelta !== null && <span className="bva-delta" style={{ color: bvaDelta >= 0 ? "#0f9043" : "#d23f43" }}>{bvaDelta > 0 ? "+" : ""}{bvaDelta}%</span>}
+                  <span className="bva-cap">of budget · last {pv?.days || 90}d</span>
+                </div>
+              </div>
+              <div className="bva-stats">
+                <div className="bva-stat"><span className="l">Budgeted capacity</span><b className="num">{n0(bva.budget)}h</b></div>
+                <div className="bva-stat"><span className="l">Actual tracked</span><b className="num">{n0(bva.actual)}h</b></div>
+                <div className="bva-stat"><span className="l">Variance</span><b className="num" style={{ color: bva.variance < 0 ? "#d23f43" : "#0f9043" }}>{bva.variance > 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
+                <div className="bva-note">{bvaPct >= 100 ? "Over capacity — team is fully loaded." : bvaPct >= 70 ? "Healthy utilisation of available capacity." : "Spare capacity available."}</div>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
       {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
@@ -1328,6 +1382,51 @@ function RingChart({ segs }: { segs: { label: string; value: number; color: stri
     <svg viewBox="0 0 200 200" className="ringchart">
       <g transform="rotate(-90 100 100)">{arcs}</g>
       {labels}
+    </svg>
+  );
+}
+
+function Sparkline({ data, color, id }: { data: number[]; color: string; id: string }) {
+  if (!data || data.length < 2) return null;
+  const w = 96, h = 28, pad = 2;
+  const min = Math.min(...data), max = Math.max(...data), range = max - min || 1;
+  const pts = data.map((v, i) => {
+    const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+    const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const line = "M" + pts.join(" L");
+  const area = `${line} L${(w - pad).toFixed(1)},${h - pad} L${pad},${h - pad} Z`;
+  const gid = `spk-${id}`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="spark" preserveAspectRatio="none">
+      <defs><linearGradient id={gid} x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={color} stopOpacity="0.22" /><stop offset="100%" stopColor={color} stopOpacity="0" /></linearGradient></defs>
+      <path d={area} fill={`url(#${gid})`} />
+      <path d={line} fill="none" stroke={color} strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function GaugeChart({ value, color = "#e23b3b" }: { value: number; color?: string }) {
+  const v = Math.max(0, Math.min(100, value));
+  const cx = 130, cy = 122, rIn = 80, rOut = 102, needleR = 70;
+  const startDeg = 135, sweep = 270, N = 40;
+  const polar = (deg: number, r: number) => { const a = (deg * Math.PI) / 180; return [cx + r * Math.cos(a), cy + r * Math.sin(a)]; };
+  const ticks = Array.from({ length: N }, (_, i) => {
+    const f = i / (N - 1), deg = startDeg + f * sweep;
+    const [x1, y1] = polar(deg, rIn), [x2, y2] = polar(deg, rOut);
+    return <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={f * 100 <= v ? color : "#e6e9f0"} strokeWidth="5" strokeLinecap="round" />;
+  });
+  const [nx, ny] = polar(startDeg + (v / 100) * sweep, needleR);
+  const labels = [0, 20, 40, 60, 80, 100].map((s) => {
+    const [x, y] = polar(startDeg + (s / 100) * sweep, rIn - 15);
+    return <text key={s} x={x} y={y} className="gauge-sc" textAnchor="middle" dominantBaseline="central">{s}</text>;
+  });
+  return (
+    <svg viewBox="0 0 260 200" className="gauge">
+      {ticks}{labels}
+      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="#1f2b4d" strokeWidth="3" strokeLinecap="round" />
+      <circle cx={cx} cy={cy} r="6.5" fill="#1f2b4d" />
     </svg>
   );
 }

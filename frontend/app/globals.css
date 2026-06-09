@@ -192,6 +192,31 @@ body { background: var(--bg); color: var(--ink);
 .kc2-delta b { font-weight: 750; font-variant-numeric: tabular-nums; }
 .kc2-delta span { color: var(--muted); font-weight: 550; }
 .kc2-delta.dash span { color: var(--faint); }
+.kc2-spark { height: 28px; margin: 8px 0 2px; }
+.spark { width: 100%; height: 100%; display: block; }
+
+/* clickable insights / alerts */
+.ins-item.clk, .alert-item.clk { cursor: pointer; }
+.ins-item.clk:hover { background: #eef2fb; border-color: #d2e0f4; }
+.ins-go { color: var(--faint); margin-left: auto; flex-shrink: 0; }
+.ins-item.clk:hover .ins-go { color: #2f6fbf; }
+.alert-item.clk:hover { filter: brightness(.985); box-shadow: 0 2px 8px rgba(20,30,60,.08); }
+
+/* budget vs actual gauge */
+.bva-body { display: grid; grid-template-columns: 300px 1fr; gap: 28px; align-items: center; }
+@media (max-width: 720px) { .bva-body { grid-template-columns: 1fr; } }
+.bva-gauge { display: flex; flex-direction: column; align-items: center; }
+.gauge { width: 260px; max-width: 100%; height: auto; }
+.gauge-sc { font-size: 12px; font-weight: 650; fill: var(--faint); }
+.bva-read { display: flex; align-items: baseline; gap: 9px; margin-top: -16px; flex-wrap: wrap; justify-content: center; }
+.bva-read b { font-size: 32px; font-weight: 800; letter-spacing: -1.5px; color: var(--ink); }
+.bva-delta { font-size: 12.5px; font-weight: 750; padding: 2px 8px; border-radius: 6px; background: #eef4ee; }
+.bva-cap { font-size: 12px; color: var(--muted); width: 100%; text-align: center; }
+.bva-stats { display: flex; flex-direction: column; gap: 0; }
+.bva-stat { display: flex; align-items: center; justify-content: space-between; padding: 13px 4px; border-bottom: 1px solid var(--line-2); }
+.bva-stat .l { font-size: 13px; color: var(--ink-2); font-weight: 600; }
+.bva-stat b { font-size: 17px; font-weight: 780; color: var(--ink); letter-spacing: -.4px; }
+.bva-note { font-size: 12.5px; color: var(--muted); padding-top: 12px; font-weight: 550; }
 @media (max-width: 1250px) { .kc2-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 720px) { .kc2-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 440px) { .kc2-grid { grid-template-columns: 1fr; } }
