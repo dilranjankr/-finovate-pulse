@@ -187,6 +187,11 @@ body { background: var(--bg); color: var(--ink);
 .kc2-head { display: flex; align-items: center; gap: 9px; }
 .kc2-ic { width: 30px; height: 30px; border-radius: 8px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .kc2-lbl { font-size: 12.5px; font-weight: 650; color: var(--ink-2); }
+/* avg grade KPI — colored badge + distribution bar */
+.grade-badge { align-self: flex-start; font-size: 28px; font-weight: 800; letter-spacing: -1px; line-height: 1; padding: 5px 14px; border-radius: 10px; }
+.grade-dist { display: flex; gap: 2px; height: 9px; border-radius: 5px; overflow: hidden; background: #eef1f6; margin-top: 12px; }
+.grade-dist span { min-width: 3px; transition: flex .4s ease; }
+.grade-foot { font-size: 11px; font-weight: 600; color: var(--faint); margin-top: 8px; }
 .kc2-val { font-size: 26px; font-weight: 780; letter-spacing: -1px; color: var(--ink); margin: 0; line-height: 1; }
 .kc2-delta { display: flex; align-items: center; gap: 5px; font-size: 12px; }
 .kc2-delta b { font-weight: 750; font-variant-numeric: tabular-nums; }
