@@ -110,6 +110,15 @@ export async function getRaw(f: Filters): Promise<RawData> {
 
 export interface HoursDetailRow { employee: string; project: string; task: string; billable: number; non_billable: number; total: number; }
 export interface HoursDetailData { rows: HoursDetailRow[]; count: number; }
+export interface CompareTrendData { dates: string[]; series: { name: string; values: number[] }[]; }
+export async function getCompareTrend(kind: string, names: string[], f: Filters): Promise<CompareTrendData> {
+  const qs = new URLSearchParams({ kind, names: names.join(",") });
+  if (f.date_from) qs.set("date_from", f.date_from);
+  if (f.date_to) qs.set("date_to", f.date_to);
+  const r = await fetch(`${API}/api/compare_trend?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("compare_trend failed");
+  return r.json();
+}
 export async function getHoursDetail(f: Filters): Promise<HoursDetailData> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });

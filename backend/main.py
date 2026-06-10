@@ -1297,6 +1297,36 @@ def hours_detail(
     return clean({"rows": rows, "count": len(rows)})
 
 
+@app.get("/api/compare_trend")
+def compare_trend(kind: str, names: str,
+                  date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """Per-entity daily tracked-hours series for the trend overlay in the
+    multi-select comparison. kind = employee | team | department."""
+    members, g = load()
+    name_list = [n.strip() for n in names.split(",") if n.strip()]
+    setcol = {"team": "team_set", "department": "dept_set"}.get(kind)
+    all_dates: set = set()
+    raw = []
+    for nm in name_list:
+        if kind == "employee":
+            uids = set(members[members["name"] == nm]["user_id"])
+        elif setcol and setcol in members.columns:
+            uids = set(members[members[setcol].apply(lambda s: nm in (s or []))]["user_id"])
+        else:
+            uids = set()
+        d = g[g["user_id"].isin(uids)]
+        if date_from:
+            d = d[d["date_s"] >= date_from]
+        if date_to:
+            d = d[d["date_s"] <= date_to]
+        daily = d.groupby("date_s")["tracked_h"].sum() if not d.empty else pd.Series(dtype=float)
+        raw.append((nm, daily))
+        all_dates.update(daily.index)
+    dates = sorted(all_dates)
+    series = [{"name": nm, "values": [round(float(daily.get(dt, 0.0)), 1) for dt in dates]} for nm, daily in raw]
+    return clean({"dates": dates, "series": series})
+
+
 @app.get("/api/employee")
 def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
     members, g = load()

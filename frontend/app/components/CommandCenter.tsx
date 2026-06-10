@@ -9,8 +9,8 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, askAI, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, defaultRange,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
@@ -164,6 +164,19 @@ export default function CommandCenter({
   const [hoursData, setHoursData] = useState<HoursDetailData | null>(null);
   const [hoursSearch, setHoursSearch] = useState("");
   const [gradeModal, setGradeModal] = useState(false);
+  const [cmpTrend, setCmpTrend] = useState<CompareTrendData | null>(null);
+  useEffect(() => {
+    const sp = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
+    const emp = sp(draft.employee), team = sp(draft.atl), dept = sp(draft.department);
+    let kind = "", names: string[] = [];
+    if (emp.length >= 2) { kind = "employee"; names = emp; }
+    else if (team.length >= 2) { kind = "team"; names = team; }
+    else if (dept.length >= 2) { kind = "department"; names = dept; }
+    if (!kind) { setCmpTrend(null); return; }
+    let cancelled = false;
+    getCompareTrend(kind, names, draft).then((d) => { if (!cancelled) setCmpTrend(d); }).catch(() => { if (!cancelled) setCmpTrend(null); });
+    return () => { cancelled = true; };
+  }, [draft.employee, draft.atl, draft.department, draft.date_from, draft.date_to]);
   useEffect(() => {
     try {
       const r = localStorage.getItem("fin_role") as Role | null;
@@ -685,30 +698,36 @@ export default function CommandCenter({
                   );
                 })}
               </div>
-              {/* grouped bar chart — key % metrics side by side */}
-              <div className="cmp-chart">
-                <div className="cmp-legend">
-                  {compare.ents.map((e, i) => (
-                    <span className="cmp-lg" key={e.name + i}><i style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}</span>
-                  ))}
-                </div>
-                <div className="cmp-groups">
-                  {([["Utilization", "utilization"], ["Productivity", "productivity"], ["Activity", "activity"]] as const).map(([label, key]) => (
-                    <div className="cmp-group" key={key}>
-                      <div className="cmp-gbars">
-                        {compare.ents.map((e, i) => {
-                          const v = Number(e[key as keyof CmpEnt]);
-                          return (
-                            <div className="cmp-gbar" key={e.name + i} title={`${e.name} · ${label}: ${n1(v)}%`}>
-                              <span className="cmp-gval">{Math.round(v)}%</span>
-                              <span className="cmp-gfill" style={{ height: `${Math.min(Math.max(v, 0), 100)}%`, background: CMP_COLORS[i % CMP_COLORS.length] }} />
-                            </div>
-                          );
-                        })}
+              {/* grouped bars + radar — key metrics side by side */}
+              <div className="cmp-viz">
+                <div className="cmp-chart">
+                  <div className="cmp-legend">
+                    {compare.ents.map((e, i) => (
+                      <span className="cmp-lg" key={e.name + i}><i style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}</span>
+                    ))}
+                  </div>
+                  <div className="cmp-groups">
+                    {([["Utilization", "utilization"], ["Productivity", "productivity"], ["Activity", "activity"]] as const).map(([label, key]) => (
+                      <div className="cmp-group" key={key}>
+                        <div className="cmp-gbars">
+                          {compare.ents.map((e, i) => {
+                            const v = Number(e[key as keyof CmpEnt]);
+                            return (
+                              <div className="cmp-gbar" key={e.name + i} title={`${e.name} · ${label}: ${n1(v)}%`}>
+                                <span className="cmp-gval">{Math.round(v)}%</span>
+                                <span className="cmp-gfill" style={{ height: `${Math.min(Math.max(v, 0), 100)}%`, background: CMP_COLORS[i % CMP_COLORS.length] }} />
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="cmp-glabel">{label}</div>
                       </div>
-                      <div className="cmp-glabel">{label}</div>
-                    </div>
-                  ))}
+                    ))}
+                  </div>
+                </div>
+                <div className="cmp-radar">
+                  <div className="cmp-radar-h"><span>All metrics · radar</span><DownloadBtn name="comparison-radar" /></div>
+                  <RadarChart axes={["Utilization", "Activity", "Productivity", "Billable %"]} series={compare.ents.map((e, i) => ({ name: e.name, color: CMP_COLORS[i % CMP_COLORS.length], values: [e.utilization, e.activity, e.productivity, e.total ? (e.billable / e.total) * 100 : 0] }))} />
                 </div>
               </div>
               {/* metric comparison table */}
@@ -735,6 +754,12 @@ export default function CommandCenter({
                   </tbody>
                 </table>
               </div>
+              {cmpTrend && cmpTrend.dates.length > 1 && (
+                <div className="cmp-trend">
+                  <div className="cmp-radar-h"><span>Hours over time · trend</span><DownloadBtn name="comparison-trend" /></div>
+                  <TrendOverlay dates={cmpTrend.dates} series={cmpTrend.series.map((s, i) => ({ ...s, color: CMP_COLORS[i % CMP_COLORS.length] }))} />
+                </div>
+              )}
             </div>
           </>
         );
@@ -832,11 +857,11 @@ export default function CommandCenter({
         {showPeople ? (
           <div className="row2 hp-row">
             <div className="panel">
-              <div className="ph"><h3>Hours Trend <span className="hl">billable vs non-billable per day</span></h3></div>
+              <div className="ph"><h3>Hours Trend <span className="hl">billable vs non-billable per day</span></h3><DownloadBtn name="hours-trend" /></div>
               {data.hours_trend.length > 1 ? <HoursTrend data={data.hours_trend.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={250} /> : <div className="empty-s">Not enough data in range</div>}
             </div>
             <div className="panel">
-              <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3></div>
+              <div className="ph"><h3>Performance Matrix <span className="hl">utilization × productivity · bubble = billable hrs</span></h3><DownloadBtn name="performance-matrix" /></div>
               {bubble.length > 1 ? <Bubble points={bubble} height={250} /> : <div className="empty-s">Select a broader scope to compare people</div>}
             </div>
           </div>
@@ -1019,7 +1044,7 @@ export default function CommandCenter({
           ) : <div className="empty-s">No client data in scope</div>}
         </div>
         <div className="panel">
-          <div className="ph"><h3>Client Health <span className="hl">active · at-risk · inactive</span></h3></div>
+          <div className="ph"><h3>Client Health <span className="hl">active · at-risk · inactive</span></h3><DownloadBtn name="client-health" /></div>
           {chTotal > 0 ? (
             <div className="donut-wrap">
               <div style={{ width: 150 }}><Donut data={chData} colors={["#0f9043", "#bd8616", "#d23f43"]} height={180} center={{ value: String(chTotal), label: "Clients" }} /></div>
@@ -1611,6 +1636,82 @@ function MetricTrend({ points, color, unit = "%" }: { points: { date: string; va
         </div>
       )}
     </div>
+  );
+}
+
+function RadarChart({ axes, series, size = 280 }: { axes: string[]; series: { name: string; color: string; values: number[] }[]; size?: number }) {
+  const cx = size / 2, cy = size / 2, r = size / 2 - 46, n = axes.length;
+  const ang = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
+  const pt = (i: number, val: number) => { const a = ang(i), rr = r * Math.min(Math.max(val, 0), 100) / 100; return [cx + rr * Math.cos(a), cy + rr * Math.sin(a)]; };
+  const ap = (i: number, f = 1) => { const a = ang(i); return [cx + r * f * Math.cos(a), cy + r * f * Math.sin(a)]; };
+  return (
+    <svg viewBox={`0 0 ${size} ${size}`} className="radar">
+      {[0.25, 0.5, 0.75, 1].map((f) => <polygon key={f} points={axes.map((_, i) => ap(i, f).join(",")).join(" ")} fill="none" stroke="#e6e9f0" strokeWidth="1" />)}
+      {axes.map((ax, i) => { const [x, y] = ap(i); const [lx, ly] = ap(i, 1.18); return (<g key={ax}><line x1={cx} y1={cy} x2={x} y2={y} stroke="#e6e9f0" /><text x={lx} y={ly} className="radar-lbl" textAnchor="middle" dominantBaseline="middle">{ax}</text></g>); })}
+      {series.map((s) => { const pts = s.values.map((v, i) => pt(i, v).join(",")).join(" "); return (<g key={s.name}><polygon points={pts} fill={s.color} fillOpacity="0.12" stroke={s.color} strokeWidth="2" strokeLinejoin="round" />{s.values.map((v, i) => { const [px, py] = pt(i, v); return <circle key={i} cx={px} cy={py} r="3" fill="#fff" stroke={s.color} strokeWidth="1.6" />; })}</g>); })}
+    </svg>
+  );
+}
+
+function TrendOverlay({ dates, series, height = 230 }: { dates: string[]; series: { name: string; color: string; values: number[] }[]; height?: number }) {
+  const [hi, setHi] = useState<number | null>(null);
+  if (!dates.length || !series.length) return null;
+  const w = 720, h = height, padL = 8, padR = 8, padT = 12, padB = 20;
+  const n = dates.length;
+  const maxV = Math.max(1, ...series.flatMap((s) => s.values));
+  const X = (i: number) => padL + (n <= 1 ? (w - padL - padR) / 2 : (i / (n - 1)) * (w - padL - padR));
+  const Y = (v: number) => padT + (1 - v / maxV) * (h - padT - padB);
+  const seg = (w - padL - padR) / Math.max(1, n - 1);
+  const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const fmt = (s: string) => { const [, m, d] = s.split("-"); return `${d} ${MON[Number(m) - 1]}`; };
+  return (
+    <div className="ovl-box" onMouseLeave={() => setHi(null)}>
+      <svg viewBox={`0 0 ${w} ${h}`} className="ovl">
+        {[0, 0.5, 1].map((f) => <line key={f} x1={padL} x2={w - padR} y1={padT + f * (h - padT - padB)} y2={padT + f * (h - padT - padB)} stroke="#eef1f6" strokeWidth="1" />)}
+        {series.map((s) => <path key={s.name} d={`M${s.values.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" L")}`} fill="none" stroke={s.color} strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" />)}
+        {hi != null && <line x1={X(hi)} x2={X(hi)} y1={padT} y2={h - padB} stroke="#9aa3b2" strokeWidth="1" strokeDasharray="3 3" />}
+        {hi != null && series.map((s) => <circle key={s.name} cx={X(hi)} cy={Y(s.values[hi])} r="3.6" fill={s.color} stroke="#fff" strokeWidth="1.6" />)}
+        {dates.map((_, i) => <rect key={i} x={X(i) - seg / 2} y="0" width={Math.max(seg, 2)} height={h} fill="transparent" onMouseEnter={() => setHi(i)} />)}
+      </svg>
+      {hi != null && (
+        <div className="ovl-tip" style={{ left: `${(X(hi) / w) * 100}%` }}>
+          <span className="ovl-d">{fmt(dates[hi])}</span>
+          {series.map((s) => <span key={s.name} className="ovl-r"><i style={{ background: s.color }} />{s.name.length > 16 ? s.name.slice(0, 16) + "…" : s.name}<b>{n1(s.values[hi])}h</b></span>)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function downloadSvgAsPng(svg: SVGElement, filename: string) {
+  const rect = svg.getBoundingClientRect();
+  const w = Math.round(rect.width) || 640, h = Math.round(rect.height) || 400;
+  const clone = svg.cloneNode(true) as SVGElement;
+  clone.setAttribute("width", String(w)); clone.setAttribute("height", String(h));
+  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+  const data = new XMLSerializer().serializeToString(clone);
+  const url = URL.createObjectURL(new Blob([data], { type: "image/svg+xml;charset=utf-8" }));
+  const img = new Image();
+  img.onload = () => {
+    const s = 2, canvas = document.createElement("canvas");
+    canvas.width = w * s; canvas.height = h * s;
+    const ctx = canvas.getContext("2d")!;
+    ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.scale(s, s);
+    ctx.drawImage(img, 0, 0, w, h); URL.revokeObjectURL(url);
+    canvas.toBlob((blob) => { if (!blob) return; const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename + ".png"; a.click(); URL.revokeObjectURL(a.href); });
+  };
+  img.src = url;
+}
+
+function DownloadBtn({ name }: { name: string }) {
+  return (
+    <button type="button" className="dl-btn" title="Download chart (PNG)" onClick={(e) => {
+      const wrap = e.currentTarget.closest(".cmp-radar, .cmp-trend, .panel");
+      const svg = wrap ? [...wrap.querySelectorAll("svg")].find((s) => !s.classList.contains("lucide")) : null;
+      if (svg) downloadSvgAsPng(svg as SVGElement, name);
+    }}>
+      <Download size={13} />
+    </button>
   );
 }
 
