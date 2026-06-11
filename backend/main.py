@@ -463,36 +463,27 @@ def load_from_db():
     g["client"] = g["client_raw"].fillna("(no client)").replace("", "(no client)")
     g["client_type"] = g["client"].map(client_kind)
 
-    # Department / Team from the HR org structure (employee_mapping table) instead of
-    # ClickUp spaces — so the dashboard shows the real 7 departments / 17 teams.
-    # Client stays per-activity (real). Falls back to ClickUp attribution if the
-    # mapping table is missing.
+    # From the HR mapping we take ONLY the employee's STATUS (Active/Left/External)
+    # and their display NAME. Department/Team stay PER-ACTIVITY (where the work was
+    # actually logged) — so an employee working on another team's task/project shows
+    # up under THAT team for that period, not just their home team.
     hr_status_map, hr_name_map = {}, {}
     try:
-        hm = db.q("SELECT hubstaff_user_id uid, hr_full_name, department, team, status FROM employee_mapping "
+        hm = db.q("SELECT hubstaff_user_id uid, hr_full_name, status FROM employee_mapping "
                   "WHERE coalesce(hubstaff_user_id,'')<>''")
+
         def _cl(v):
             s = str(v).strip()
             return "" if s.lower() in ("nan", "none", "") else s
-        hr_dept, hr_team = {}, {}
+
         for _, r in hm.iterrows():
-            uid = str(r["uid"]); stt = (r["status"] or "UNKNOWN")
-            hr_status_map[uid] = stt
-            dp, tm = _cl(r["department"]), _cl(r["team"])
-            # display name: use the real HR name when present (skip junk / "(client…)")
+            uid = str(r["uid"])
+            hr_status_map[uid] = (r["status"] or "UNKNOWN")
             nm = _cl(r["hr_full_name"])
             if nm and "client" not in nm.lower() and "not staff" not in nm.lower():
                 hr_name_map[uid] = nm
-            if stt == "EXTERNAL":
-                hr_dept[uid] = "US"; hr_team[uid] = "US Team"
-            elif dp:
-                hr_dept[uid] = dp
-                hr_team[uid] = tm if tm else dp
-        if hr_dept:
-            g["department"] = g["user_id"].map(lambda u: hr_dept.get(u, "Unassigned"))
-            g["atl"] = g["user_id"].map(lambda u: hr_team.get(u, "Unassigned"))
     except Exception as _e:  # noqa
-        print("HR mapping override skipped:", str(_e)[:120])
+        print("HR mapping (status/name) skipped:", str(_e)[:120])
 
     # Billable vs Non-Billable straight from the NB task marker on the Hubstaff
     # task (activities.task_id -> hubstaff_tasks.summary, computed as nb_sec in the
