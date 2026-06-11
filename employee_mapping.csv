@@ -1,0 +1,231 @@
+﻿hubstaff_name,hubstaff_user_id,hr_employee_no,hr_full_name,status,department,team,job_title,reporting_to,exit_date,confidence,total_hours,last_worked
+Jai Prakash,767554,F-20/008,Jai Prakash Rajat,ACTIVE,Operations,Falcons,Assistant Manager,Akash Saxena,,name-diff,7600.4,2026-06-10
+Akash Saxena,343542,F-20/004,Akash Saxena,ACTIVE,Operations,Manager's,Manager,Praduman Kumar Singh,,exact,7022.7,2026-06-10
+Sohan Singh,985186,F-20/013,Sohan Singh,ACTIVE,Operations,Titans,Assistant Team Lead,Gopi Kumar,,exact,6881.1,2026-06-10
+Prince Dugar,904388,F-20/011,Prince Dugar,ACTIVE,Operations,Mavericks,Assistant Team Lead,Nitika Suri,,exact,6879.2,2026-06-10
+Nitika Suri,755491,F-20/007,Nitika Suri,ACTIVE,Operations,Mavericks,Assistant Manager,Akash Saxena,,exact,6366.0,2026-06-10
+Brij Sen Shaw,366801,F-22/056,Brij Sen Shaw,ACTIVE,Operations,Bravix,Team Lead,Nisha Gupta,,exact,6331.1,2026-06-10
+Kanta Parsad,1502046,F-22/065,Kanta Prasad,ACTIVE,Operations,Titans,Sr. Financial Analyst,Gopi Kumar,,name-diff,6324.6,2026-06-10
+Anil Gupta,1905348,F-22/062,Anil Gupta,ACTIVE,Operations,Syndicates,Assistant Team Lead,Sogan Prasad,,exact,6239.2,2026-06-10
+Nitendar Kumar,929085,F-20/012,Nitendar Kumar,ACTIVE,Operations,Synergy,Team Lead,Amit Goyal,,exact,6127.9,2026-06-10
+amit goyal,769920,F-20/009,Amit Goyal,ACTIVE,Operations,Synergy,Assistant Manager,Mr. Nitish,,exact,6008.6,2026-06-10
+Vipin Kumar,1912645,F-22/063,Vipin Kumar,ACTIVE,Operations,Alliance,Team Lead,Ashish Tyagi,,exact,6004.9,2026-06-10
+Narinder Bhakuni,1926730,F-22/064,Narinder Bhakuni,ACTIVE,Operations,Bravix,Sr. Financial Analyst,Brij Sen Shaw,,exact,5546.7,2026-06-10
+Atul,337503,,,UNKNOWN,,,,,,none,5503.7,2026-06-10
+Abhishek Rai,2247802,F-22/116,Abhishek Rai,ACTIVE,Operations,Synergy,Assistant Team Lead,Amit Goyal,,exact,5486.5,2026-06-10
+Sogan Prasad,1408745,F-21/024,Sogan Prasad,ACTIVE,Operations,Syndicates,Assistant Manager,Mr. Nitish,,exact,5469.1,2026-06-10
+Manish Adhikari,1649310,F-21/033,Manish Singh Adhikari,ACTIVE,Audit & CFOs,Audit & CFOs,Team Lead,Mr. Mohit,,name-diff,5431.9,2026-06-10
+Jyoti,2221715,,,UNKNOWN,,,,,,none,5416.8,2026-04-17
+Anjali,1874776,,,UNKNOWN,,,,,,none,5329.3,2025-11-10
+Sonu Kumar Mandal,2325839,F-22/125,Sonu Kumar Mandal,ACTIVE,Operations,Alliance,Sr. Financial Analyst,Vipin Kumar,,exact,5203.1,2026-06-10
+PRABHA KUMARI,2259849,F-22/110,Prabha Kumari,ACTIVE,Operations,Bravix,Sr. Financial Analyst,Brij Sen Shaw,,exact,5060.6,2026-06-10
+Ajay Kumar,2259856,F-22/111,Ajay Kumar,ACTIVE,Operations,Bravix,Assistant Team Lead,Brij Sen Shaw,,exact,5012.2,2026-06-10
+Alok kumar,2288156,F-22/114,Alok Kumar,ACTIVE,Operations,Syndicates,Sr. Financial Analyst,Sogan Prasad,,exact,4996.1,2026-06-10
+Yudhveer Singh,2644300,F-22/143,Yudhveer Singh,ACTIVE,Operations,Syndicates,Sr. Financial Analyst,Sogan Prasad,,exact,4514.5,2026-06-10
+garimajoshi,2325629,,,UNKNOWN,,,,,,none,4314.0,2026-06-10
+bhupesh chand,2310150,F-22/120,Bhupesh Chand,ACTIVE,Operations,Bravix,Sr. Financial Analyst,Brij Sen Shaw,,exact,4214.3,2026-06-10
+Priya Tiwari,2574898,F-22/134,PRIYA TIWARI,ACTIVE,Operations,Syndicates,Sr. Financial Analyst,Sogan Prasad,,exact,4205.7,2026-06-10
+Praduman Singh,2025085,F-20/003,Praduman Kumar Singh,ACTIVE,Operations,Manager's,Operations Manager,Gaurav Jain,,name-diff,4142.4,2025-05-14
+Manya Mittal,2598795,F-22/136,MANYA MITTAL,ACTIVE,Operations,Bravix,Sr. Financial Analyst,Brij Sen Shaw,,exact,4001.6,2026-06-10
+Nitish,564627,,,UNKNOWN,,,,,,none,3957.6,2026-06-05
+Aryan Abhishek,2476090,F-22/130,Aryan Abhishek,ACTIVE,Marketing,Marketing,Sr. SEO Executive,Aashmit Gupta,,exact,3771.4,2026-06-10
+RAHUL GUPTA,1706573,F-22/038,Rahul Gupta,RELIEVED,Operations,Alliance,Sr. Financial Analyst,,2025-01-31,exact,3585.9,2025-01-31
+Diksha sati,1705981,,,UNKNOWN,,,,,,none,3489.6,2024-11-01
+kanika gogia,2326786,F-22/124,Kanika Gogia,RELIEVED,Operations,Synergy,Sr. Financial Analyst,,2025-12-12,exact,3396.3,2025-12-11
+Aditi singh,2218851,F-22/094,Aditi Singh,RELIEVED,Operations,Falcons,Sr. Financial Analyst,,2025-04-25,exact,3362.5,2025-04-25
+Jyoti Khandelwal,2251072,F-22/108,Jyoti khandelwal,RELIEVED,Operations,Syndicates,Financial Analyst,,2025-05-09,exact,3302.3,2025-05-09
+Rohit Bhandari,2535014,F-22/131,Rohit Bhandari,RELIEVED,Operations,Falcons,Financial Analyst,,2025-11-21,exact,3283.0,2025-11-21
+Muskan Sachdeva,2697466,F-22/148,Muskan Sachdeva,ACTIVE,Audit & CFOs,Audit & CFOs,Financial Analyst,Manish Singh Adhikari,,exact,3266.4,2026-06-10
+Upesh Tuteja,1666210,,,UNKNOWN,,,,,,none,3226.9,2024-11-25
+ankitrawat,2325505,F-22/121,Ankit Rawat,RELIEVED,Operations,Syndicates,Financial Analyst,,2025-09-25,exact,3166.3,2025-09-25
+Vishal Panchal,2891282,F-24/156,VISHAL PANCHAL,ACTIVE,Operations,Syndicates,Financial Analyst,Sogan Prasad,,exact,3106.0,2026-06-10
+Nidhi,1965023,,,UNKNOWN,,,,,,none,3100.6,2024-10-16
+Deepanshu,2218268,,,UNKNOWN,,,,,,none,3089.0,2025-03-07
+Durgesh Gupta,2063187,F-22/080,Durgesh Gupta,RELIEVED,Operations,Alliance,Financial Analyst,,2025-04-28,exact,3052.8,2025-04-28
+Sumit Chandrawal,2413270,F-22/132,Sumit Chandrawal,ACTIVE,Marketing,Marketing,Graphic Designer,Aashmit Gupta,,exact,3010.2,2026-06-10
+Vinay Yadav,2877461,F-24/155,Vinay Yadav,ACTIVE,Operations,Titans,Sr. Financial Analyst,Gopi Kumar,,exact,3004.9,2026-06-10
+Abhishek Kumar Maurya,2289434,F-22/115,Abhishek Kumar Maurya,RELIEVED,Operations,Synergy,Financial Analyst,,2025-03-21,exact,2817.0,2025-03-21
+Ishika Raj,3074245,F-25/167,Ishika Raj,ACTIVE,Taxes & Compliances,Taxes & Compliances,Tax Associate,Mr. Atul,,exact,2657.5,2026-06-10
+Gopi kumar,3026415,F-24/164,Gopi Kumar,ACTIVE,Operations,Titans,Team Lead,Ashish Tyagi,,exact,2560.1,2026-06-10
+Nikhil Khanna,1596360,,,UNKNOWN,,,,,,none,2547.2,2024-06-03
+Asim Aijaz,3130451,F-25/177,Asim Aijaz,ACTIVE,Operations,Synergy,Financial Analyst,Nitendar Kumar,,exact,2509.2,2026-06-10
+yash kumar verma,2250976,,,UNKNOWN,,,,,,none,2499.0,2025-02-11
+Mohit ..,582723,,,UNKNOWN,,,,,,none,2490.8,2026-06-10
+Muskan Qureshi,3106015,F-25/175,Muskan Qureshi,ACTIVE,Operations,Synergy,Financial Analyst,Nitendar Kumar,,exact,2429.2,2026-06-10
+Ravi Bisht,1484201,,,UNKNOWN,,,,,,none,2396.3,2024-07-04
+Aashima Jain,3074237,F-25/168,Aashima Jain,ACTIVE,Operations,Alliance,Sr. Financial Analyst,Vipin Kumar,,exact,2345.5,2026-06-09
+Aman Kumar,3090503,,,UNKNOWN,,,,,,none,2344.6,2026-06-10
+Divya Tyagi,3032144,F-24/165,Divya Tyagi,ACTIVE,Operations,Syndicates,Financial Analyst,Sogan Prasad,,exact,2321.2,2026-06-10
+Radha Mishra,2693265,F-22/146,Radha Mishra,RELIEVED,Operations,Mavericks,Financial Analyst,,2025-10-09,exact,2200.9,2025-10-09
+Sushil Chauhan,2574962,F-22/133,Sushil Chauhan,ACTIVE,HR,HR,HR Executive,Arham Hasan Rizvi,,exact,2181.1,2026-06-08
+Insaramul Siddiqi,3188759,F-25/181,Insaramul Haq Siddiqi,ACTIVE,Operations,Synergy,Financial Analyst,Nitendar Kumar,,name-diff,2156.0,2026-06-02
+Bhavya Kaushik,2712832,F-24/151,Bhavya Kaushik,RELIEVED,Operations,Mavericks,Financial Analyst,,2025-09-24,exact,2124.5,2025-09-24
+SACHIN SHARMA,2728133,F-24/153,Sachin Sharma,RELIEVED,Operations,Falcons,Sr. Financial Analyst,,2025-11-25,exact,2117.7,2025-11-25
+Aditya Narain Rai,2614615,F-22/138,Aditya Narain Rai,RELIEVED,Operations,Mavericks,Financial Analyst,,2025-05-30,exact,2094.2,2025-05-30
+RAGHAV MITTAL,3090449,F-25/173,Raghav Mittal,RELIEVED,Operations,Synergy,Financial Analyst,,2026-04-24,exact,1998.9,2026-04-22
+Abhishek Pandey,3249624,F-25/187,Abhishek Kumar Pandey,ACTIVE,Operations,Mavericks,Assistant Team Lead,Nitika Suri,,name-diff,1948.9,2026-06-10
+Parul Mahajan,3306416,F-25/191,Parul Mahajan,ACTIVE,Taxes & Compliances,Taxes & Compliances,Tax Associate,Mr. Atul,,exact,1865.6,2026-06-10
+Sakshi Malviya,2692309,F-22/147,Sakshi Malviya,ACTIVE,HR,HR,HR-Lead,Arham Hasan Rizvi,,exact,1854.5,2026-06-04
+rajesh singh,2100867,,,UNKNOWN,,,,,,none,1812.6,2024-09-16
+Harsh Soni,3005738,F-24/162,Harsh Soni,RELIEVED,Operations,Falcons,Financial Analyst,,2026-01-20,exact,1809.6,2026-01-16
+Sushil Kumar Prasad,3165500,F-25/178,Sushil Kumar Prasad,ACTIVE,Operations,Falcons,Financial Analyst,Jai Prakash Rajat,,exact,1775.8,2026-06-10
+UTKARSH RAJ,3221493,F-25/184,Utkarsh Raj,ACTIVE,Operations,Falcons,Financial Analyst,Jai Prakash Rajat,,exact,1743.4,2026-06-10
+Keshav Kumar,1030341,,,UNKNOWN,,,,,,none,1737.4,2023-10-25
+Muskan Jain,2166517,,,UNKNOWN,,,,,,none,1687.8,2024-05-10
+Harshit Singh,3467816,F-25/200,Harshit Singh,ACTIVE,Operations,Syndicates,Team Lead,Akash Saxena,,exact,1672.7,2026-06-10
+Anurag,2160103,,,UNKNOWN,,,,,,none,1652.4,2024-05-24
+Nikhilesh Joshi,1965121,,,UNKNOWN,,,,,,none,1651.4,2024-05-22
+Tanmay Pawar,2712812,F-24/150,Tanmay Pawar,RELIEVED,Operations,Syndicates,Financial Analyst,,2025-06-25,exact,1645.5,2025-06-25
+Susan Chalker,2973614,,(client / not staff),EXTERNAL,,,,,,external,1634.7,2025-11-21
+shweta mishra,2341437,,,UNKNOWN,,,,,,none,1582.0,2024-11-22
+Jatin Vig,3290637,F-25/189,Jatin Vig,ACTIVE,Operations,Mavericks,Financial Analyst,Nitika Suri,,exact,1575.2,2026-06-10
+Muskaan Handa,1999567,,,UNKNOWN,,,,,,none,1552.6,2024-02-05
+Allison Rinehimer,3128267,,(client / not staff),EXTERNAL,,,,,,external,1528.5,2026-06-10
+Pooja Pihwaal,3208248,,,UNKNOWN,,,,,,none,1514.5,2026-03-24
+Supriya Khitha,3370333,,,UNKNOWN,,,,,,none,1499.2,2026-06-10
+Carizza Bernardo,3357635,,(client / not staff),EXTERNAL,,,,,,external,1477.1,2026-06-09
+Sumit Singh,2013703,,,UNKNOWN,,,,,,none,1440.9,2024-01-25
+ANIL,2246775,,,UNKNOWN,,,,,,none,1418.7,2025-08-01
+Narayan Nahak,3090504,F-25/172,Narayan Nahak,RELIEVED,Operations,Syndicates,Financial Analyst,,2025-12-29,exact,1402.2,2025-12-29
+Vishesh Kansal,2054021,,,UNKNOWN,,,,,,none,1381.0,2024-02-16
+Aanam Bansal,3370692,F-25/197,Aanam Bansal,ACTIVE,Operations,Mavericks,Financial Analyst,Nitika Suri,,exact,1345.4,2026-06-10
+kishan Kumar,1320562,F-25/166,Krishna Kumar,RELIEVED,Operations,Operations,Team Leader,,2025-03-25,name-diff,1332.1,2023-11-24
+Tarun Dixit,3086109,F-25/169,Tarun Dixit,RELIEVED,Marketing,Marketing,Sr. Digital Marketing Executive,,2026-05-06,exact,1325.6,2026-05-04
+Ankush,2160097,,,UNKNOWN,,,,,,none,1256.8,2024-04-19
+Ritika Garg,3013085,F-24/161,Ritika Garg,RELIEVED,Operations,Synergy,Sr. Financial Analyst,,2025-10-08,exact,1255.1,2025-10-08
+Anchal Sharma,1967552,,,UNKNOWN,,,,,,none,1252.4,2023-10-25
+Sakshi Mittal,3519230,F-25/204,Sakshi Mittal,ACTIVE,Marketing,Marketing,SEO Executive,Aashmit Gupta,,exact,1170.7,2026-06-10
+Shikha Pandey,3526573,F-25/205,Shikha Pandey,ACTIVE,Operations,Syndicates,Financial Analyst,Sogan Prasad,,exact,1156.7,2026-06-10
+Gaurav Jain,243684,,,UNKNOWN,,,,,,none,1137.5,2026-06-10
+Kiran Pundir,3616021,F-25/219,Kiran Pundir,ACTIVE,Operations,Bravix,Sr. Financial Analyst,Brij Sen Shaw,,exact,1122.2,2026-06-10
+Rishabh Gupta,3587968,F-25/210,Rishabh Gupta,ACTIVE,Operations,Syndicates,Sr. Financial Analyst,Harshit Singh,,exact,1098.9,2026-06-10
+Nayan Jain,3637027,F-25/220,Nayan Jain,ACTIVE,Operations,Alliance,Financial Analyst,Vipin Kumar,,exact,969.7,2026-06-10
+nikhil kashyap,3614158,F-25/217,Nikhil Kashyap,ACTIVE,Operations,Mavericks,Financial Analyst,Nitika Suri,,exact,966.0,2026-06-10
+Dinesh Kumar,3540648,F-25/207,Dinesh Kumar,ACTIVE,Operations,Falcons,Assistant Team Lead,Jai Prakash Rajat,,exact,947.0,2026-06-10
+Mukesh kumar Jha,1522888,,,UNKNOWN,,,,,,none,944.8,2023-08-19
+Disha Maini,3614180,F-25/218,Disha Maini,ACTIVE,Marketing,Marketing,Content Writer,Aashmit Gupta,,exact,941.9,2026-06-09
+Prashant Gupta,3696790,F-25/223,Prashant Gupta,ACTIVE,Operations,Syndicates,Financial Analyst,Sogan Prasad,,exact,921.6,2026-06-10
+Bina Bhagat,2902958,F-24/ 157,Bina Bhagat,RELIEVED,Operations,Synergy,Assistant Team Lead,,2025-05-06,exact,919.6,2025-05-06
+Abhishek Pillai,3768312,F-25/224,Abhishek Pillai,ACTIVE,Operations,Synergy,Sr. Financial Analyst,Amit Goyal,,exact,910.8,2026-06-09
+Arham Rizvi,2847011,F-24/154,Arham Hasan Rizvi,ACTIVE,HR,HR,HR Manager,Praduman Kumar Singh,,name-diff,908.1,2026-06-01
+Yash Jain,3241350,F-25/186,Yash Jain,RELIEVED,Operations,Synergy,Sr. Financial Analyst,,2025-12-10,exact,872.4,2025-12-10
+Deepansu kaundal,2644297,,,UNKNOWN,,,,,,none,850.0,2024-09-27
+Michael Hardyman,3333676,,(client / not staff),EXTERNAL,,,,,,external,833.7,2025-12-08
+Himshikha Sinha,3583454,F-25/211,Himshikha Sinha,ACTIVE,Operations,Falcons,Assistant Team Lead,Jai Prakash Rajat,,exact,831.0,2026-06-10
+Tanisha Garg,2693257,,,UNKNOWN,,,,,,none,792.4,2024-12-06
+Matthew Hidalgo,3615097,,(client / not staff),EXTERNAL,,,,,,external,777.9,2026-06-10
+SAURAV KUMAR,3932552,F-26/272,Saurav Kumar,ACTIVE,Accounts,Accounts,Accountant,Mr. Atul,,exact,773.4,2026-06-10
+Tanya jatav,2375192,,,UNKNOWN,,,,,,none,759.7,2024-05-30
+Roshan Sharma,3667792,F-25/221,Roshan Sharma,ACTIVE,Operations,Titans,Sr. Financial Analyst,Gopi Kumar,,exact,757.9,2026-06-10
+Nicholas Short,3341186,,(client / not staff),EXTERNAL,,,,,,external,738.9,2026-02-02
+Umesh Pal,3086302,F-25/170,Umesh Pal,RELIEVED,Operations,Mavericks,Financial Analyst,,2025-07-18,exact,730.3,2025-07-18
+Rohan Chauhan,3857261,F-26/229,Rohan Chauhan,ACTIVE,Operations,Synergy,Assistant Team Lead,Nitendar Kumar,,exact,720.2,2026-06-10
+Akansha Gupta,3825526,F-25/228,Akansha Gupta,ACTIVE,Operations,Falcons,Sr. Financial Analyst,Jai Prakash Rajat,,exact,691.3,2026-06-10
+Nisha Gupta,3854470,F-26/230,Nisha Gupta,ACTIVE,Operations,Bravix,Assistant Manager,Mr. Nitish,,exact,657.7,2026-06-10
+Ujjwal Kumar Das,3788663,F-25/226,Ujjwal Kumar Das,ACTIVE,Operations,Falcons,Financial Analyst,Jai Prakash Rajat,,exact,656.5,2026-06-10
+Gaurav Gupta,3929407,F-26/271,Gaurav Gupta,ACTIVE,Operations,Mavericks,Assistant Team Lead,Nitika Suri,,exact,628.9,2026-06-10
+sneha kashyap,3696873,F-25/222,Sneha Kashyap,ACTIVE,Operations,Falcons,Financial Analyst,Jai Prakash Rajat,,exact,625.7,2026-06-10
+Preeti Gupta,3788591,F-25/225,Preeti Gupta,ACTIVE,Operations,Falcons,Assistant Team Lead,Jai Prakash Rajat,,exact,624.3,2026-06-10
+Prince,2587197,,,UNKNOWN,,,,,,none,616.5,2024-08-06
+sanjay kumar,2160098,F-22/111,Ajay Kumar,ACTIVE,Operations,Bravix,Assistant Team Lead,Brij Sen Shaw,,name-diff,557.6,2023-09-16
+Swadhin Patra,4027313,F-26/247,Swadhin Patra,ACTIVE,Operations,Synergy,Assistant Team Lead,Amit Goyal,,exact,556.7,2026-06-10
+Ravi Kumar,3221491,F-25/185,Ravi Kumar,RELIEVED,Operations,Falcons,Sr. Financial Analyst,,2025-08-25,exact,546.6,2025-08-25
+Mukul kumar sharma,2230699,,,UNKNOWN,,,,,,none,544.4,2023-12-02
+Pankaj Kumar dev,3513061,F-25/203,Pankaj Kumar Dev,ACTIVE,Operations,Operation Lead,Operation Lead,Mr. Nitish,,exact,541.0,2026-06-06
+Durganand Jha,1805423,,,UNKNOWN,,,,,,none,528.9,2023-06-05
+Neil Maslansky,3546525,,(client / not staff),EXTERNAL,,,,,,external,528.1,2026-06-10
+Isha Goyal,2054019,,,UNKNOWN,,,,,,none,510.1,2023-04-01
+Shalini Tiwari,3370335,F-25/195,Shalini Tiwari,RELIEVED,Operations,Mavericks,Financial Analyst,,2025-11-14,exact,496.7,2025-11-14
+Carrie Bowman,2907054,,(client / not staff),EXTERNAL,,,,,,external,492.7,2025-02-01
+Sheena Ratliff,2694810,,(client / not staff),EXTERNAL,,,,,,external,480.9,2024-10-18
+Jyoti Jena,4048451,F-26/275,Jyoti Jena,ACTIVE,Operations,Synergy,Sr. Financial Analyst,Amit Goyal,,exact,442.5,2026-06-10
+Krishna Kumar,3039754,F-25/166,Krishna Kumar,RELIEVED,Operations,Operations,Team Leader,,2025-03-25,exact,428.4,2025-03-25
+Akshita Srivastava,1606203,,,UNKNOWN,,,,,,none,415.0,2024-06-05
+Tulsi Rastogi,3319881,F-25/192,Tulsi Rastogi,RELIEVED,Operations,Bravix,Financial Analyst,,2025-10-01,exact,402.3,2025-10-01
+Sujash Tiwari,2608312,,,UNKNOWN,,,,,,none,377.1,2024-07-08
+Raghav Kaushik,3249626,F-25/188,Raghav Kaushik,RELIEVED,Operations,Syndicates,Assistant Team Lead,,2025-08-04,exact,352.1,2025-08-04
+Sneha Basu,2666990,,,UNKNOWN,,,,,,none,351.4,2024-07-30
+parmitasrivastava,2384034,,,UNKNOWN,,,,,,none,349.2,2024-03-27
+Manish Bhardwaj,1118549,,,UNKNOWN,,,,,,none,348.5,2023-03-15
+Hirdesh Trivedi,3615945,F-25/216,Hirdesh Trivedi,RELIEVED,Operations,Synergy,Financial Analyst,,2026-01-20,exact,346.3,2026-01-20
+shrishti bhatnagar,3128041,F-25/176,Shrishti Bhatnagar,RELIEVED,Operations,Mavericks,Financial Analyst,,2025-05-03,exact,324.4,2025-05-03
+Tommy McDonald,3247521,,(client / not staff),EXTERNAL,,,,,,external,324.2,2025-10-16
+Shivani Adhikari,4099493,F-26/288,Shivani Adhikari,ACTIVE,Operations,Synergy,Assistant Team Lead,Nitendar Kumar,,exact,321.9,2026-06-10
+Deeksha Bhalla,2704413,,,UNKNOWN,,,,,,none,310.2,2024-09-10
+Himani Kumari,3876809,F-26/231,Himani Kumari,RELIEVED,Operations,Mavericks,Sr. Financial Analyst,,2026-03-31,exact,307.6,2026-03-31
+Aashmit gupta,2156502,F-22/076,Aashmit Gupta,ACTIVE,Marketing,Marketing,Digital Marketing Manager,Gaurav Jain,,exact,301.6,2026-05-18
+Bryan Hart,2987631,,(client / not staff),EXTERNAL,,,,,,external,299.7,2025-01-31
+Amod Kumar,1815190,,,UNKNOWN,,,,,,none,296.4,2023-03-09
+Kari Bolton,3604737,,(client / not staff),EXTERNAL,,,,,,external,295.5,2025-12-12
+Ankush Tomar,3333262,F-25/193,Ankush Tomer,RELIEVED,Operations,Alliance,Financial Analyst,,2025-09-05,name-diff,294.0,2025-09-05
+Sumesh Mishra,4155054,F-26/289,Sumesh Mishra,ACTIVE,Operations,Syndicates,Sr. Financial Analyst,Sogan Prasad,,exact,286.1,2026-06-10
+Ravi Joshi,3599066,F-25/214,Ravi Joshi,RELIEVED,Operations,Synergy,Assistant Team Lead,,2025-12-30,exact,273.5,2025-12-30
+Shivani Bhandari,3025023,F-24/163,Shivani Bhandari,RELIEVED,Marketing,Marketing,Content Strategist,,2025-02-17,exact,270.6,2025-02-17
+Nikhil Solanki,2149049,,,UNKNOWN,,,,,,none,257.2,2023-08-29
+Tushar Tyagi,4048284,F-26/273,Tushar Tyagi,RELIEVED,Operations,Operations,AI Automation Expert,,2026-05-19,exact,247.9,2026-05-12
+Abhishek Sharma,4179587,F-26/290,Abhishek Sharma,ACTIVE,Operations,Syndicates,Assistant Team Lead,Sogan Prasad,,exact,245.3,2026-06-10
+bhawnasehg,2434809,,,UNKNOWN,,,,,,none,222.5,2024-02-07
+Aarti Bisht,1522887,,,UNKNOWN,,,,,,none,215.7,2023-03-04
+Dilranjan Kumar,4245095,F-26/294,Dilranjan Kumar,ACTIVE,Operations,AI Automation Expert,AI Automation Expert,Mr. Mohit,,exact,208.9,2026-06-10
+Marvin Esquivel,2620086,,(client / not staff),EXTERNAL,,,,,,external,194.3,2024-05-31
+Manish Giri,4224458,F-26/291,Manish Giri,ACTIVE,Operations,Synergy,Team Lead,Amit Goyal,,exact,178.7,2026-06-10
+MARK DI ZAZZO,3634753,,(client / not staff),EXTERNAL,,,,,,external,175.5,2026-01-14
+Ragini Rathore,1800279,,,UNKNOWN,,,,,,none,166.3,2023-02-02
+Nikita Mishra,3526557,F-25/206,Nikita Mishra,RELIEVED,Operations,Synergy,Sr. Financial Analyst,,2025-11-04,exact,163.2,2025-11-04
+Barkha Dhawan,4237710,F-26/292,Barkha Dhawan,ACTIVE,Operations,Mavericks,Team Lead,Nitika Suri,,exact,157.5,2026-06-10
+Daniel Gregory,3939015,,(client / not staff),EXTERNAL,,,,,,external,152.3,2026-03-06
+Ashish Tyagi,3806024,F-25/227,Ashish Tyagi,ACTIVE,Operations,Alliance,Manager,Praduman Kumar Singh,,exact,146.5,2026-06-09
+Rachel Galliano,3273113,,(client / not staff),EXTERNAL,,,,,,external,133.9,2025-08-08
+Pooja Verma,2227840,,,UNKNOWN,,,,,,none,113.4,2023-07-26
+harsh upadhyay,2984123,,,UNKNOWN,,,,,,none,109.8,2024-11-27
+Jim Kauderer,3546028,,(client / not staff),EXTERNAL,,,,,,external,107.9,2025-12-12
+Sumit Kumar Singh,2983954,F-20/003,Praduman Kumar Singh,ACTIVE,Operations,Manager's,Operations Manager,Gaurav Jain,,name-diff,104.2,2024-12-05
+Mayur Gupta,4245074,F-26/293,Mayur Gupta,ACTIVE,Operations,Syndicates,Assistant Team Lead,Sogan Prasad,,exact,97.8,2026-06-10
+Daniel Ledbetter,4268275,,(client / not staff),EXTERNAL,,,,,,external,89.9,2026-06-10
+rishabh jindal,3502454,F-25/201,Rishabh Jindal,RELIEVED,Marketing,Marketing,Content Writer,,2025-10-13,exact,88.3,2025-10-13
+Pyush Mitra,3557058,F-25/209,Pyush Mitra,RELIEVED,Operations,Falcons,Team Leader,,2025-11-02,exact,82.4,2025-10-31
+Yashvant Kumar,2250994,,,UNKNOWN,,,,,,none,81.2,2023-08-08
+Vishesh Sinha,2166510,,,UNKNOWN,,,,,,none,70.1,2023-03-31
+Phillip Golowatsch,3948038,,(client / not staff),EXTERNAL,,,,,,external,59.7,2026-03-02
+Daniel Roberts,3639619,,(client / not staff),EXTERNAL,,,,,,external,57.0,2026-04-29
+Ahnonie Alodia Aguam,2967595,,(client / not staff),EXTERNAL,,,,,,external,55.8,2024-11-16
+Dikshita Kamra,3599115,F-25/215,Dikshita Kamra,RELIEVED,Operations,Operations,Team Leader,,2025-11-21,exact,53.3,2025-11-21
+Melissa Knox,2919191,,(client / not staff),EXTERNAL,,,,,,external,49.1,2024-10-23
+Bernadette Bryson,2904937,,(client / not staff),EXTERNAL,,,,,,external,45.7,2024-10-14
+Mayank Raj,2236654,F-22/103,Mayank Raj,ACTIVE,IT & Admin,IT & Admin,IT Administrator,Rajesh Bhattacharya,,exact,43.1,2025-12-16
+Lovankita Sharma,4323988,F-26/295,Lovankita Sharma,ACTIVE,Operations,Titans,Assistant Team Lead,Gopi Kumar,,exact,40.4,2026-06-10
+Christy Nicholas,3184097,,(client / not staff),EXTERNAL,,,,,,external,35.2,2025-04-11
+Dev Kumar,2568210,F-25/203,Pankaj Kumar Dev,ACTIVE,Operations,Operation Lead,Operation Lead,Mr. Nitish,,name-diff,34.5,2024-04-08
+Tarun Kumar,2296699,,,UNKNOWN,,,,,,none,32.2,2023-09-06
+Richa Gupta,2082126,,,UNKNOWN,,,,,,none,30.0,2023-02-28
+Sanskriti Sharma,2644301,,,UNKNOWN,,,,,,none,24.8,2024-05-20
+Arpit Sharma,3514851,F-25/202,Arpit Sharma,RELIEVED,Operations,Operations,Financial Analyst,,2025-09-25,exact,23.1,2025-09-25
+Juliet King,2623095,,(client / not staff),EXTERNAL,,,,,,external,21.8,2024-05-08
+April Hayden,4057212,,(client / not staff),EXTERNAL,,,,,,external,20.4,2026-03-17
+Aishwarya Jain,2263716,,,UNKNOWN,,,,,,none,18.1,2023-06-06
+Kate Carilo,3334784,,(client / not staff),EXTERNAL,,,,,,external,15.4,2025-07-11
+Sakshi Udapuriya,4340516,F-26/297,Sakshi Udapuriya,ACTIVE,Taxes & Compliances,Taxes & Compliances,Tax Associate,Mr. Atul,,exact,10.7,2026-06-10
+Tapash Kumar,3583469,F-25/213,Tapash Kumar,RELIEVED,Operations,Operations,Team Leader,,2025-11-02,exact,9.9,2025-10-31
+Trudi Walde,3191211,,(client / not staff),EXTERNAL,,,,,,external,8.9,2025-04-11
+Akash De Mohari,3350273,F-25/194,Akash De Mohari,RELIEVED,Operations,Operations,Process Trainer,,2025-07-17,exact,8.6,2025-07-17
+Shalu Sharma,4340566,F-26/296,Shalu Sharma,ACTIVE,Operations,Alliance,Assistant Team Lead,Vipin Kumar,,exact,8.6,2026-06-10
+Shivanshi Garg,1777627,,,UNKNOWN,,,,,,none,7.9,2023-12-02
+Raj Kumari,4091277,F-26/276,Raj Kumari,RELIEVED,Operations,Operations,Assistant Team Lead,,2026-03-25,exact,6.3,2026-03-24
+ms Kavita,3557059,,,UNKNOWN,,,,,,none,4.7,2025-10-14
+Pooja Tomar,3466709,F-25/199,Pooja Tomar,RELIEVED,Operations,Operations,Account Executive,,2025-09-01,exact,2.6,2025-09-01
+Ryan Davis,4236558,,(client / not staff),EXTERNAL,,,,,,external,2.0,2026-05-01
+Michael Molina,4228949,,(client / not staff),EXTERNAL,,,,,,external,2.0,2026-04-29
+Marcia Vargas Rojas,2651162,,(client / not staff),EXTERNAL,,,,,,external,1.9,2024-07-01
+Matthew Howard,4229014,,(client / not staff),EXTERNAL,,,,,,external,1.9,2026-04-30
+Yash Gupta,3304267,F-25/190,Yash Gupta,RELIEVED,Operations,Falcons,Sr. Financial Analyst,,2025-06-26,exact,1.9,2025-06-25
+Peter Tournis,4226131,,(client / not staff),EXTERNAL,,,,,,external,1.9,2026-04-29
+Lovankita Sharma,4323604,F-26/295,Lovankita Sharma,ACTIVE,Operations,Titans,Assistant Team Lead,Gopi Kumar,,exact,1.3,2026-06-01
+Juliet King,2861266,,(client / not staff),EXTERNAL,,,,,,external,1.0,2024-10-11
+Yagvendra Joshi,2620189,,,UNKNOWN,,,,,,none,0.8,2024-04-24
+Erica Stuart,2979193,,(client / not staff),EXTERNAL,,,,,,external,0.6,2024-11-16
+Arthur Donovan,2983301,,(client / not staff),EXTERNAL,,,,,,external,0.6,2024-11-19
+Cassie Denzler,3161036,,(client / not staff),EXTERNAL,,,,,,external,0.4,2025-03-12
+Dev Kumar,3177408,F-25/203,Pankaj Kumar Dev,ACTIVE,Operations,Operation Lead,Operation Lead,Mr. Nitish,,name-diff,0.4,2025-04-07
+Ashmeet Kaur,3198692,F-25/182,Ashmeet Kaur,RELIEVED,Operations,Operations,Financial Analyst,,2025-04-18,exact,0.2,2025-04-17
+test tes,2660163,,(client / not staff),EXTERNAL,,,,,,external,0.0,2024-05-29
+Mukan Gupta,3440440,F-25/198,Muskan Gupta,RELIEVED,Operations,Operations,Financial Analyst,,2025-08-11,name-diff,0.0,2025-08-11

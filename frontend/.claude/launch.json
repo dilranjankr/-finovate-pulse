@@ -1,0 +1,6 @@
+{
+  "command": "npm run dev",
+  "autoPort": false,
+  "port": 3000,
+  "readyWhen": { "urlReturns": "/" }
+}

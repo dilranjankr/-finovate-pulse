@@ -9,8 +9,8 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, defaultRange,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
@@ -36,6 +36,11 @@ function avatarColor(s: string) {
   return c[h % c.length];
 }
 const initials = (s: string) => s.split(" ").filter(Boolean).slice(0, 2).map((x) => x[0]).join("").toUpperCase();
+const HR_BADGE: Record<string, [string, string]> = { ACTIVE: ["Active", "ok"], RELIEVED: ["Left", "left"], EXTERNAL: ["External", "ext"], UNKNOWN: ["Unverified", "unk"] };
+function hrBadge(s?: string) {
+  const m = HR_BADGE[s || ""];
+  return m ? <span className={`hrb ${m[1]}`}>{m[0]}</span> : null;
+}
 const AI_SUGGESTIONS = ["Top performers", "Lowest utilization team", "Billable mix", "At-risk clients", "Busiest department"];
 type AiMsg = {
   role: "user" | "ai"; text: string; kind?: "bar" | "donut" | "none";
@@ -123,7 +128,7 @@ export default function CommandCenter({
   initialOpts, initialData,
 }: { initialOpts: FilterOptions | null; initialData: CommandData | null }) {
   const [opts, setOpts] = useState<FilterOptions | null>(initialOpts);
-  const [draft, setDraft] = useState<Filters>(initialOpts ? defaultRange(initialOpts) : {});
+  const [draft, setDraft] = useState<Filters>(initialOpts ? currentMonth(initialOpts) : {});
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
@@ -165,6 +170,28 @@ export default function CommandCenter({
   const [hoursSearch, setHoursSearch] = useState("");
   const [gradeModal, setGradeModal] = useState(false);
   const [cmpTrend, setCmpTrend] = useState<CompareTrendData | null>(null);
+  const [taskDel, setTaskDel] = useState<import("../lib/api").TaskDelivery | null>(null);
+  const [mapModal, setMapModal] = useState(false);
+  const [mapData, setMapData] = useState<import("../lib/api").MappingData | null>(null);
+  const [mapSearch, setMapSearch] = useState("");
+  const [mapBusy, setMapBusy] = useState("");
+  async function openMapping() {
+    setMapModal(true); setMapData(null);
+    try { setMapData(await (await import("../lib/api")).getMapping()); } catch { setMapData({ exists: false, write: false, count: 0, rows: [] }); }
+  }
+  async function mapInit() {
+    setMapBusy("init"); const api = await import("../lib/api");
+    const r = await api.initMapping(); setMapBusy("");
+    if (r.ok) { setMapData(await api.getMapping()); } else { alert("Init failed: " + (r.detail || r.reason)); }
+  }
+  async function mapSave(row: import("../lib/api").MappingRow, patch: Partial<import("../lib/api").MappingRow>) {
+    const api = await import("../lib/api");
+    setMapData((d) => d ? { ...d, rows: d.rows.map((x) => x.hubstaff_name === row.hubstaff_name ? { ...x, ...patch } : x) } : d);
+    setMapBusy(row.hubstaff_name);
+    const r = await api.saveMapping({ hubstaff_name: row.hubstaff_name, ...patch });
+    setMapBusy("");
+    if (!r.ok) alert("Save failed: " + (r.detail || r.reason));
+  }
   useEffect(() => {
     const sp = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
     const emp = sp(draft.employee), team = sp(draft.atl), dept = sp(draft.department);
@@ -204,7 +231,11 @@ export default function CommandCenter({
   }
 
   useEffect(() => {
-    if (initialOpts) getBreakdown(defaultRange(initialOpts)).then(setBd).catch(() => setBd(null));
+    if (initialOpts) getBreakdown(currentMonth(initialOpts)).then(setBd).catch(() => setBd(null));
+    // fetch on-time delivery for the initial period (covers SSR initialData path)
+    const r0 = initialOpts ? currentMonth(initialOpts) : (draft.date_from ? draft : null);
+    if (r0) getTaskDelivery(r0).then(setTaskDel).catch(() => setTaskDel(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpts]);
 
   // resilient client-side load if SSR couldn't reach the backend (cold start)
@@ -214,8 +245,9 @@ export default function CommandCenter({
     (async () => {
       try {
         let o = initialOpts;
-        if (!o) { o = await getFilters(); if (cancelled) return; setOpts(o); setDraft(defaultRange(o)); }
-        const r = defaultRange(o);
+        if (!o) { o = await getFilters(); if (cancelled) return; setOpts(o); setDraft(currentMonth(o)); }
+        const r = currentMonth(o);
+        getTaskDelivery(r).then((td) => { if (!cancelled) setTaskDel(td); }).catch(() => {});
         const [cmd, b] = await Promise.all([getCommand(r), getBreakdown(r).catch(() => null)]);
         if (cancelled) return;
         setData(cmd); setBd(b);
@@ -234,6 +266,7 @@ export default function CommandCenter({
   async function apply(f: Filters) {
     setLoading(true);
     getBreakdown(f).then(setBd).catch(() => setBd(null));
+    getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
   }
   // date range helpers (used by quick presets in the period bar)
@@ -263,7 +296,7 @@ export default function CommandCenter({
   function setField(key: keyof Filters, v: string) { const next = { ...draft, [key]: v || undefined }; setDraft(next); apply(next); }
   function setDept(v: string) { const next = { ...draft, department: v || undefined, atl: undefined, employee: undefined }; setDraft(next); refetchOpts({ department: v || undefined }); apply(next); }
   function setAtl(v: string) { const next = { ...draft, atl: v || undefined, employee: undefined }; setDraft(next); refetchOpts({ department: draft.department, atl: v || undefined }); apply(next); }
-  function clearFilters() { const base: Filters = opts ? defaultRange(opts) : {}; setDraft(base); refetchOpts({}); apply(base); }
+  function clearFilters() { const base: Filters = opts ? currentMonth(opts) : {}; setDraft(base); refetchOpts({}); apply(base); }
   // breadcrumb drill-up: jump to a parent scope, clearing deeper filters
   function goCompany() { const n = { ...draft, department: undefined, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({}); apply(n); }
   function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({ department: draft.department }); apply(n); }
@@ -274,7 +307,7 @@ export default function CommandCenter({
     if (r === "user" && name) {
       setSelfName(name);
       try { localStorage.setItem("fin_self", name); } catch { /* ignore */ }
-      const base: Filters = opts ? defaultRange(opts) : {};
+      const base: Filters = opts ? currentMonth(opts) : {};
       const next = { ...base, employee: name };
       setDraft(next); apply(next);
     } else {
@@ -285,7 +318,7 @@ export default function CommandCenter({
   function switchRole() {
     setRole(null); setSelfName(""); setShowSettings(false);
     try { localStorage.removeItem("fin_role"); localStorage.removeItem("fin_self"); } catch { /* ignore */ }
-    const base: Filters = opts ? defaultRange(opts) : {};
+    const base: Filters = opts ? currentMonth(opts) : {};
     setDraft(base); apply(base);
   }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
@@ -339,6 +372,10 @@ export default function CommandCenter({
   const util = Number(k.utilization?.value || 0);
   const prod = Number(k.productivity?.value || 0);
   const act = Number(k.activity?.value || 0);
+  const billablePct = total > 0 ? (billable / total) * 100 : 0;
+  const activeStaff = (data.employees || []).filter((e) => e.hr_status === "ACTIVE").length;
+  const onTimePct = taskDel ? taskDel.on_time_pct : 0;
+  const kTone = (v: number, good: number, warn: number) => (v >= good ? "ok" : v >= warn ? "warn" : "bad");
   const gradeStr = String(k.avg_grade?.value ?? "—");
   const cmp = data.period?.comparable;
   const pv = data.period?.previous;
@@ -355,22 +392,30 @@ export default function CommandCenter({
     amber: { tint: "#fdf2e1", badge: "#e8930c" },
     rose: { tint: "#fdeaea", badge: "#ef4444" },
   };
-  const kpiCard = (key: string, label: string, value: string, colorKey: string, Icon: React.ComponentType<{ size?: number }>, deltaKey?: string, onClick?: () => void) => {
+  const kpiCard = (key: string, label: string, value: string, colorKey: string, Icon: React.ComponentType<{ size?: number }>, deltaKey?: string, onClick?: () => void, tone?: string, foot?: string, prog?: { val: number; target: number }) => {
     const c = KPICOL[colorKey];
-    const t = deltaKey ? (data.kpis[deltaKey]?.trend ?? 0) : null;
-    const dColor = t !== null && t > 0 ? "#0f9043" : t !== null && t < 0 ? "#d23f43" : "var(--muted)";
-    const spark = (deltaKey ? data.kpis[deltaKey]?.spark : null) || [];
+    const t = deltaKey ? (data.kpis[deltaKey]?.trend ?? null) : null;
+    const hasDelta = cmp && t !== null;
+    const tcol = tone === "ok" ? "#16a34a" : tone === "warn" ? "#e8930c" : tone === "bad" ? "#ef4444" : c.badge;
     return (
-      <div className={`kc2${onClick ? " kclk" : ""}`} key={key} onClick={onClick}>
-        <div className="kc2-head">
-          <span className="kc2-ic" style={{ background: c.tint, color: c.badge }}><Icon size={16} /></span>
-          <span className="kc2-lbl">{label}</span>
+      <div className={`kc3${onClick ? " kclk" : ""}${tone ? " t-" + tone : ""}`} key={key} onClick={onClick}>
+        <div className="kc3-top">
+          <div className="kc3-info">
+            <span className="kc3-lbl">{label}</span>
+            <div className="kc3-val num">{value}</div>
+          </div>
+          <span className="kc3-ic" style={{ background: c.badge }}><Icon size={16} /></span>
         </div>
-        <div className="kc2-val num">{value}</div>
-        {spark.length > 1 && <div className="kc2-spark"><Sparkline data={spark} color={c.badge} id={key} /></div>}
-        {cmp && t !== null
-          ? <div className="kc2-delta" style={{ color: dColor }}><Clock size={12} /><b>{t > 0 ? "+" : ""}{t}%</b><span>vs last {pv?.days}d</span></div>
-          : <div className="kc2-delta dash"><span>—</span></div>}
+        {prog && (
+          <div className="kc3-prog" title={`${n1(prog.val)} of ${prog.target} target`}>
+            <i style={{ width: `${Math.min(100, (prog.val / prog.target) * 100)}%`, background: tcol }} />
+            <u style={{ left: "100%" }} />
+          </div>
+        )}
+        <div className="kc3-foot">
+          {hasDelta && <span className={`kc3-delta ${t! >= 0 ? "up" : "down"}`}>{t! > 0 ? "+" : ""}{t}%</span>}
+          <span className="kc3-sub">{hasDelta ? `vs last ${pv?.days ?? 30}d` : (foot || "this month")}</span>
+        </div>
       </div>
     );
   };
@@ -540,6 +585,7 @@ export default function CommandCenter({
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); setShowSettings(true); }}><Settings size={16} />Settings</button>}
                       {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
                       {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
+                      {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); openMapping(); }}><Users size={16} />Employee mapping</button>}
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); switchRole(); }}><Users size={16} />Users &amp; roles</button>}
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); window.open("https://github.com/dilranjankr/-finovate-pulse#readme", "_blank"); }}><BookOpen size={16} />Documentation</button>
@@ -635,28 +681,107 @@ export default function CommandCenter({
       </div>
       )}
 
-      {/* KPI — one row: Total Hours donut card + metric cards */}
-      <div className="kpi-row">
-        <div className="thd-card kclk" onClick={openHours}>
-          <div className="thd-head"><h3>Total Hours</h3></div>
-          <div className="thd-body">
-            <div className="thd-chart">
-              <RingChart segs={[{ label: "Billable", value: billable, color: "#16a34a" }, { label: "Non-Billable", value: nonbill, color: "#8b5cf6" }]} />
-              <div className="thd-center"><b className="num">{n0(total)}</b><span>hrs</span></div>
-            </div>
-            <div className="thd-leg">
-              <div className="thd-lg"><span className="d" style={{ background: "#16a34a" }} /><span className="l">Billable</span><b className="num">{n0(billable)}h</b></div>
-              <div className="thd-lg"><span className="d" style={{ background: "#8b5cf6" }} /><span className="l">Non-Billable</span><b className="num">{n0(nonbill)}h</b></div>
-            </div>
-          </div>
-        </div>
+      {/* KPI — 6 clean cards (label + big value + icon badge + delta) */}
+      <div className="kpi-grid">
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
-          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (active days × 8h) × 100, capped at 100%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"))}
-        {kpiCard("k-act", "Activity", n1(act) + "%", "blue", Activity, "activity",
-          openMetric("Activity", "#2f6fbf", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"))}
-        {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
-          openMetric("Productivity", "#e8930c", "Billable hours ÷ total tracked hours × 100 — what share of tracked time was billable (NB tasks/projects count as non-billable).", (e) => e.productivity, (v) => n1(v) + "%", "productivity"))}
+          openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (working days × 8h) × 100, capped at 100%. Target 80%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"), kTone(util, 80, 60), "target 80%")}
+        {kpiCard("k-bill", "Billable", n0(billable) + "h", "green", Receipt, undefined,
+          openMetric("Billable", "#16a34a", "Billable hours and their share of total tracked time.", (e) => e.billable, (v) => n0(v) + "h", "billable"), undefined, n1(billablePct) + "% of total")}
+        {kpiCard("k-act", "Activity", n1(act) + "%", "teal", Activity, "activity",
+          openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
+        {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
+        {kpiCard("k-budget", "Budget Health", "—", "rose", Briefcase, undefined, undefined, undefined, "needs Resource sheet")}
       </div>
+
+      {/* Total Hours + Task Delivery — two donuts, one row */}
+      <div className="donut-row">
+        <DonutCard title="Total Hours" sub="billable vs non-billable" onClick={openHours}
+          centerValue={n0(total)} centerLabel="hrs total" fmt={(v) => n0(v) + "h"}
+          note={`${n1(billablePct)}% of tracked time is billable this period.`}
+          segs={[{ label: "Billable", value: billable, color: "#16a34a" }, { label: "Non-Billable", value: nonbill, color: "#8b5cf6" }]} />
+        {taskDel && taskDel.due > 0 ? (() => {
+          const d = taskDel; const tot = d.due || 1;
+          const overduePct = Math.round((d.open / tot) * 100);
+          const latePct = Math.round((d.late / tot) * 100);
+          return (
+            <div className="dcard">
+              <div className="dcard-h"><h3>Task Delivery</h3><span className="dcard-sub">{d.due} tasks due this period</span></div>
+              <div className="dcard-gauge"><SemiGauge center={n1(onTimePct) + "%"} sub="on-time"
+                segs={[{ value: d.on_time, color: "#16a34a" }, { value: d.late, color: "#e8930c" }, { value: d.open, color: "#ef4444" }]} /></div>
+              <div className="dcard-leg">
+                <div className="dleg"><span className="d" style={{ background: "#16a34a" }} /><span className="nm">On-time</span><b className="v num">{n0(d.on_time)}</b><span className="p">{Math.round(d.on_time / tot * 100)}%</span></div>
+                <div className="dleg"><span className="d" style={{ background: "#e8930c" }} /><span className="nm">Late</span><b className="v num">{n0(d.late)}</b><span className="p">{latePct}%</span></div>
+                <div className="dleg"><span className="d" style={{ background: "#ef4444" }} /><span className="nm">Overdue / open</span><b className="v num">{n0(d.open)}</b><span className="p">{overduePct}%</span></div>
+              </div>
+            </div>
+          );
+        })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No tasks due this period</div></div>}
+        {bd && (() => {
+          const tb = bd.task_billable_h, tn = bd.task_non_billable_h, pb = bd.project_billable_h, pn = bd.project_non_billable_h;
+          const tot = tb + tn + pb + pn || 1; const taskH = tb + tn, projH = pb + pn;
+          const rows = [
+            { label: "On a Task", val: taskH, bill: tb, nb: tn },
+            { label: "On a Project", val: projH, bill: pb, nb: pn },
+          ];
+          return (
+            <div className="dcard kclk" onClick={() => openBdList("task", "all")}>
+              <div className="dcard-h"><h3>Task vs Project</h3><span className="dcard-sub">where time is tracked</span></div>
+              <div className="tvp">
+                {rows.map((r) => (
+                  <div className="tvp-block" key={r.label}>
+                    <div className="tvp-top"><span className="tvp-lbl">{r.label}</span><b className="tvp-v num">{n0(r.val)}h <span>{n0((r.val / tot) * 100)}%</span></b></div>
+                    <div className="tvp-bar"><i style={{ width: `${(r.bill / (r.val || 1)) * 100}%`, background: "#16a34a" }} /><i style={{ width: `${(r.nb / (r.val || 1)) * 100}%`, background: "#8b5cf6" }} /></div>
+                    <div className="tvp-sub"><span><i style={{ background: "#16a34a" }} />Billable {n0(r.bill)}h</span><span><i style={{ background: "#8b5cf6" }} />Non-bill {n0(r.nb)}h</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* BY DEPARTMENT + BY TEAM — horizontal bar charts, one row */}
+      {(((data.departments && data.departments.length) || data.teams.length) > 0) && (() => {
+        const colors = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4"];
+        const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
+        const hpanel = (title: string, rows: TeamRow[], vertical = false) => {
+          const sorted = [...rows].filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 8);
+          const max = Math.max(1, ...sorted.map((r) => r.total));
+          return (
+            <div className="panel">
+              <div className="ph"><h3>{title} <span className="hl">hours · top {sorted.length}</span></h3></div>
+              {!sorted.length ? <div className="empty-s">No data in scope</div>
+                : vertical ? (
+                  <div className="vbar-chart">
+                    {sorted.map((r, i) => (
+                      <div className="vbar-col" key={r.team} title={`${r.team}: ${n0(r.total)}h`}>
+                        <span className="vbar-v num">{fk(r.total)}</span>
+                        <div className="vbar-track"><div className="vbar-fill" style={{ height: `${Math.max(4, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></div>
+                        <span className="vbar-x">{r.team}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="hbar-list">
+                    {sorted.map((r, i) => (
+                      <div className="hbar-row" key={r.team}>
+                        <span className="hbar-lbl" title={r.team}>{r.team}</span>
+                        <span className="hbar-track"><span className="hbar-fill" style={{ width: `${Math.max(2, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></span>
+                        <b className="hbar-v num">{n0(r.total)}h</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
+          );
+        };
+        return (
+          <div className="row2" style={{ marginBottom: 14 }}>
+            {hpanel("By Department", data.departments || [], true)}
+            {hpanel("By Team", data.teams || [], false)}
+          </div>
+        );
+      })()}
 
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
       {compare && (() => {
@@ -668,7 +793,6 @@ export default function CommandCenter({
         };
         return (
           <>
-            <div className="sec"><h4>Comparison <span className="sec-tag">{compare.ents.length} {compare.noun.toLowerCase()}</span></h4></div>
             <div className="panel cmp-panel" style={{ marginBottom: 14 }}>
               <div className="ph"><h3>Side-by-side <span className="hl">selected {compare.noun.toLowerCase()} · best value highlighted</span></h3></div>
               {/* entity header cards */}
@@ -765,95 +889,8 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* HEADLINE — single plain-English line with key numbers highlighted */}
-      {(() => {
-        const billPct = total ? Math.round((billable / total) * 100) : 0;
-        const scope = caps.self ? selfName : (data.context.label === "Company (All)" ? "Across the company" : data.context.label);
-        const gColor = gradeStr.startsWith("A") ? "#0f9043" : gradeStr.startsWith("B") ? "#2f6fbf" : gradeStr === "C" ? "#e8930c" : "#d23f43";
-        return (
-          <div className="headline">
-            <span className="hl-spark"><Sparkles size={16} /></span>
-            <p className="hl-text">
-              <span className="hl-scope">{scope}</span>
-              {!caps.self && <> · <b>{n0(peopleN)}</b> {peopleN === 1 ? "person" : "people"}</>} tracked <b className="hl-k">{n0(total)}h</b> —{" "}
-              <b className="hl-k" style={{ color: "#0f9043" }}>{billPct}%</b> billable at{" "}
-              <b className="hl-k" style={{ color: "#2f6fbf" }}>{n1(util)}%</b> utilization
-              {gradeStr !== "—" && <>, avg grade <b className="hl-k" style={{ color: gColor }}>{gradeStr}</b></>}.
-            </p>
-          </div>
-        );
-      })()}
-
-
-      {/* TRACKED TIME — Task vs Project, with billable/non-billable inside each */}
-      {bd && (bd.task_h > 0 || bd.project_h > 0) && (() => {
-        const totH = bd.task_h + bd.project_h;
-        const taskPct = totH ? Math.round((bd.task_h / totH) * 100) : 0;
-        const wlCard = (label: string, badge: string, tint: string, Icon: React.ComponentType<{ size?: number }>, hours: number, bil: number, nb: number, kind: "task" | "project") => (
-          <div className="wl-card kclk" onClick={() => openBdList(kind, "all")}>
-            <span className="wl-badge" style={{ background: tint, color: badge }}><Icon size={20} /></span>
-            <div className="wl-info">
-              <div className="wl-lbl">{label}</div>
-              <div className="wl-val num">{n0(hours)}<span>h</span></div>
-              <div className="wl-sub">
-                <span className="wl-clk" onClick={(e) => { e.stopPropagation(); openBdList(kind, "billable"); }}><i className="d bil" />Billable <b className="num">{n0(bil)}h</b></span>
-                <span className="wl-clk" onClick={(e) => { e.stopPropagation(); openBdList(kind, "nonbillable"); }}><i className="d nbil" />Non-Billable <b className="num">{n0(nb)}h</b></span>
-              </div>
-            </div>
-          </div>
-        );
-        const billStats = (() => {
-          const m: Record<string, { h: number; n: number }> = { Fixed: { h: 0, n: 0 }, Hourly: { h: 0, n: 0 }, Project: { h: 0, n: 0 } };
-          data.clients_summary.forEach((c) => { const k = c.category === "Fixed" ? "Fixed" : c.category === "Hourly" ? "Hourly" : "Project"; m[k].h += c.hours; m[k].n += 1; });
-          return ([
-            { name: "Fixed", value: Math.round(m.Fixed.h), count: m.Fixed.n, color: "#6366f1", c2: "#818cf8" },
-            { name: "Hourly", value: Math.round(m.Hourly.h), count: m.Hourly.n, color: "#0ea5a4", c2: "#2dd4bf" },
-            { name: "Project", value: Math.round(m.Project.h), count: m.Project.n, color: "#f59e0b", c2: "#fbbf24" },
-          ]).filter((x) => x.count > 0);
-        })();
-        const billMax = Math.max(...billStats.map((c) => c.value), 1);
-        return (
-          <div className="tt-row">
-            <div className="panel wl-panel">
-              <div className="ph"><h3>Tracked Time — Task vs Project <span className="hl">where time was logged · billable split inside each</span></h3></div>
-              <div className="wl-grid">
-                <div className="wl-cards">
-                  {wlCard("On a Task", "#e8930c", "#fdf2e1", Tag, bd.task_h, bd.task_billable_h, bd.task_non_billable_h, "task")}
-                  {wlCard("Project Only (no task)", "#2f6fbf", "#e8f1fd", Briefcase, bd.project_h, bd.project_billable_h, bd.project_non_billable_h, "project")}
-                </div>
-                <div className="wl-chart">
-                  <div className="wl-ring" style={{ background: `conic-gradient(#e8930c 0 ${taskPct}%, #cdd4e0 ${taskPct}% 100%)` }}>
-                    <div className="wl-hole"><b className="num">{taskPct}%</b><span>on tasks</span></div>
-                  </div>
-                  <div className="wl-leg">
-                    <span><i style={{ background: "#e8930c" }} />Task {n0(bd.task_h)}h</span>
-                    <span><i style={{ background: "#cdd4e0" }} />Project {n0(bd.project_h)}h</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="panel pipe-panel">
-              <div className="ph"><h3><Receipt size={15} style={{ color: "#2f6fbf", verticalAlign: "-2px", marginRight: 6 }} />Billing Type <span className="hl">hours &amp; clients by category</span></h3></div>
-              <div className="pipe-chart">
-                {billStats.map((c) => (
-                  <div className="pipe-item" key={c.name} title={`${c.name}: ${n0(c.value)}h · ${c.count} clients`}>
-                    <div className="pipe-val num" style={{ color: c.color }}>{n0(c.value)}<span>h</span></div>
-                    <div className="pipe-track">
-                      <div className="pipe-bar" style={{ height: `${Math.max((c.value / billMax) * 100, 6)}%`, background: `linear-gradient(180deg, ${c.c2}, ${c.color})` }} />
-                    </div>
-                    <div className="pipe-lbl">{c.name}</div>
-                    <div className="pipe-cnt"><i style={{ background: c.color }} />{c.count} clients</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
       {/* HOURS TREND + PERFORMANCE — one row */}
       {(data.hours_trend.length > 1 || showPeople) && (<>
-        <div className="sec"><h4>Activity &amp; Performance</h4></div>
         {showPeople ? (
           <div className="row2 hp-row">
             <div className="panel">
@@ -872,126 +909,6 @@ export default function CommandCenter({
           </div>
         ))}
       </>)}
-
-      {/* COMPARISON — department-wise / team-wise (storage-style bars + status cards) */}
-      {showComparison && (() => {
-        const rows = cmpDim === "department" ? (data.departments || []) : data.teams;
-        if (!rows.length) return null;
-        const maxH = Math.max(1, ...rows.map((r) => r.total));
-        const niceTop = Math.ceil((maxH * 1.08) / 1000) * 1000 || 1000;
-        const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
-        const lowKey = rows.reduce((a, b) => (b.utilization < a.utilization ? b : a)).team;
-        return (
-          <>
-            <div className="sec"><h4>Comparison</h4></div>
-            <div className="panel" style={{ marginBottom: 14 }}>
-              <div className="ph">
-                <h3><BarChart3 size={16} style={{ color: "#ed7d31", verticalAlign: "-3px", marginRight: 7 }} />Hours by {cmpDim === "department" ? "Department" : "Team"}</h3>
-                <div className="seg-pill" role="group">
-                  {([["department", "Department"], ["team", "Team"]] as const).map(([v, lbl]) => (
-                    <button key={v} type="button" className={cmpDim === v ? "on" : ""} onClick={() => setCmpDim(v)}>{lbl}</button>
-                  ))}
-                </div>
-              </div>
-              <div className="modbar">
-                <div className="modbar-y">{[1, 0.75, 0.5, 0.25, 0].map((f) => <span key={f}>{fk(niceTop * f)}</span>)}</div>
-                <div className="modbar-main">
-                  <div className="modbar-plot">
-                    {[0, 0.25, 0.5, 0.75, 1].map((f) => <div className="modbar-grid" key={f} style={{ bottom: `${f * 100}%` }} />)}
-                    <div className="modbar-bars">
-                      {rows.map((r, i) => {
-                        const hp = Math.max(3, (r.total / niceTop) * 100);
-                        const isLow = r.team === lowKey && rows.length > 1;
-                        const palette = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4", "#b8860b", "#5c6bc0"];
-                        const col = isLow ? "#e2574c" : palette[i % palette.length];
-                        return (
-                          <div className="modbar-track" key={r.team}>
-                            <div className="modbar-fill" style={{ height: `${hp}%`, background: `linear-gradient(180deg, ${col}, ${col}cc)` }}>
-                              <span className="modbar-val">{n0(r.total)}h</span>
-                              <div className="modbar-tip">
-                                <div className="mt-nm">{r.team}{isLow ? " · lowest" : ""}</div>
-                                <div className="mt-row"><span><i className="mt-dot" style={{ background: col }} />Hours</span><b>{n0(r.total)}h</b></div>
-                                <div className="mt-row"><span>Utilization</span><b>{n0(r.utilization)}%</b></div>
-                                <div className="mt-row"><span>Activity</span><b>{n0(r.activity ?? 0)}%</b></div>
-                                <div className="mt-row"><span>Productivity</span><b>{n0(r.productivity)}%</b></div>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                  <div className="modbar-xrow">{rows.map((r) => <span className="modbar-x" key={r.team} title={r.team}>{r.team}</span>)}</div>
-                </div>
-              </div>
-            </div>
-          </>
-        );
-      })()}
-
-      {/* TASKS — status + priority + performers (contextual) */}
-      {(taskStatusTotal > 0 || tpTotal > 0 || showPeople) && (
-        <>
-          <div className="sec"><h4>Tasks &amp; Performers</h4></div>
-          <div className={showPeople ? "row3" : "row2"}>
-            {taskStatusTotal > 0 && (
-              <div className="panel">
-                <div className="ph"><h3>Task Status <span className="hl">{n0(taskStatusTotal)} active tasks in scope</span></h3></div>
-                <div className="bl-list">
-                  {taskStatus.sort((a, b) => b.value - a.value).map((s) => {
-                    const pct = taskStatusTotal ? (s.value / taskStatusTotal) * 100 : 0;
-                    const col = /done|complete|closed/i.test(s.name) ? "#0f9043" : /progress|active|review/i.test(s.name) ? "#2f6fbf" : /block|overdue|hold/i.test(s.name) ? "#d23f43" : "#8b8f9a";
-                    return (
-                      <div className="bl-row" key={s.name}>
-                        <span className="bl-lbl" title={s.name}>{s.name}</span>
-                        <span className="bl-track"><span className="bl-fill" style={{ width: `${Math.max(pct, 2)}%`, background: col }} /></span>
-                        <b className="bl-val num">{n0(s.value)}</b>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-            {tpTotal > 0 && (
-              <div className="panel">
-                <div className="ph"><h3>Priority Mix <span className="hl">open tasks by urgency</span></h3></div>
-                <div className="prio-grid">
-                  {([["Urgent", tp.urgent, "#d23f43"], ["High", tp.high, "#e8930c"], ["Normal", tp.normal, "#2f6fbf"], ["Low", tp.low, "#8b8f9a"]] as const).map(([lbl, v, col]) => (
-                    <div className="prio-card" key={lbl} style={{ borderColor: col + "33" }}>
-                      <span className="prio-bar" style={{ background: col }} />
-                      <div className="prio-v num">{n0(v)}</div>
-                      <div className="prio-l">{lbl}</div>
-                      <div className="prio-p">{tpTotal ? Math.round((v / tpTotal) * 100) : 0}%</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            {showPeople && (
-              <div className="panel">
-                <div className="ph">
-                  <h3>Performers <span className="hl">by grade</span></h3>
-                  <div className="seg-pill">
-                    <button type="button" className={perfTab === "top" ? "on" : ""} onClick={() => setPerfTab("top")}>▲ Top 3</button>
-                    <button type="button" className={perfTab === "bottom" ? "on" : ""} onClick={() => setPerfTab("bottom")}>▼ Bottom 3</button>
-                  </div>
-                </div>
-                <div className="tb-card">
-                  {(perfTab === "top" ? data.top3 : data.bottom3).map((e, i) => (
-                    <div className="tb-row perf kclk" key={e.name + i} onClick={() => openEmployee(e.name)}>
-                      <span className="tb-rank">{i + 1}</span>
-                      <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
-                      <span className="tb-nm"><b>{e.name}</b><i>{e.team}</i></span>
-                      <span className="num pf-u">{n0(e.utilization)}%</span>
-                      <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        </>
-      )}
 
       {/* LEADERBOARD — department → teams, team → members (context-specific) */}
       {rankInfo && rankItems.length > 0 && (
@@ -1018,62 +935,6 @@ export default function CommandCenter({
         </>
       )}
 
-      {/* CLIENTS */}
-      <div className="sec"><h4>Clients</h4></div>
-      <div className={bva.budget > 0 ? "row3" : "row2"}>
-        <div className="panel">
-          <div className="ph">
-            <h3>Clients <span className="hl">by hours · {clientsAll.length}</span></h3>
-            <div className="seg-pill">
-              <button type="button" className={clientTab === "top" ? "on" : ""} onClick={() => setClientTab("top")}>▲ Top 5</button>
-              <button type="button" className={clientTab === "bottom" ? "on" : ""} onClick={() => setClientTab("bottom")}>▼ Bottom 5</button>
-            </div>
-          </div>
-          {clientsAll.length ? (
-            <div className="tb-card">
-              {(clientTab === "top" ? topClients : botClients).map((c, i) => (
-                <div className="tb-row" key={c.client + i}>
-                  <span className="tb-rank">{i + 1}</span>
-                  <span className="dot" style={{ background: clColor(c.category) }} />
-                  <span className="tb-nm" title={c.client}>{c.client}</span>
-                  <b className="num">{n0(c.hours)}h</b>
-                </div>
-              ))}
-              {clientTab === "bottom" && botClients.length === 0 && <div className="empty-s">Not enough clients</div>}
-            </div>
-          ) : <div className="empty-s">No client data in scope</div>}
-        </div>
-        <div className="panel">
-          <div className="ph"><h3>Client Health <span className="hl">active · at-risk · inactive</span></h3><DownloadBtn name="client-health" /></div>
-          {chTotal > 0 ? (
-            <div className="donut-wrap">
-              <div style={{ width: 150 }}><Donut data={chData} colors={["#0f9043", "#bd8616", "#d23f43"]} height={180} center={{ value: String(chTotal), label: "Clients" }} /></div>
-              <div className="legend">
-                {chData.map((s, i) => (
-                  <div className="li" key={s.name}><span className="dot" style={{ background: ["#0f9043", "#bd8616", "#d23f43"][i] }} /><span className="nm">{s.name}</span><span className="vl">{s.value}</span><span className="pc">{chTotal ? Math.round((s.value / chTotal) * 100) : 0}%</span></div>
-                ))}
-              </div>
-            </div>
-          ) : <div className="empty-s">No client data in scope</div>}
-        </div>
-        {bva.budget > 0 && (
-          <div className="panel">
-            <div className="ph"><h3>Budget vs Actual <span className="hl">capacity utilised</span></h3></div>
-            <div className="bva-body compact">
-              <div className="bva-gauge">
-                <GaugeChart value={bvaPct} color={bvaPct > 100 ? "#d23f43" : bvaPct >= 70 ? "#16a34a" : "#e8930c"} />
-                <div className="bva-read"><b className="num">{bvaPct}%</b><span className="bva-cap">of budget</span></div>
-              </div>
-              <div className="bva-stats">
-                <div className="bva-stat"><span className="l">Budgeted</span><b className="num">{n0(bva.budget)}h</b></div>
-                <div className="bva-stat"><span className="l">Actual</span><b className="num">{n0(bva.actual)}h</b></div>
-                <div className="bva-stat"><span className="l">Variance</span><b className="num" style={{ color: bva.variance < 0 ? "#d23f43" : "#0f9043" }}>{bva.variance > 0 ? "+" : ""}{n0(bva.variance)}h</b></div>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* EMPLOYEE → CLIENTS — only when there are multiple people to map */}
       {showPeople && (<>
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
@@ -1087,7 +948,7 @@ export default function CommandCenter({
                 const cls = e.clients || [];
                 return (
                   <tr key={e.name + i} className="click" onClick={() => openEmployee(e.name)}>
-                    <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span><span className="tname">{e.name}</span><span className="ec-team">{e.team}</span></span></span></td>
+                    <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span><span className="tname">{e.name} {hrBadge(e.hr_status)}</span><span className="ec-team">{e.team}</span></span></span></td>
                     <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
                     <td className="num">{n0(e.billable)}h</td>
                     <td className="l">
@@ -1442,6 +1303,70 @@ export default function CommandCenter({
         </div>
       )}
 
+      {/* EMPLOYEE MAPPING — Hubstaff name <-> HR identity, editable */}
+      {mapModal && (
+        <div className="modal-bg" onClick={() => setMapModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 1080, width: "94vw" }}>
+            <div className="modal-h">
+              <div>
+                <h3><Users size={15} style={{ verticalAlign: -2, color: "var(--accent)" }} /> Employee Mapping</h3>
+                <div className="sub">{mapData ? (mapData.exists ? `${mapData.count} employees · Hubstaff name → HR identity` : "Mapping table not created yet") : "loading…"}</div>
+              </div>
+              <div className="modal-h-r">
+                <input className="filt-search" placeholder="Search name…" value={mapSearch} onChange={(e) => setMapSearch(e.target.value)} style={{ width: 160 }} />
+                <div className="modal-x" onClick={() => setMapModal(false)}><X size={16} /></div>
+              </div>
+            </div>
+            <div className="modal-b">
+              {!mapData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div>
+                : !mapData.write && !mapData.exists ? (
+                  <div className="empty-s" style={{ lineHeight: 1.7 }}>
+                    <b>Editing not enabled yet.</b><br />
+                    Backend ko write access do: <code>backend/.env</code> me<br />
+                    <code>DATABASE_URL_WRITE=postgresql://postgres.&lt;ref&gt;:&lt;password&gt;@…:6543/postgres</code><br />
+                    add karke backend restart karo, phir yahan se table bana ke edit kar sakte ho.
+                  </div>
+                ) : !mapData.exists ? (
+                  <div className="empty-s">
+                    Table abhi nahi bani. <button className="tb-act" disabled={mapBusy === "init"} onClick={mapInit} style={{ marginLeft: 8 }}>{mapBusy === "init" ? "Creating…" : "Create & seed table"}</button>
+                  </div>
+                ) : (
+                  <>
+                    {!mapData.write && <div className="empty-s" style={{ padding: "6px 10px", marginBottom: 8, color: "#e8930c" }}>Read-only — editing disabled (DATABASE_URL_WRITE not set).</div>}
+                    <div className="scrollwrap" style={{ maxHeight: 520 }}>
+                      <table className="ec-table">
+                        <thead><tr>
+                          <th className="l">Hubstaff name</th><th className="l">HR name</th><th className="l">Emp #</th>
+                          <th className="l">Status</th><th className="l">Dept</th><th className="l">Team</th>
+                          <th>Hrs</th><th>OK</th>
+                        </tr></thead>
+                        <tbody>
+                          {mapData.rows.filter((r) => !mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "")).toLowerCase().includes(mapSearch.toLowerCase())).slice(0, 60).map((r) => (
+                            <tr key={r.hubstaff_name} style={r.reviewed ? { background: "color-mix(in srgb, var(--accent) 6%, transparent)" } : undefined}>
+                              <td className="l"><span className="tname">{r.hubstaff_name}</span></td>
+                              <td className="l"><input className="map-inp" defaultValue={r.hr_full_name || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.hr_full_name || "")) mapSave(r, { hr_full_name: e.target.value }); }} /></td>
+                              <td className="l"><input className="map-inp" style={{ width: 80 }} defaultValue={r.hr_employee_no || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.hr_employee_no || "")) mapSave(r, { hr_employee_no: e.target.value }); }} /></td>
+                              <td className="l">
+                                <select className="map-inp" value={r.status || ""} disabled={!mapData.write} onChange={(e) => mapSave(r, { status: e.target.value })}>
+                                  {["ACTIVE", "RELIEVED", "EXTERNAL", "UNKNOWN"].map((s) => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                              </td>
+                              <td className="l"><input className="map-inp" style={{ width: 100 }} defaultValue={r.department || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.department || "")) mapSave(r, { department: e.target.value }); }} /></td>
+                              <td className="l"><input className="map-inp" style={{ width: 100 }} defaultValue={r.team || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.team || "")) mapSave(r, { team: e.target.value }); }} /></td>
+                              <td className="num">{n0(r.total_hours || 0)}</td>
+                              <td className="num"><input type="checkbox" checked={!!r.reviewed} disabled={!mapData.write} onChange={(e) => mapSave(r, { reviewed: e.target.checked })} /></td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* TOTAL HOURS DETAIL — employee x project x task, billable / non-billable */}
       {hoursModal && (() => {
         const allRows = hoursData?.rows || [];
@@ -1555,7 +1480,9 @@ function RingChart({ segs }: { segs: { label: string; value: number; color: stri
     const frac = s.value / total; const dash = frac * C;
     const arc = (
       <circle key={i} cx="100" cy="100" r={R} fill="none" stroke={s.color} strokeWidth={SW}
-        strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-acc * C} />
+        strokeDasharray={`${dash} ${C - dash}`} strokeDashoffset={-acc * C} className="rc-arc">
+        <title>{s.label}: {Intl.NumberFormat("en-IN").format(Math.round(s.value))} ({Math.round(frac * 100)}%)</title>
+      </circle>
     );
     acc += frac; return arc;
   });
@@ -1572,6 +1499,68 @@ function RingChart({ segs }: { segs: { label: string; value: number; color: stri
     <svg viewBox="0 0 200 200" className="ringchart">
       <g transform="rotate(-90 100 100)">{arcs}</g>
       {labels}
+    </svg>
+  );
+}
+
+function DonutCard({ title, sub, segs, centerValue, centerLabel, onClick, fmt, note }: {
+  title: string; sub?: string; segs: { label: string; value: number; color: string }[];
+  centerValue: string; centerLabel: string; onClick?: () => void; fmt?: (v: number) => string; note?: string;
+}) {
+  const total = segs.reduce((s, x) => s + x.value, 0) || 1;
+  const f = fmt || ((v: number) => Intl.NumberFormat("en-IN").format(Math.round(v)));
+  return (
+    <div className={`dcard${onClick ? " kclk" : ""}`} onClick={onClick}>
+      <div className="dcard-h"><h3>{title}</h3>{sub && <span className="dcard-sub">{sub}</span>}</div>
+      <div className="dcard-chart">
+        <RingChart segs={segs} />
+        <div className="dcard-center"><b className="num">{centerValue}</b><span>{centerLabel}</span></div>
+      </div>
+      <div className="dcard-leg">
+        {segs.map((s) => (
+          <div className="dleg" key={s.label}>
+            <span className="d" style={{ background: s.color }} />
+            <span className="nm">{s.label}</span>
+            <b className="v num">{f(s.value)}</b>
+            <span className="p">{Math.round((s.value / total) * 100)}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MiniRing({ pct, color, Icon }: { pct: number; color: string; Icon: React.ComponentType<{ size?: number }> }) {
+  const R = 15, C = 2 * Math.PI * R, dash = (Math.min(100, Math.max(0, pct)) / 100) * C;
+  return (
+    <span className="mring">
+      <svg viewBox="0 0 40 40">
+        <circle cx="20" cy="20" r={R} fill="none" stroke="#eef1f6" strokeWidth="4" />
+        <circle cx="20" cy="20" r={R} fill="none" stroke={color} strokeWidth="4" strokeLinecap="round"
+          strokeDasharray={`${dash} ${C}`} transform="rotate(-90 20 20)" />
+      </svg>
+      <i className="mring-ic" style={{ color }}><Icon size={14} /></i>
+    </span>
+  );
+}
+
+function SemiGauge({ segs, center, sub }: { segs: { value: number; color: string }[]; center: string; sub: string }) {
+  const total = segs.reduce((s, x) => s + x.value, 0) || 1;
+  const R = 76, cx = 100, cy = 96, sw = 22;
+  const len = Math.PI * R;
+  const path = `M ${cx - R} ${cy} A ${R} ${R} 0 0 1 ${cx + R} ${cy}`;
+  let acc = 0;
+  return (
+    <svg viewBox="0 0 200 108" className="semigauge">
+      <path d={path} fill="none" stroke="#eef1f6" strokeWidth={sw} strokeLinecap="round" />
+      {segs.map((s, i) => {
+        const dash = (s.value / total) * len;
+        const el = <path key={i} d={path} fill="none" stroke={s.color} strokeWidth={sw} strokeLinecap="butt"
+          strokeDasharray={`${dash} ${len}`} strokeDashoffset={-acc} />;
+        acc += dash; return el;
+      })}
+      <text x="100" y="80" textAnchor="middle" className="sg-val">{center}</text>
+      <text x="100" y="96" textAnchor="middle" className="sg-sub">{sub}</text>
     </svg>
   );
 }

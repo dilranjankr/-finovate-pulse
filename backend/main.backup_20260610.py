@@ -210,93 +210,6 @@ def _is_nb(name: str) -> bool:
     return bool(_NB_RE.search(name or ""))
 
 
-# --- Accurate attribution helpers (Fix 1) ---
-_OPS_TEAMS = ["Titans", "Syndicate", "Synergy", "Alliance", "Falcons", "Mavericks", "Bravix"]
-_INTERNAL_KW = ["emailing", "training", "nb tasks", "admin-operational", "admin operational",
-                "introductory", "operational works", "company maintenance", "master project",
-                "new initiatives", "initiatives", "tracker", "audit & reporting", "employee process",
-                "accounting - finovate", "marketing -ledgerlabs", "marketing - ledgerlabs",
-                "& management", "maintenance"]
-
-
-def norm_team(raw: str) -> str:
-    """Normalize a raw team/space (ClickUp space or Hubstaff project prefix) to a clean team name."""
-    s = (raw or "").strip(); low = s.lower()
-    if not s or low in ("(unknown)", "no project"):
-        return "Unassigned"
-    if "archived" in low:
-        return "Archived Projects"
-    if "operations" in low and "ledger" not in low:
-        for t in _OPS_TEAMS:
-            if t.lower() in low:
-                return "Operations - " + t
-        return "Operations (other)"
-    if "ledger labs" in low or low.startswith("ll:"):
-        return "Ledger Labs (Internal)"
-    if "marketing" in low:
-        return "Marketing"
-    if "training" in low:
-        return "Training"
-    if "admin" in low:
-        return "Admin"
-    if "onboarding" in low:
-        return "Onboarding"
-    if "tax" in low or "client tracking" in low:
-        return "Tax"
-    if low.startswith("hr"):
-        return "HR"
-    if "audit" in low:
-        return "Audit"
-    if any(k in low for k in ["developer", "odoo", "it ai", "r&d", "automation", "config"]):
-        return "IT / R&D"
-    if "praduman" in low:
-        return "Praduman Singh"
-    if "personal" in low:
-        return "Personal"
-    if "operation lead" in low:
-        return "Operations (other)"
-    if any(k in low for k in ["test supabase", "sales", "indian", "tracker", "billable hours"]):
-        return "Unassigned"
-    return s
-
-
-def dept_of_team(team: str) -> str:
-    return "Operations" if (team or "").startswith("Operations") else (team or "Unassigned")
-
-
-def client_kind(client: str) -> str:
-    c = (client or "").lower()
-    if any(k in c for k in _INTERNAL_KW):
-        return "Internal"
-    cz = c.replace(" ", "")
-    if "(f)" in cz:
-        return "Fixed"
-    if "(h)" in cz:
-        return "Hourly"
-    return "Project"
-
-
-def _working_days(start: str, end: str) -> int:
-    """Company rule: Mon-Fri working + FIRST Saturday of each month working;
-    all other Saturdays + every Sunday = off. Counts working days in [start, end]."""
-    from datetime import date, timedelta
-    try:
-        d = date.fromisoformat(str(start)[:10]); e = date.fromisoformat(str(end)[:10])
-    except Exception:
-        return 0
-    if e < d:
-        return 0
-    n = 0; cur = d
-    while cur <= e:
-        w = cur.weekday()  # Mon=0 .. Sun=6
-        if w <= 4:                      # Mon-Fri
-            n += 1
-        elif w == 5 and cur.day <= 7:   # first Saturday of the month
-            n += 1
-        cur += timedelta(days=1)
-    return n
-
-
 @lru_cache(maxsize=1)
 def clickup_intel():
     """From ClickUp tasks (matched via assignees) derive per-employee:
@@ -413,82 +326,54 @@ def clickup_intel():
 
 
 def load_from_db():
-    # Accurate hours from hubstaff_activities, attributed PER ACTIVITY to its REAL
-    # team/client (Fix 1): ClickUp task-ID link (remote_id = task_id) gives the
-    # real ClickUp space/folder; when no task links, the Hubstaff project name
-    # ("Team / Client") is parsed as a fallback. No more "dump all hours into the
-    # employee's primary folder" — so team/dept/client totals are real (no double-count).
+    # Accurate hours from hubstaff_activities (validated), enriched with REAL
+    # client + project via Hubstaff project/client tables. Aggregated DB-side.
     g = db.q("""
         SELECT
           a.user_id::text AS user_id,
           a.date::text AS date_s,
-          CASE WHEN c.task_id IS NOT NULL AND COALESCE(c.space_name,'')<>'' THEN c.space_name
-               ELSE COALESCE(NULLIF(split_part(p.name,' / ',1),''), 'No Project') END AS team_raw,
-          CASE WHEN c.task_id IS NOT NULL AND COALESCE(c.folder_name,'')<>'' THEN c.folder_name
-               WHEN p.name LIKE '%/%' THEN trim(split_part(p.name,' / ',2))
-               ELSE COALESCE(NULLIF(p.name,''), 'No Project') END AS client_raw,
+          COALESCE(NULLIF(cl.name,''), 'Unassigned') AS client,
+          COALESCE(NULLIF(p.name,''), 'No Project') AS atl,
+          'Unassigned' AS department,
+          COALESCE(NULLIF(cl.budget_type,''), NULLIF(p.budget_type,''), 'Unspecified') AS client_type,
           (COALESCE(a.billable,0) > 0) AS billable,
-          (c.task_id IS NOT NULL) AS clickup_linked,
           SUM(COALESCE(a.tracked,0)) AS tracked,
           SUM(COALESCE(a.overall,0)) AS overall,
           SUM(COALESCE(a.billable,0)) AS billable_sec,
+          -- This project's activities table has no per-row "productivity" score,
+          -- so we proxy it with activity (overall/tracked): prod_w/tracked -> activity %.
           SUM(COALESCE(a.overall,0) * 100) AS prod_w,
+          -- Non-billable seconds: time whose Hubstaff TASK name (summary) or
+          -- PROJECT name carries the "NB" marker. task_id is often null but
+          -- project_id is almost always present, so the project name catches the
+          -- "NB Tasks - …" projects that activities without a task fall under.
           SUM(CASE WHEN trim(COALESCE(ht.summary,'')) ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
                      OR trim(COALESCE(p.name,'')) ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
                    THEN COALESCE(a.tracked,0) ELSE 0 END) AS nb_sec
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
+        LEFT JOIN hubstaff_clients cl ON cl.id = p.client_id
         LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
-        LEFT JOIN clickup_tasks c ON c.task_id = ht.remote_id
         WHERE COALESCE(a.tracked,0) > 0
-        GROUP BY 1,2,3,4,5,6
+        GROUP BY 1,2,3,4,5,6,7
     """)
     g["date_s"] = pd.to_datetime(g["date_s"]).dt.strftime("%Y-%m-%d")
     for c in ["tracked", "overall", "billable_sec", "prod_w", "nb_sec"]:
         g[c] = pd.to_numeric(g[c], errors="coerce").fillna(0)
     g["billable"] = g["billable"].astype(bool)
-    g["clickup_linked"] = g["clickup_linked"].astype(bool)
     g["tracked_h"] = g["tracked"] / SEC
     g["overall_h"] = g["overall"] / SEC
     g["billable_h"] = g["billable_sec"] / SEC
     g["non_billable_h"] = (g["tracked"] - g["billable_sec"]).clip(lower=0) / SEC
     g["productivity"] = g["prod_w"] / g["tracked"].replace(0, 1)
 
-    # REAL per-activity Team / Department / Client (normalized). Replaces the old
-    # "primary folder for everything" approach.
+    # Real Department / Team / Client + task status from ClickUp
     intel = clickup_intel()
     omap, cdim = intel["emp"], intel["clients"]
-    g["atl"] = g["team_raw"].map(norm_team)
-    g["department"] = g["atl"].map(dept_of_team)
-    g["client"] = g["client_raw"].fillna("(no client)").replace("", "(no client)")
-    g["client_type"] = g["client"].map(client_kind)
-
-    # Department / Team from the HR org structure (employee_mapping table) instead of
-    # ClickUp spaces — so the dashboard shows the real 7 departments / 17 teams.
-    # Client stays per-activity (real). Falls back to ClickUp attribution if the
-    # mapping table is missing.
-    hr_status_map = {}
-    try:
-        hm = db.q("SELECT hubstaff_user_id uid, department, team, status FROM employee_mapping "
-                  "WHERE coalesce(hubstaff_user_id,'')<>''")
-        def _cl(v):
-            s = str(v).strip()
-            return "" if s.lower() in ("nan", "none", "") else s
-        hr_dept, hr_team = {}, {}
-        for _, r in hm.iterrows():
-            uid = str(r["uid"]); stt = (r["status"] or "UNKNOWN")
-            hr_status_map[uid] = stt
-            dp, tm = _cl(r["department"]), _cl(r["team"])
-            if stt == "EXTERNAL":
-                hr_dept[uid] = "US"; hr_team[uid] = "US Team"
-            elif dp:
-                hr_dept[uid] = dp
-                hr_team[uid] = tm if tm else dp
-        if hr_dept:
-            g["department"] = g["user_id"].map(lambda u: hr_dept.get(u, "Unassigned"))
-            g["atl"] = g["user_id"].map(lambda u: hr_team.get(u, "Unassigned"))
-    except Exception as _e:  # noqa
-        print("HR mapping override skipped:", str(_e)[:120])
+    g["department"] = g["user_id"].map(lambda u: (omap.get(u) or {}).get("department") or "Unassigned")
+    g["atl"] = g["user_id"].map(lambda u: (omap.get(u) or {}).get("team") or "Unassigned")
+    g["client"] = g["user_id"].map(lambda u: (omap.get(u) or {}).get("client") or "Unassigned")
+    g["client_type"] = g["client"].map(lambda c: (cdim.get(c) or {}).get("category", "Project"))
 
     # Billable vs Non-Billable straight from the NB task marker on the Hubstaff
     # task (activities.task_id -> hubstaff_tasks.summary, computed as nb_sec in the
@@ -528,18 +413,6 @@ def load_from_db():
     rate_map = dict(zip(mem["user_id"], pd.to_numeric(mem["pay_rate"], errors="coerce")))
     role_map = dict(zip(mem["user_id"], mem["role"]))
     email_map = dict(zip(mem["user_id"], mem["email"]))
-    # Hours-based membership sets (Fix 1, Part B): an employee belongs to a
-    # team/dept/client only where they actually TRACKED time (not just had a task).
-    team_sets = g.groupby("user_id")["atl"].apply(lambda s: sorted(set(s))).to_dict()
-    dept_sets = g.groupby("user_id")["department"].apply(lambda s: sorted(set(s))).to_dict()
-    client_sets = g.groupby("user_id")["client"].apply(lambda s: sorted(set(s))).to_dict()
-    # primary = the team/client with the most hours (for display)
-    prim_team = (g.groupby(["user_id", "atl"])["tracked_h"].sum().reset_index()
-                 .sort_values("tracked_h", ascending=False).drop_duplicates("user_id")
-                 .set_index("user_id")["atl"].to_dict())
-    prim_client = (g.groupby(["user_id", "client"])["tracked_h"].sum().reset_index()
-                   .sort_values("tracked_h", ascending=False).drop_duplicates("user_id")
-                   .set_index("user_id")["client"].to_dict())
     rows = []
     for uid in g["user_id"].unique():
         gap = (gmax_d - pd.to_datetime(last.get(uid))).days
@@ -555,11 +428,10 @@ def load_from_db():
                      "active_tasks": int(info.get("active_tasks", 0)),
                      "total_tasks": int(info.get("total_tasks", 0)),
                      "task_status": info.get("task_status", "Idle"),
-                     "hr_status": hr_status_map.get(uid, "UNKNOWN"),
-                     "client": prim_client.get(uid, "Unassigned"),
-                     "dept_set": dept_sets.get(uid, []),
-                     "team_set": team_sets.get(uid, []),
-                     "client_set": client_sets.get(uid, []),
+                     "client": info.get("client", "Unassigned"),
+                     "dept_set": info.get("depts", []),
+                     "team_set": info.get("teams", []),
+                     "client_set": info.get("clients", []),
                      "pri": info.get("pri", {"urgent": 0, "high": 0, "normal": 0, "low": 0}),
                      "st": info.get("st", {"completed": 0, "in_progress": 0, "review": 0, "overdue": 0}),
                      "nb_tasks": int(info.get("nb_tasks", 0)), "bill_tasks": int(info.get("bill_tasks", 0))})
@@ -595,10 +467,9 @@ def apply_filters(members, g, f):
                 m = m[m[setcol].apply(lambda s: bool(sv & set(s or [])))]
     ids = set(m["user_id"])
     d = g[g["user_id"].isin(ids)]
-    # Fix 1: g now carries the REAL per-activity team/dept/client, so filter the
-    # rows DIRECTLY on those columns (no membership re-tag / no double-counting).
-    for key, col in [("department", "department"), ("atl", "atl"),
-                     ("client", "client"), ("client_type", "client_type")]:
+    col_keys = [("client_type", "client_type")] if has_sets else \
+        [("department", "department"), ("atl", "atl"), ("client", "client"), ("client_type", "client_type")]
+    for key, col in col_keys:
         vals = _vals(f.get(key))
         if vals:
             d = d[d[col].isin(vals)]
@@ -621,6 +492,29 @@ def apply_filters(members, g, f):
         d = d[d["date_s"] >= f["date_from"]]
     if f.get("date_to"):
         d = d[d["date_s"] <= f["date_to"]]
+    # Re-tag grouping dimensions to the active filter, so every chart/table/KPI
+    # reflects the selected department/team/client (not the employee's primary).
+    if has_sets and not d.empty:
+        d = d.copy()
+        for key, setcol, gcol in [("department", "dept_set", "department"),
+                                  ("atl", "team_set", "atl"), ("client", "client_set", "client")]:
+            vals = _vals(f.get(key))
+            if not vals:
+                continue
+            belong = dict(zip(m["user_id"], m[setcol]))
+            chosen = {}
+            for uid in belong:
+                bs = set(belong.get(uid) or [])
+                pk = next((v for v in vals if v in bs), None)
+                if pk:
+                    chosen[uid] = pk
+            mapped = d["user_id"].map(chosen)
+            d[gcol] = mapped.fillna(d[gcol])
+        # client_type follows the (possibly re-tagged) client
+        if _vals(f.get("client")):
+            intel = clickup_intel()
+            cd = intel["clients"]
+            d["client_type"] = d["client"].map(lambda c: (cd.get(c) or {}).get("category", "Project"))
     return m, d
 
 
@@ -630,7 +524,7 @@ def _period_headline(members, g, f):
     if dd.empty:
         return {"total": 0.0, "billable": 0.0, "non_billable": 0.0, "util": 0.0, "prod": 0.0, "act": 0.0, "emps": 0}
     b = float(dd["billable_h"].sum()); nb = float(dd["non_billable_h"].sum()); t = b + nb
-    cap = sum(_user_wdays(dd).values()) * 8  # working-day capacity (Fix 6)
+    ed = int(dd["ud"].nunique()); cap = ed * 8
     tr = float(dd["tracked"].sum())
     return {"total": t, "billable": b, "non_billable": nb,
             "util": min(100.0, t / cap * 100) if cap else 0.0,
@@ -656,15 +550,6 @@ def spark(arr, k=24):
     return [arr[int(i * step)] for i in range(k)]
 
 
-def _user_wdays(d):
-    """Fix 6: expected WORKING days (Mon-Fri + 1st Saturday) per user across their
-    active span within the filtered data — the capacity denominator for utilization."""
-    if d.empty:
-        return {}
-    span = d.groupby("user_id")["date_s"].agg(["min", "max"])
-    return {u: max(1, _working_days(r["min"], r["max"])) for u, r in span.iterrows()}
-
-
 def group_metrics(d, by):
     grp = d.groupby(by).agg(
         billable=("billable_h", "sum"), non_billable=("non_billable_h", "sum"),
@@ -672,27 +557,13 @@ def group_metrics(d, by):
         prod_w=("prod_w", "sum"), tracked=("tracked", "sum"),
         revenue=("revenue", "sum"), empdays=("ud", "nunique"),
         people=("user_id", "nunique")).reset_index()
-    # Expected working-day capacity per group. Each user's working-day capacity is
-    # split across the groups they appear in, PROPORTIONAL to their hours there — so
-    # a multi-team person's capacity isn't counted in full for every team. Result:
-    # a group's utilization = hours-weighted average of its members' true utilization.
-    wd = _user_wdays(d)
-    if by == "user_id":
-        grp["wdays"] = grp["user_id"].map(lambda u: wd.get(u, 0))
-    else:
-        utot = d.groupby("user_id")["tracked_h"].sum().to_dict()
-        gu = d.groupby([by, "user_id"])["tracked_h"].sum().reset_index()
-        gu["capd"] = [wd.get(u, 0) * (h / utot.get(u, 1) if utot.get(u, 0) else 0)
-                      for u, h in zip(gu["user_id"], gu["tracked_h"])]
-        wdays_s = gu.groupby(by)["capd"].sum()
-        grp["wdays"] = grp[by].map(wdays_s).fillna(grp["empdays"])
-    cap = (grp["wdays"] * 8).replace(0, 1)
+    cap = (grp["empdays"] * 8).replace(0, 1)
     grp["utilization"] = (grp["total"] / cap * 100).clip(upper=100)
     grp["activity"] = (grp["overall"] / grp["total"].replace(0, 1) * 100)
     grp["avg_day"] = grp["total"] / grp["empdays"].replace(0, 1)
     # Productivity = billable share of tracked time (billable hours / total × 100)
     grp["productivity"] = (grp["billable"] / grp["total"].replace(0, 1) * 100)
-    grp["budget"] = grp["wdays"] * 8
+    grp["budget"] = grp["empdays"] * 8
     grp["variance"] = grp["total"] - grp["budget"]
     grp["grade"] = (0.5 * grp["utilization"] + 0.5 * grp["productivity"]).apply(grade_letter)
     return grp
@@ -746,8 +617,7 @@ def health():
 
 
 @app.get("/api/filters")
-def filters(department: Optional[str] = None, atl: Optional[str] = None,
-            date_from: Optional[str] = None, date_to: Optional[str] = None):
+def filters(department: Optional[str] = None, atl: Optional[str] = None):
     members, g = load()
 
     def srt(vals):
@@ -759,20 +629,32 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
     dep_vals, atl_vals = _vals(department), _vals(atl)
     has_sets = "team_set" in members.columns
 
-    # Dropdowns list every option from the full history (period-active filtering
-    # was reverted on request) — date params are accepted but not applied here.
-    gp = g
-
     if has_sets:
-        name_map = dict(zip(members["user_id"], members["name"]))
-        # cascade: department -> teams/clients/employees within that dept
-        scope = gp[gp["department"].isin(dep_vals)] if dep_vals else gp
-        emp_scope = scope[scope["atl"].isin(atl_vals)] if atl_vals else scope
-        all_depts = set(gp["department"].unique())
-        teams_scoped = set(scope["atl"].unique())
-        clients_scoped = set(scope["client"].unique())
-        employees = sorted({name_map.get(u) for u in emp_scope["user_id"].unique() if name_map.get(u)})
-        client_types = srt(set(gp["client_type"].unique()))
+        # Every team / department / client an employee touches (not just primary),
+        # so ALL of them are filterable. Cascading scopes teams/employees/clients.
+        all_depts, all_teams, all_clients = set(), set(), set()
+        for _, r in members.iterrows():
+            all_depts.update(r["dept_set"] or [])
+            all_teams.update(r["team_set"] or [])
+            all_clients.update(r["client_set"] or [])
+        teams_scoped = [t for t in all_teams if _dept_of(t) in dep_vals] if dep_vals else list(all_teams)
+
+        def emp_ok(r):
+            if dep_vals and not (set(dep_vals) & set(r["dept_set"] or [])):
+                return False
+            if atl_vals and not (set(atl_vals) & set(r["team_set"] or [])):
+                return False
+            return True
+
+        emp_rows = members[members.apply(emp_ok, axis=1)]
+        employees = sorted(emp_rows["name"].dropna().unique().tolist())
+        if dep_vals:
+            clients_scoped = {c for _, r in members.iterrows()
+                              if (set(dep_vals) & set(r["dept_set"] or []))
+                              for c in (r["client_set"] or [])}
+        else:
+            clients_scoped = all_clients
+        client_types = srt({_client_cat(c) for c in all_clients})
         return clean({
             "date_min": g["date_s"].min(), "date_max": g["date_s"].max(),
             "departments": srt(all_depts),
@@ -785,8 +667,8 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
         })
 
     # CSV fallback (no ClickUp membership) — use the single-column values
-    dim = gp.groupby("user_id").agg(department=("department", "first"), atl=("atl", "first"),
-                                    client=("client", "first"), client_type=("client_type", "first")).reset_index()
+    dim = g.groupby("user_id").agg(department=("department", "first"), atl=("atl", "first"),
+                                   client=("client", "first"), client_type=("client_type", "first")).reset_index()
     dim = dim.merge(members[["user_id", "name"]], on="user_id", how="left")
     dep_scope = dim[dim["department"].isin(dep_vals)] if dep_vals else dim
     atl_scope = dep_scope[dep_scope["atl"].isin(atl_vals)] if atl_vals else dep_scope
@@ -845,7 +727,7 @@ def command(
     total = bill + nonb
     empdays = int(d["ud"].nunique()) if not empty else 0
     people = int(d["user_id"].nunique()) if not empty else 0
-    cap = (sum(_user_wdays(d).values()) * 8) if not empty else 0  # working-day capacity (Fix 6)
+    cap = empdays * 8
     util = min(100.0, total / cap * 100) if cap else 0.0
     prod = float(bill / total * 100) if total else 0.0  # productivity = billable share
     revenue = float(d["revenue"].sum()) if not empty else 0.0
@@ -855,7 +737,7 @@ def command(
     emp = group_metrics(d, "user_id") if not empty else pd.DataFrame()
     if not emp.empty:
         emp = emp.merge(members[["user_id", "name", "status", "task_completion",
-                                 "active_tasks", "total_tasks", "task_status", "hr_status", "client"]], on="user_id", how="left")
+                                 "active_tasks", "total_tasks", "task_status", "client"]], on="user_id", how="left")
         emp["grade_score"] = 0.4 * emp["utilization"] + 0.3 * emp["productivity"] + 0.3 * emp["task_completion"].fillna(70)
         emp["grade"] = emp["grade_score"].apply(grade_letter)
         avg_grade = grade_letter(float(emp["grade_score"].mean()))
@@ -991,7 +873,6 @@ def command(
                                   "days": int(r["empdays"]), "grade": r["grade"],
                                   "active_tasks": int(r.get("active_tasks") or 0),
                                   "task_status": r.get("task_status") or "Idle",
-                                  "hr_status": r.get("hr_status") or "UNKNOWN",
                                   "client": r.get("client") or "—",
                                   "clients": sorted(clist)})
 
@@ -1463,10 +1344,7 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
     bill = float(d["billable_h"].sum())
     overall = float(d["overall_h"].sum())
     empdays = int(d["date_s"].nunique())
-    # Fix 6: capacity = expected WORKING days (Mon-Fri + 1st Saturday) across the
-    # employee's active span in the period, x 8h (not just the days they showed up).
-    wdays = _working_days(d["date_s"].min(), d["date_s"].max()) if not d.empty else 0
-    cap = max(wdays, 1) * 8
+    cap = empdays * 8
     util = min(100.0, tracked / cap * 100) if cap else 0.0
     act = overall / tracked * 100 if tracked else 0.0
     prod = float(bill / tracked * 100) if tracked else 0.0  # productivity = billable share
@@ -1672,164 +1550,8 @@ def ask(payload: dict):
     return clean(res)
 
 
-# =================================================================
-# EMPLOYEE MAPPING (Hubstaff name <-> HR identity) — editable from the app
-# =================================================================
-_MAP_DDL = """
-CREATE TABLE employee_mapping (
-  hubstaff_name     text PRIMARY KEY,
-  hubstaff_user_id  text,
-  hr_employee_no    text,
-  hr_full_name      text,
-  status            text,
-  department        text,
-  team              text,
-  job_title         text,
-  reporting_to      text,
-  exit_date         date,
-  confidence        text,
-  total_hours       numeric,
-  last_worked       date,
-  reviewed          boolean DEFAULT false,
-  updated_at        timestamptz DEFAULT now()
-)
-"""
-
-
-@app.get("/api/mapping")
-def mapping_get():
-    try:
-        df = db.q_write("SELECT * FROM employee_mapping ORDER BY total_hours DESC NULLS LAST")
-    except Exception:
-        return {"exists": False, "write": db.has_write(), "count": 0, "rows": []}
-    rows = []
-    for _, r in df.iterrows():
-        d = {}
-        for k, v in r.items():
-            if pd.isna(v):
-                d[k] = None
-            elif hasattr(v, "isoformat"):          # date / timestamp
-                d[k] = str(v)[:10]
-            elif isinstance(v, (bool, str)):
-                d[k] = v
-            elif isinstance(v, (int, float)):
-                d[k] = v
-            else:                                   # Decimal / numpy
-                d[k] = float(v) if k == "total_hours" else str(v)
-        rows.append(d)
-    return {"exists": True, "write": db.has_write(), "count": len(rows), "rows": rows}
-
-
-@app.post("/api/mapping/save")
-def mapping_save(payload: dict):
-    if not db.has_write():
-        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
-    name = (payload or {}).get("hubstaff_name")
-    if not name:
-        return {"ok": False, "reason": "no_name"}
-    editable = ["hr_employee_no", "hr_full_name", "status", "department", "team",
-                "job_title", "reporting_to", "exit_date", "reviewed"]
-    sets, params = [], {"k_name": name}
-    for k in editable:
-        if k in payload:
-            sets.append(f"{k} = :{k}")
-            v = payload[k]
-            params[k] = (None if v == "" else v)
-    if not sets:
-        return {"ok": False, "reason": "no_fields"}
-    sets.append("updated_at = now()")
-    try:
-        db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
-        return {"ok": True}
-    except Exception as e:  # noqa
-        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
-
-
-@app.post("/api/mapping/init")
-def mapping_init():
-    """One-time: create the table and seed it from app/employee_mapping.csv."""
-    if not db.has_write():
-        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
-    import csv as _csv
-    path = os.path.join(os.path.dirname(__file__), "..", "employee_mapping.csv")
-    if not os.path.exists(path):
-        return {"ok": False, "reason": "no_csv", "detail": "Run build_employee_mapping.py first"}
-    try:
-        db.execute("DROP TABLE IF EXISTS employee_mapping")
-        db.execute(_MAP_DDL)
-        ins = ("INSERT INTO employee_mapping (hubstaff_name,hubstaff_user_id,hr_employee_no,"
-               "hr_full_name,status,department,team,job_title,reporting_to,exit_date,confidence,"
-               "total_hours,last_worked) VALUES (:hubstaff_name,:hubstaff_user_id,:hr_employee_no,"
-               ":hr_full_name,:status,:department,:team,:job_title,:reporting_to,:exit_date,"
-               ":confidence,:total_hours,:last_worked) ON CONFLICT (hubstaff_name) DO NOTHING")
-        n = 0
-        with open(path, encoding="utf-8-sig") as fh:
-            for r in _csv.DictReader(fh):
-                r = {k: (None if (v is None or v == "") else v) for k, v in r.items()}
-                r["total_hours"] = float(r["total_hours"]) if r.get("total_hours") else None
-                db.execute(ins, r)
-                n += 1
-        try:
-            db.execute("GRANT SELECT ON employee_mapping TO finovate_viewer")
-        except Exception:
-            pass
-        return {"ok": True, "rows": n}
-    except Exception as e:  # noqa
-        return {"ok": False, "reason": "db", "detail": str(e)[:300]}
-
-
-@app.get("/api/task_delivery")
-def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None,
-                  department: Optional[str] = None, atl: Optional[str] = None,
-                  employee: Optional[str] = None, client: Optional[str] = None,
-                  client_type: Optional[str] = None, billable: Optional[str] = None,
-                  status: Optional[str] = None):
-    """On-time delivery from Hubstaff tasks (= ClickUp-synced). For tasks DUE in the
-    period, status AS-OF the period end. When a department/team/employee/client filter
-    is applied, scopes to the tasks those people actually worked on."""
-    where = ["h.due_at IS NOT NULL"]
-    p = {}
-    if date_from:
-        where.append("h.due_at::date >= :df"); p["df"] = date_from
-    if date_to:
-        where.append("h.due_at::date <= :dt"); p["dt"] = date_to
-    # scope to in-filter employees (skip when company-wide, for speed)
-    if any([department, atl, employee, client]):
-        try:
-            members, g = load()
-            f = {"department": department, "atl": atl, "employee": employee, "client": client,
-                 "client_type": client_type, "billable": billable, "status": status}
-            m, _ = apply_filters(members, g, f)
-            uids = [str(u) for u in m["user_id"].unique()]
-            if not uids:
-                return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0}
-            where.append("h.id IN (SELECT DISTINCT a.task_id FROM hubstaff_activities a "
-                         "WHERE a.task_id IS NOT NULL AND a.user_id::text = ANY(:uids))")
-            p["uids"] = uids
-        except Exception:  # noqa
-            pass
-    asof = "h.completed_at::date <= :dt" if date_to else "true"
-    sql = f"""
-      SELECT
-        count(*) due,
-        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date <= h.due_at::date) on_time,
-        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date >  h.due_at::date) late,
-        count(*) FILTER (WHERE h.completed_at IS NULL OR NOT ({asof})) open
-      FROM hubstaff_tasks h WHERE {' AND '.join(where)}
-    """
-    try:
-        r = db.q(sql, p).iloc[0]
-        due = int(r["due"]) or 0
-        ot = int(r["on_time"]); lt = int(r["late"]); op = int(r["open"])
-        return {"due": due, "on_time": ot, "late": lt, "open": op,
-                "on_time_pct": round(ot / due * 100, 1) if due else 0.0}
-    except Exception as e:  # noqa
-        return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0, "error": str(e)[:150]}
-
-
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Finovate Operations Command Center",
             "source": "supabase" if db.has_db() else "csv",
-            "write": db.has_write(),
             "ai": bool(os.environ.get("GEMINI_API_KEY", "").strip())}

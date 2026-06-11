@@ -28,7 +28,7 @@ export interface EmployeeRow {
   name: string; team: string; billable: number; non_billable: number;
   utilization: number; activity: number; productivity: number; avg_day: number;
   days: number; grade: string; active_tasks: number; task_status: string; client: string;
-  clients?: string[];
+  clients?: string[]; hr_status?: string;
 }
 
 export interface Summary {
@@ -159,10 +159,12 @@ export type Filters = {
   status?: string;
 };
 
-export async function getFilters(scope?: { department?: string; atl?: string }): Promise<FilterOptions> {
+export async function getFilters(scope?: { department?: string; atl?: string; date_from?: string; date_to?: string }): Promise<FilterOptions> {
   const qs = new URLSearchParams();
   if (scope?.department) qs.set("department", scope.department);
   if (scope?.atl) qs.set("atl", scope.atl);
+  if (scope?.date_from) qs.set("date_from", scope.date_from);
+  if (scope?.date_to) qs.set("date_to", scope.date_to);
   const r = await fetch(`${API}/api/filters?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("filters failed");
   return r.json();
@@ -216,6 +218,44 @@ export async function getBreakdownList(f: Filters): Promise<BreakdownListData> {
   const r = await fetch(`${API}/api/breakdown_list?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("breakdown_list failed");
   return r.json();
+}
+
+export interface MappingRow {
+  hubstaff_name: string; hubstaff_user_id?: string; hr_employee_no?: string; hr_full_name?: string;
+  status?: string; department?: string; team?: string; job_title?: string; reporting_to?: string;
+  exit_date?: string; confidence?: string; total_hours?: number; last_worked?: string; reviewed?: boolean;
+}
+export interface MappingData { exists: boolean; write: boolean; count: number; rows: MappingRow[]; }
+export async function getMapping(): Promise<MappingData> {
+  const r = await fetch(`${API}/api/mapping`, { cache: "no-store" });
+  if (!r.ok) throw new Error("mapping failed");
+  return r.json();
+}
+export async function saveMapping(row: Partial<MappingRow> & { hubstaff_name: string }): Promise<{ ok: boolean; detail?: string; reason?: string }> {
+  const r = await fetch(`${API}/api/mapping/save`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(row),
+  });
+  return r.json();
+}
+export async function initMapping(): Promise<{ ok: boolean; rows?: number; detail?: string; reason?: string }> {
+  const r = await fetch(`${API}/api/mapping/init`, { method: "POST" });
+  return r.json();
+}
+
+export interface TaskDelivery { due: number; on_time: number; late: number; open: number; on_time_pct: number; }
+export async function getTaskDelivery(f: Filters): Promise<TaskDelivery> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await fetch(`${API}/api/task_delivery?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("task_delivery failed");
+  return r.json();
+}
+
+// Current calendar month within the available data window (default dashboard period).
+export function currentMonth(opts: FilterOptions): { date_from: string; date_to: string } {
+  const max = opts.date_max;                         // latest data date
+  const from = max.slice(0, 8) + "01";               // 1st of that month
+  return { date_from: from < opts.date_min ? opts.date_min : from, date_to: max };
 }
 
 export async function getCommand(f: Filters): Promise<CommandData> {
