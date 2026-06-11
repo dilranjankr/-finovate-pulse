@@ -1511,6 +1511,99 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
     })
 
 
+def _period_months(date_from, date_to):
+    from datetime import date as _date
+    try:
+        days = (_date.fromisoformat(date_to) - _date.fromisoformat(date_from)).days + 1 if (date_from and date_to) else 30
+    except Exception:
+        days = 30
+    return max(days / 30.0, 0.1)
+
+
+@app.get("/api/client")
+def client_profile(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """Per-client drill-down: hours, billable mix, budget vs actual, people, trend."""
+    members, g = load()
+    d = g[g["client"] == name]
+    if date_from:
+        d = d[d["date_s"] >= date_from]
+    if date_to:
+        d = d[d["date_s"] <= date_to]
+    if d.empty:
+        return {"found": False}
+    tracked = float(d["tracked_h"].sum()); bill = float(d["billable_h"].sum()); nb = tracked - bill
+    team = d["atl"].mode().iloc[0] if not d["atl"].mode().empty else "Unassigned"
+    dept = d["department"].mode().iloc[0] if not d["department"].mode().empty else "Unassigned"
+    days = int(d["date_s"].nunique())
+    bud = client_budgets()
+    b = bud.get(re.sub(r"\s*\([fh]\)\s*$", "", str(name).strip(), flags=re.I).strip().lower())
+    months = _period_months(date_from, date_to)
+    budget = round(b["budget"] * months, 1) if b else None
+    name_map = dict(zip(members["user_id"], members["name"]))
+    pe = (d.groupby("user_id").agg(h=("tracked_h", "sum"), billh=("billable_h", "sum"),
+          dd=("date_s", "nunique")).reset_index().sort_values("h", ascending=False))
+    people = [{"name": name_map.get(r.user_id, f"User {r.user_id}"), "hours": round(r.h, 1),
+               "billable": round(r.billh, 1), "days": int(r.dd)} for r in pe.itertuples()]
+    daily = (d.groupby("date_s").agg(h=("tracked_h", "sum"), b=("billable_h", "sum"))
+             .reset_index().sort_values("date_s"))
+    daily_rows = [{"date": r.date_s, "billable": round(r.b, 2), "non_billable": round(r.h - r.b, 2)}
+                  for r in daily.itertuples()]
+    return clean({
+        "found": True,
+        "profile": {
+            "client": name, "team": team, "department": dept, "type": (b["type"] if b else ""),
+            "total": round(tracked, 1), "billable": round(bill, 1), "non_billable": round(nb, 1),
+            "billable_pct": round(bill / tracked * 100, 0) if tracked else 0,
+            "budget": budget, "variance": round(tracked - budget, 1) if budget is not None else None,
+            "over": bool(tracked > budget) if budget is not None else None,
+            "people": len(people), "days": days, "last_worked": d["date_s"].max(),
+        },
+        "people": people, "daily": daily_rows,
+    })
+
+
+@app.get("/api/team")
+def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
+    """Per-team drill-down: capacity/utilization, members, top clients, trend."""
+    members, g = load()
+    d = g[g["atl"] == name]
+    if date_from:
+        d = d[d["date_s"] >= date_from]
+    if date_to:
+        d = d[d["date_s"] <= date_to]
+    if d.empty:
+        return {"found": False}
+    tracked = float(d["tracked_h"].sum()); bill = float(d["billable_h"].sum()); nb = tracked - bill
+    dept = d["department"].mode().iloc[0] if not d["department"].mode().empty else "Unassigned"
+    gm = group_metrics(d, "atl")
+    r0 = gm.iloc[0]
+    name_map = dict(zip(members["user_id"], members["name"]))
+    pe = (d.groupby("user_id").agg(h=("tracked_h", "sum"), billh=("billable_h", "sum"),
+          ov=("overall_h", "sum"), dd=("date_s", "nunique")).reset_index().sort_values("h", ascending=False))
+    ppl = [{"name": name_map.get(r.user_id, f"User {r.user_id}"), "hours": round(r.h, 1),
+            "billable": round(r.billh, 1), "days": int(r.dd),
+            "activity": round(r.ov / r.h * 100, 0) if r.h else 0} for r in pe.itertuples()]
+    cl = (d.groupby("client").agg(h=("tracked_h", "sum"), billh=("billable_h", "sum"))
+          .reset_index().sort_values("h", ascending=False).head(12))
+    clients = [{"client": r.client, "hours": round(r.h, 1), "billable": round(r.billh, 1)} for r in cl.itertuples()]
+    daily = (d.groupby("date_s").agg(h=("tracked_h", "sum"), b=("billable_h", "sum"))
+             .reset_index().sort_values("date_s"))
+    daily_rows = [{"date": r.date_s, "billable": round(r.b, 2), "non_billable": round(r.h - r.b, 2)}
+                  for r in daily.itertuples()]
+    return clean({
+        "found": True,
+        "profile": {
+            "team": name, "department": dept, "people": len(ppl),
+            "total": round(tracked, 1), "billable": round(bill, 1), "non_billable": round(nb, 1),
+            "billable_pct": round(bill / tracked * 100, 0) if tracked else 0,
+            "utilization": round(float(r0["utilization"]), 0), "activity": round(float(r0["activity"]), 0),
+            "productivity": round(float(r0["productivity"]), 0), "grade": r0["grade"],
+            "clients": int(d["client"].nunique()), "days": int(d["date_s"].nunique()),
+        },
+        "members": ppl, "clients": clients, "daily": daily_rows,
+    })
+
+
 def _task_summary(d, emp, members):
     ts = {"Completed": 0, "In Progress": 0, "Review": 0, "Overdue": 0}
     # Scope-aware: aggregate per-employee task status for the employees in scope.

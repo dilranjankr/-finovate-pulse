@@ -258,6 +258,47 @@ export async function getBudget(f: Filters): Promise<BudgetData> {
   return r.json();
 }
 
+export interface ClientProfile {
+  found: boolean;
+  profile?: {
+    client: string; team: string; department: string; type: string;
+    total: number; billable: number; non_billable: number; billable_pct: number;
+    budget: number | null; variance: number | null; over: boolean | null;
+    people: number; days: number; last_worked: string;
+  };
+  people?: { name: string; hours: number; billable: number; days: number }[];
+  daily?: { date: string; billable: number; non_billable: number }[];
+}
+export async function getClient(name: string, f: Filters): Promise<ClientProfile> {
+  const qs = new URLSearchParams({ name });
+  if (f.date_from) qs.set("date_from", f.date_from);
+  if (f.date_to) qs.set("date_to", f.date_to);
+  const r = await fetch(`${API}/api/client?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("client failed");
+  return r.json();
+}
+
+export interface TeamProfile {
+  found: boolean;
+  profile?: {
+    team: string; department: string; people: number;
+    total: number; billable: number; non_billable: number; billable_pct: number;
+    utilization: number; activity: number; productivity: number; grade: string;
+    clients: number; days: number;
+  };
+  members?: { name: string; hours: number; billable: number; days: number; activity: number }[];
+  clients?: { client: string; hours: number; billable: number }[];
+  daily?: { date: string; billable: number; non_billable: number }[];
+}
+export async function getTeam(name: string, f: Filters): Promise<TeamProfile> {
+  const qs = new URLSearchParams({ name });
+  if (f.date_from) qs.set("date_from", f.date_from);
+  if (f.date_to) qs.set("date_to", f.date_to);
+  const r = await fetch(`${API}/api/team?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("team failed");
+  return r.json();
+}
+
 export interface TaskDelivery { due: number; on_time: number; late: number; open: number; on_time_pct: number; }
 export async function getTaskDelivery(f: Filters): Promise<TaskDelivery> {
   const qs = new URLSearchParams();

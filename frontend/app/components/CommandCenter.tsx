@@ -9,7 +9,7 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
@@ -141,6 +141,16 @@ export default function CommandCenter({
   const [clientTab, setClientTab] = useState<"top" | "bottom">("top");
   const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
+  const [clientProf, setClientProf] = useState<{ name: string; data: import("../lib/api").ClientProfile | null } | null>(null);
+  const [teamProf, setTeamProf] = useState<{ name: string; data: import("../lib/api").TeamProfile | null } | null>(null);
+  async function openClient(name: string) {
+    setClientProf({ name, data: null });
+    try { setClientProf({ name, data: await getClient(name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
+  }
+  async function openTeam(name: string) {
+    setTeamProf({ name, data: null });
+    try { setTeamProf({ name, data: await getTeam(name, draft) }); } catch { setTeamProf({ name, data: { found: false } }); }
+  }
   const [chatOpen, setChatOpen] = useState(false);
   const [aiQ, setAiQ] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
@@ -755,17 +765,17 @@ export default function CommandCenter({
       {(((data.departments && data.departments.length) || data.teams.length) > 0) && (() => {
         const colors = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4"];
         const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
-        const hpanel = (title: string, rows: TeamRow[], vertical = false) => {
+        const hpanel = (title: string, rows: TeamRow[], vertical = false, onPick?: (n: string) => void) => {
           const sorted = [...rows].filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 8);
           const max = Math.max(1, ...sorted.map((r) => r.total));
           return (
             <div className="panel">
-              <div className="ph"><h3>{title} <span className="hl">hours · top {sorted.length}</span></h3></div>
+              <div className="ph"><h3>{title} <span className="hl">hours · top {sorted.length}{onPick ? " · click to drill" : ""}</span></h3></div>
               {!sorted.length ? <div className="empty-s">No data in scope</div>
                 : vertical ? (
                   <div className="vbar-chart">
                     {sorted.map((r, i) => (
-                      <div className="vbar-col" key={r.team} title={`${r.team}: ${n0(r.total)}h`}>
+                      <div className={`vbar-col${onPick ? " click" : ""}`} key={r.team} title={`${r.team}: ${n0(r.total)}h`} onClick={onPick ? () => onPick(r.team) : undefined}>
                         <span className="vbar-v num">{fk(r.total)}</span>
                         <div className="vbar-track"><div className="vbar-fill" style={{ height: `${Math.max(4, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></div>
                         <span className="vbar-x">{r.team}</span>
@@ -775,7 +785,7 @@ export default function CommandCenter({
                 ) : (
                   <div className="hbar-list">
                     {sorted.map((r, i) => (
-                      <div className="hbar-row" key={r.team}>
+                      <div className={`hbar-row${onPick ? " click" : ""}`} key={r.team} onClick={onPick ? () => onPick(r.team) : undefined}>
                         <span className="hbar-lbl" title={r.team}>{r.team}</span>
                         <span className="hbar-track"><span className="hbar-fill" style={{ width: `${Math.max(2, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></span>
                         <b className="hbar-v num">{n0(r.total)}h</b>
@@ -786,10 +796,11 @@ export default function CommandCenter({
             </div>
           );
         };
+        const drillDept = (name: string) => { const next = { ...draft, department: name }; setDraft(next); apply(next); };
         return (
           <div className="row2" style={{ marginBottom: 14 }}>
-            {hpanel("By Department", data.departments || [], true)}
-            {hpanel("By Team", data.teams || [], false)}
+            {hpanel("By Department", data.departments || [], true, drillDept)}
+            {hpanel("By Team", data.teams || [], false, openTeam)}
           </div>
         );
       })()}
@@ -1181,6 +1192,140 @@ export default function CommandCenter({
         </div>
       )}
 
+      {/* CLIENT PROFILE — drill-down: budget vs actual, billable mix, people, trend */}
+      {clientProf && (
+        <div className="drawer-bg" onClick={() => setClientProf(null)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()}>
+            {!clientProf.data ? <div className="loading" style={{ height: "100%" }}><span className="spin" /> Loading…</div> :
+              !clientProf.data.found ? <div className="loading" style={{ height: "100%" }}>No tracked time for this client in scope</div> : (() => {
+                const p = clientProf.data.profile!;
+                const people = clientProf.data.people || [];
+                const daily = clientProf.data.daily || [];
+                return (
+                  <>
+                    <div className="drawer-h">
+                      <div className="emp-hero">
+                        <span className="avatar lg" style={{ background: avatarColor(p.client) }}><Briefcase size={20} /></span>
+                        <div><div className="nm">{p.client}</div><div className="tm">{p.team} · {p.department}{p.type ? ` · ${p.type}` : ""}</div></div>
+                      </div>
+                      <div className="modal-x" onClick={() => setClientProf(null)}><X size={16} /></div>
+                    </div>
+                    <div className="drawer-b">
+                      {p.budget !== null && (
+                        <div className={`bv-banner ${p.over ? "over" : "ok"}`}>
+                          <div className="bv-banner-l">
+                            <span className="bv-banner-lbl">{p.over ? "Over budget" : "Within budget"}</span>
+                            <span className="bv-banner-val">{n0(p.total)}h <i>used</i> / {n0(p.budget)}h <i>budget</i></span>
+                          </div>
+                          <span className={`bv-banner-var ${p.over ? "bad" : "good"}`}>{(p.variance ?? 0) > 0 ? "+" : ""}{n0(p.variance ?? 0)}h</span>
+                        </div>
+                      )}
+                      <div className="mini-kpis">
+                        <div className="mini-k"><div className="l">Total</div><div className="v num">{n0(p.total)}h</div></div>
+                        <div className="mini-k"><div className="l">Billable</div><div className="v num">{n0(p.billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Non-Bill</div><div className="v num">{n0(p.non_billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Billable %</div><div className="v num">{n0(p.billable_pct)}%</div></div>
+                        <div className="mini-k"><div className="l">People</div><div className="v num">{p.people}</div></div>
+                        <div className="mini-k"><div className="l">Active Days</div><div className="v num">{p.days}</div></div>
+                      </div>
+                      <div className="drawer-sec">Daily Hours Trend</div>
+                      <TrendLines data={daily.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={180} />
+                      <div className="drawer-sec">Who worked on this client ({people.length})</div>
+                      <div className="scrollwrap" style={{ maxHeight: 280 }}>
+                        <table>
+                          <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable</th><th>Days</th></tr></thead>
+                          <tbody>
+                            {people.map((e, i) => (
+                              <tr key={e.name + i} className="click" onClick={() => { setClientProf(null); openEmployee(e.name); }}>
+                                <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                                <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{n1(e.billable)}h</td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{e.days}</td>
+                              </tr>
+                            ))}
+                            {people.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No data</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+          </div>
+        </div>
+      )}
+
+      {/* TEAM PROFILE — drill-down: capacity, members, top clients, trend */}
+      {teamProf && (
+        <div className="drawer-bg" onClick={() => setTeamProf(null)}>
+          <div className="drawer" onClick={(e) => e.stopPropagation()}>
+            {!teamProf.data ? <div className="loading" style={{ height: "100%" }}><span className="spin" /> Loading…</div> :
+              !teamProf.data.found ? <div className="loading" style={{ height: "100%" }}>No tracked time for this team in scope</div> : (() => {
+                const p = teamProf.data.profile!;
+                const members2 = teamProf.data.members || [];
+                const tclients = teamProf.data.clients || [];
+                const daily = teamProf.data.daily || [];
+                const maxC = Math.max(1, ...tclients.map((c) => c.hours));
+                return (
+                  <>
+                    <div className="drawer-h">
+                      <div className="emp-hero">
+                        <span className="avatar lg" style={{ background: avatarColor(p.team) }}><Users size={20} /></span>
+                        <div><div className="nm">{p.team}</div><div className="tm">{p.department} · {p.people} people · {p.clients} clients</div></div>
+                      </div>
+                      <div className="modal-x" onClick={() => setTeamProf(null)}><X size={16} /></div>
+                    </div>
+                    <div className="drawer-b">
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                        <span className={`grade ${gradeCls(p.grade)}`} style={{ fontSize: 13, padding: "4px 11px" }}>{p.grade}</span>
+                        <span className="stt Idle"><span className="d" />{n0(p.total)}h tracked · {n0(p.billable_pct)}% billable</span>
+                      </div>
+                      <div className="mini-kpis">
+                        <div className="mini-k"><div className="l">People</div><div className="v num">{p.people}</div></div>
+                        <div className="mini-k"><div className="l">Total</div><div className="v num">{n0(p.total)}h</div></div>
+                        <div className="mini-k"><div className="l">Billable</div><div className="v num">{n0(p.billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Utilization</div><div className="v num">{n0(p.utilization)}%</div></div>
+                        <div className="mini-k"><div className="l">Activity</div><div className="v num">{n0(p.activity)}%</div></div>
+                        <div className="mini-k"><div className="l">Productivity</div><div className="v num">{n0(p.productivity)}%</div></div>
+                      </div>
+                      <div className="drawer-sec">Daily Hours Trend</div>
+                      <TrendLines data={daily.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={180} />
+                      <div className="drawer-sec">Top Clients ({tclients.length})</div>
+                      <div className="scrollwrap" style={{ maxHeight: 230 }}>
+                        {tclients.map((c, i) => (
+                          <div key={c.client + i} className="tc-row click" onClick={() => { setTeamProf(null); openClient(c.client); }}>
+                            <span className="tc-nm">{c.client}</span>
+                            <span className="tc-bar"><i style={{ width: `${(c.hours / maxC) * 100}%` }} /></span>
+                            <span className="tc-val num">{n0(c.hours)}h</span>
+                          </div>
+                        ))}
+                        {tclients.length === 0 && <div className="empty-s">No clients in scope</div>}
+                      </div>
+                      <div className="drawer-sec">Team Members ({members2.length})</div>
+                      <div className="scrollwrap" style={{ maxHeight: 280 }}>
+                        <table>
+                          <thead><tr><th className="l">Member</th><th>Hours</th><th>Billable</th><th>Activity</th></tr></thead>
+                          <tbody>
+                            {members2.map((e, i) => (
+                              <tr key={e.name + i} className="click" onClick={() => { setTeamProf(null); openEmployee(e.name); }}>
+                                <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                                <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{n1(e.billable)}h</td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{n0(e.activity)}%</td>
+                              </tr>
+                            ))}
+                            {members2.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No members</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+          </div>
+        </div>
+      )}
+
       {/* FLOATING AI CHAT */}
       <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Insight AI" aria-label="Ask AI">
         {chatOpen ? <X size={20} /> : <Sparkles size={20} />}
@@ -1480,7 +1625,7 @@ export default function CommandCenter({
                         return (
                           <tr key={r.client}>
                             <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
-                            <td className="l tname" style={{ fontWeight: 650 }}>{r.client}</td>
+                            <td className="l tname click" style={{ fontWeight: 650 }} onClick={() => { setBudgetModal(false); openClient(r.client); }}>{r.client}</td>
                             <td className="l" style={{ color: "var(--ink-2)" }}>{r.team}</td>
                             <td className="l"><span className="hrb" style={{ background: "var(--chip)", color: "var(--ink-2)" }}>{r.type}</span></td>
                             <td className="l">
