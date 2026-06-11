@@ -686,7 +686,7 @@ export default function CommandCenter({
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
           openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (working days × 8h) × 100, capped at 100%. Target 80%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"), kTone(util, 80, 60), "target 80%")}
         {kpiCard("k-bill", "Billable", n0(billable) + "h", "green", Receipt, undefined,
-          openMetric("Billable", "#16a34a", "Billable hours and their share of total tracked time.", (e) => e.billable, (v) => n0(v) + "h", "billable"), undefined, n1(billablePct) + "% of total")}
+          openMetric("Billable", "#16a34a", "Billable hours and their share of total tracked time.", (e) => e.billable, (v) => n0(v) + "h"), undefined, n1(billablePct) + "% of total")}
         {kpiCard("k-act", "Activity", n1(act) + "%", "teal", Activity, "activity",
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
         {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
