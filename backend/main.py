@@ -229,7 +229,7 @@ def norm_team(raw: str) -> str:
     if "operations" in low and "ledger" not in low:
         for t in _OPS_TEAMS:
             if t.lower() in low:
-                return "Operations - " + t
+                return t
         return "Operations (other)"
     if "ledger labs" in low or low.startswith("ll:"):
         return "Ledger Labs (Internal)"
@@ -261,7 +261,9 @@ def norm_team(raw: str) -> str:
 
 
 def dept_of_team(team: str) -> str:
-    return "Operations" if (team or "").startswith("Operations") else (team or "Unassigned")
+    if team in _OPS_TEAMS or (team or "").startswith("Operations"):
+        return "Operations"
+    return team or "Unassigned"
 
 
 def client_kind(client: str) -> str:
