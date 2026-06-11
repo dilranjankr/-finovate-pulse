@@ -467,9 +467,9 @@ def load_from_db():
     # ClickUp spaces — so the dashboard shows the real 7 departments / 17 teams.
     # Client stays per-activity (real). Falls back to ClickUp attribution if the
     # mapping table is missing.
-    hr_status_map = {}
+    hr_status_map, hr_name_map = {}, {}
     try:
-        hm = db.q("SELECT hubstaff_user_id uid, department, team, status FROM employee_mapping "
+        hm = db.q("SELECT hubstaff_user_id uid, hr_full_name, department, team, status FROM employee_mapping "
                   "WHERE coalesce(hubstaff_user_id,'')<>''")
         def _cl(v):
             s = str(v).strip()
@@ -479,6 +479,10 @@ def load_from_db():
             uid = str(r["uid"]); stt = (r["status"] or "UNKNOWN")
             hr_status_map[uid] = stt
             dp, tm = _cl(r["department"]), _cl(r["team"])
+            # display name: use the real HR name when present (skip junk / "(client…)")
+            nm = _cl(r["hr_full_name"])
+            if nm and "client" not in nm.lower() and "not staff" not in nm.lower():
+                hr_name_map[uid] = nm
             if stt == "EXTERNAL":
                 hr_dept[uid] = "US"; hr_team[uid] = "US Team"
             elif dp:
@@ -548,7 +552,7 @@ def load_from_db():
         if pd.isna(rate) or not rate:
             rate = 40.0
         info = omap.get(uid) or {}
-        rows.append({"user_id": uid, "name": name_map.get(uid) or f"User {uid}",
+        rows.append({"user_id": uid, "name": hr_name_map.get(uid) or name_map.get(uid) or f"User {uid}",
                      "role": role_map.get(uid, ""), "status": status,
                      "task_completion": comp, "rate": float(rate),
                      "email": email_map.get(uid, ""),
@@ -1740,6 +1744,7 @@ def mapping_save(payload: dict):
     sets.append("updated_at = now()")
     try:
         db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
+        load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
@@ -1773,6 +1778,7 @@ def mapping_init():
             db.execute("GRANT SELECT ON employee_mapping TO finovate_viewer")
         except Exception:
             pass
+        load.cache_clear()  # dashboard re-reads with the fresh mapping
         return {"ok": True, "rows": n}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:300]}
