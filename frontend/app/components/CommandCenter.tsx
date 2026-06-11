@@ -9,7 +9,7 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery,
+  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
@@ -171,6 +171,9 @@ export default function CommandCenter({
   const [gradeModal, setGradeModal] = useState(false);
   const [cmpTrend, setCmpTrend] = useState<CompareTrendData | null>(null);
   const [taskDel, setTaskDel] = useState<import("../lib/api").TaskDelivery | null>(null);
+  const [budget, setBudget] = useState<import("../lib/api").BudgetData | null>(null);
+  const [budgetModal, setBudgetModal] = useState(false);
+  const [budgetSort, setBudgetSort] = useState<"over" | "actual">("over");
   const [mapModal, setMapModal] = useState(false);
   const [mapData, setMapData] = useState<import("../lib/api").MappingData | null>(null);
   const [mapSearch, setMapSearch] = useState("");
@@ -235,6 +238,7 @@ export default function CommandCenter({
     // fetch on-time delivery for the initial period (covers SSR initialData path)
     const r0 = initialOpts ? currentMonth(initialOpts) : (draft.date_from ? draft : null);
     if (r0) getTaskDelivery(r0).then(setTaskDel).catch(() => setTaskDel(null));
+    if (r0) getBudget(r0).then(setBudget).catch(() => setBudget(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpts]);
 
@@ -248,6 +252,7 @@ export default function CommandCenter({
         if (!o) { o = await getFilters(); if (cancelled) return; setOpts(o); setDraft(currentMonth(o)); }
         const r = currentMonth(o);
         getTaskDelivery(r).then((td) => { if (!cancelled) setTaskDel(td); }).catch(() => {});
+        getBudget(r).then((bg) => { if (!cancelled) setBudget(bg); }).catch(() => {});
         const [cmd, b] = await Promise.all([getCommand(r), getBreakdown(r).catch(() => null)]);
         if (cancelled) return;
         setData(cmd); setBd(b);
@@ -267,6 +272,7 @@ export default function CommandCenter({
     setLoading(true);
     getBreakdown(f).then(setBd).catch(() => setBd(null));
     getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
+    getBudget(f).then(setBudget).catch(() => setBudget(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
   }
   // date range helpers (used by quick presets in the period bar)
@@ -375,6 +381,7 @@ export default function CommandCenter({
   const billablePct = total > 0 ? (billable / total) * 100 : 0;
   const activeStaff = (data.employees || []).filter((e) => e.hr_status === "ACTIVE").length;
   const onTimePct = taskDel ? taskDel.on_time_pct : 0;
+  const onBudgetPct = budget && budget.count > 0 ? Math.round((budget.on_budget / budget.count) * 100) : null;
   const kTone = (v: number, good: number, warn: number) => (v >= good ? "ok" : v >= warn ? "warn" : "bad");
   const gradeStr = String(k.avg_grade?.value ?? "—");
   const cmp = data.period?.comparable;
@@ -690,7 +697,11 @@ export default function CommandCenter({
         {kpiCard("k-act", "Activity", n1(act) + "%", "teal", Activity, "activity",
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
         {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
-        {kpiCard("k-budget", "Budget Health", "—", "rose", Briefcase, undefined, undefined, undefined, "needs Resource sheet")}
+        {onBudgetPct !== null
+          ? kpiCard("k-budget", "Budget Health", onBudgetPct + "%", "rose", Briefcase, undefined,
+              () => setBudgetModal(true), kTone(onBudgetPct, 70, 50),
+              `${budget!.over} of ${budget!.count} clients over budget`)
+          : kpiCard("k-budget", "Budget Health", "—", "rose", Briefcase, undefined, undefined, undefined, "no budget match")}
       </div>
 
       {/* Total Hours + Task Delivery — two donuts, one row */}
@@ -1415,6 +1426,69 @@ export default function CommandCenter({
                     )}
                   </>
                 )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* BUDGET vs ACTUAL — per-client monthly budget (Resource sheet) vs tracked hours */}
+      {budgetModal && budget && (() => {
+        const rows = [...budget.clients].sort((a, b) =>
+          budgetSort === "over" ? b.variance - a.variance : b.actual - a.actual);
+        const maxV = Math.max(1, ...rows.map((r) => Math.max(r.budget, r.actual)));
+        const usedPct = budget.total_budget > 0 ? Math.round((budget.total_actual / budget.total_budget) * 100) : 0;
+        return (
+          <div className="modal-bg" onClick={() => setBudgetModal(false)}>
+            <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-h">
+                <div>
+                  <h3>Budget vs Actual</h3>
+                  <div className="sub">{budget.count} clients matched · {n0(budget.total_actual)}h tracked vs {n0(budget.total_budget)}h budgeted ({usedPct}%) · {data.context.label}</div>
+                </div>
+                <div className="modal-h-r">
+                  <div className="seg-toggle">
+                    <button className={budgetSort === "over" ? "on" : ""} onClick={() => setBudgetSort("over")}>Most over</button>
+                    <button className={budgetSort === "actual" ? "on" : ""} onClick={() => setBudgetSort("actual")}>By hours</button>
+                  </div>
+                  <div className="modal-x" onClick={() => setBudgetModal(false)}><X size={16} /></div>
+                </div>
+              </div>
+              <div className="modal-b">
+                <div className="bv-summary">
+                  <div className="bv-pill ok"><b>{budget.on_budget}</b><span>within budget</span></div>
+                  <div className="bv-pill bad"><b>{budget.over}</b><span>over budget</span></div>
+                  <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>total budget (period)</span></div>
+                  <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>total actual</span></div>
+                </div>
+                <div className="bv-note">Monthly budget from the Resource sheet, pro-rated to the selected period. A client over its pro-rated budget is flagged red.</div>
+                <div className="scrollwrap" style={{ maxHeight: 460 }}>
+                  <table className="hd-table">
+                    <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Team</th><th className="l">Type</th><th className="l">Budget vs Actual</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead>
+                    <tbody>
+                      {rows.map((r, i) => {
+                        const bw = (r.budget / maxV) * 100, aw = (r.actual / maxV) * 100;
+                        return (
+                          <tr key={r.client}>
+                            <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
+                            <td className="l tname" style={{ fontWeight: 650 }}>{r.client}</td>
+                            <td className="l" style={{ color: "var(--ink-2)" }}>{r.team}</td>
+                            <td className="l"><span className="hrb" style={{ background: "var(--chip)", color: "var(--ink-2)" }}>{r.type}</span></td>
+                            <td className="l">
+                              <span className="bv-bars" title={`Budget ${n1(r.budget)}h · Actual ${n1(r.actual)}h`}>
+                                <span className="bv-row"><i className="bud" style={{ width: `${bw}%` }} /></span>
+                                <span className="bv-row"><i className={r.over ? "act over" : "act"} style={{ width: `${aw}%` }} /></span>
+                              </span>
+                            </td>
+                            <td className="num">{n0(r.budget)}h</td>
+                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
+                            <td className="num" style={{ fontWeight: 750, color: r.over ? "#ef4444" : "#16a34a" }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>

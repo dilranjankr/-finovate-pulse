@@ -1,0 +1,116 @@
+﻿team,client,type,monthly_budget
+Syndicates,BayArea_Salu,Hourly,120.0
+Syndicates,DMAF_Michael,Hourly,13.0
+Syndicates,EdBall_Edward,Fixed,130.0
+Syndicates,Goddardschool_Akhil,Fixed,30.0
+Syndicates,Health_David,Fixed,85.0
+Syndicates,Hooptech_Amy,Fixed,75.0
+Syndicates,Kids_Makinya,Fixed,32.0
+Syndicates,Macar_Ismail,Fixed,200.0
+Syndicates,Maceoo_Mehdi,Fixed,350.0
+Syndicates,MDM_Amy,Fixed,5.0
+Syndicates,Munission_Dan,Fixed,35.0
+Syndicates,Mutrux_Tyson,Hourly,50.0
+Syndicates,Optomec_Dan,Hourly,50.0
+Syndicates,PJD_Paul,Hourly,60.0
+Syndicates,SteeleCPA_Michael,Project,100.0
+Syndicates,Mediterranean_Ismail,Hourly,10.0
+Titans,ADH_Alex (F),Fixed,30.0
+Titans,AndersonOnline_Chris (F),Fixed,8.0
+Titans,B2B_Paras (H),Hourly,25.0
+Titans,BandO_Iryna (F),Fixed,6.0
+Titans,Beaker_Jill (H),Hourly,35.0
+Titans,Bingu_Theo (F),Fixed,8.0
+Titans,BizLog_Ted (F),Fixed,15.0
+Titans,BuyingSimplified_Rajiv (H),Hourly,60.0
+Titans,BuzzNation_Suprith (F),Fixed,15.0
+Titans,CatchThemes_Sakin (F),Fixed,4.0
+Titans,Cazoomi_Clint (F),Fixed,16.0
+Titans,Coruscent_John (F),Fixed,6.0
+Titans,Craftmade_Kate (H),Hourly,15.0
+Titans,David_David (F),Fixed,12.0
+Titans,Delmundo_Sascha (F),Fixed,8.0
+Titans,FountainGreetings_Kunal (H),Hourly,10.0
+Titans,Frugal_Joshua (F),Fixed,8.0
+Titans,FullerLife_Sam (F),Fixed,6.0
+Titans,GradientMedia_Damon (F),Fixed,21.0
+Titans,Graticube_Sam (F),Fixed,8.0
+Titans,Havenly_Lisa (F),Fixed,5.0
+Titans,Intelligent_Jeff (F),Fixed,40.0
+Titans,LakeNSkye_Courtney (H),Hourly,5.0
+Titans,LawOffice_Ernest (H),Hourly,15.0
+Titans,LaxGadgets_Jawad (F),Fixed,40.0
+Titans,LegalServices_Ernest (F),Fixed,4.0
+Titans,Legend_Shawn (F),Fixed,8.0
+Titans,Mango_Raj (F),Fixed,12.0
+Titans,Mango_Raj (H),Hourly,12.0
+Titans,Mar_Michael (F),Fixed,24.0
+Titans,McMullen_Sherri (H),Hourly,55.0
+Titans,MedScience_Troy (F),Fixed,14.0
+Titans,N2Con_Rick (F),Fixed,25.0
+Titans,Naivasha_John (F),Fixed,4.0
+Titans,OffGrid_Cary (F),Fixed,12.0
+Titans,PakeHandling_Paul (F),Fixed,10.0
+Titans,PersonalHandcrafted_Kelly (F),Fixed,10.0
+Titans,Plain_Lindsey (F),Fixed,10.0
+Titans,PowerSeller_Lisa (H),Hourly,25.0
+Titans,Procurement_Rajiv (F),Fixed,15.0
+Titans,Pulse360_Anand (F),Fixed,6.0
+Titans,SonicEye_Brandon (F),Fixed,3.0
+Titans,TechUmbrella_Sam (F),Fixed,5.0
+Titans,Thomas_Fricilone (F),Hourly,24.0
+Titans,U4Life_Sanjay (F),Fixed,8.0
+Titans,Unbox_Mohit (F),Fixed,4.0
+Titans,Xeno_Muller (F),Fixed,6.0
+Titans,Xpometer_Daniel (H),Hourly,6.0
+Titans,Adventures_Tara (H),Hourly,80.0
+Titans,MilitaryRoad_Kevin (H),Hourly,12.0
+Titans,Alpha_Neville,Hourly,120.0
+Bravix,Duvin_Garrett,Monthly,110.0
+Bravix,Dannik_Olga,Monthly,50.0
+Bravix,Finance Faheem_CPA,Monthly,8.0
+Bravix,Mark Perlberg_CPA,Monthly,27.0
+Bravix,Paragon_Harris,Monthly,60.0
+Bravix,EpicRise_Lin,Monthly,70.0
+Bravix,Wisoman_Sonal,Monthly,150.0
+Bravix,Lola_Lola,Monthly,10.0
+Bravix,DMW Advisory_Mike,Monthly,70.0
+Bravix,IDream_Joseph,Monthly,80.0
+Bravix,Master_Lloyd : Antfam Hospitality LLC,Yearly,180.0
+Bravix,Master_Lloyd : Land LTR LLC,Yearly,120.0
+Bravix,OxHoldings LLC,Yearly,120.0
+Bravix,Hanna Land_Kim,Yearly,20.0
+Bravix,CSProp_Lin,Quarterly,45.0
+Bravix,SevenShopper_Lin,Quarterly,60.0
+Alliance,Alpine_Kelvin,Fixed,120.0
+Alliance,Kobe_Juan (#2),Fixed,40.0
+Alliance,Armus_Tran (F),Fixed,16.0
+Alliance,Brown_LB (F),Fixed,20.0
+Alliance,Cherry_Marc (F),Fixed,71.0
+Alliance,DZR_Shane (F),Fixed,10.0
+Alliance,Elite_Lysha (F),Fixed,20.0
+Alliance,FoliaWater_Jonathan (H),Hourly,30.0
+Alliance,Fubulous_Jesse (H),Hourly,16.0
+Alliance,Hairillusion_Sal (H),Fixed,16.0
+Alliance,Hilo_Reelika (F),Fixed,12.0
+Alliance,InduroPro_jo Tran (F),Fixed,5.0
+Alliance,JJLax_Jawad (F),Fixed,10.0
+Alliance,Joyful_Jelle (F),Fixed,10.0
+Alliance,Joywell_Jennie (F),Fixed,10.0
+Alliance,KDHW_Korey (H),Hourly,25.0
+Alliance,MileFour_Luke (F),Fixed,15.0
+Alliance,PrueProprietary_Irene (F),Fixed,18.0
+Alliance,ZipScanners_Luke (F),Fixed,8.0
+Alliance,Edge_Josh (F),Fixed,10.0
+Alliance,ChefPoint_Paula (F),Fixed,10.0
+Alliance,Diotima_Shin (H),Hourly,60.0
+Synergy,Advance Technologies_Yan Lee,Hourly,5.0
+Synergy,Ward William_Ward,Hourly,5.0
+Synergy,T1_Ward,Fixed,200.0
+Synergy,Blind_Adam,Fixed,250.0
+Synergy,Inter_Jonathan,Fixed,130.0
+Synergy,Inter3rdParty_Mark,Fixed,120.0
+Synergy,InterCapstone_Mark,Fixed,100.0
+Synergy,InterUtah_Mark,Fixed,85.0
+Synergy,Singularloop_Nitin,Hourly,10.0
+Synergy,Re-Viv,Hourly,40.0

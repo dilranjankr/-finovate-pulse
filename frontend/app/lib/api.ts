@@ -242,6 +242,22 @@ export async function initMapping(): Promise<{ ok: boolean; rows?: number; detai
   return r.json();
 }
 
+export interface BudgetClient {
+  client: string; type: string; team: string;
+  budget: number; actual: number; variance: number; over: boolean; pct: number;
+}
+export interface BudgetData {
+  clients: BudgetClient[]; total_budget: number; total_actual: number;
+  on_budget: number; over: number; count: number;
+}
+export async function getBudget(f: Filters): Promise<BudgetData> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await fetch(`${API}/api/budget?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("budget failed");
+  return r.json();
+}
+
 export interface TaskDelivery { due: number; on_time: number; late: number; open: number; on_time_pct: number; }
 export async function getTaskDelivery(f: Filters): Promise<TaskDelivery> {
   const qs = new URLSearchParams();

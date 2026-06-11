@@ -1840,6 +1840,80 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
         return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0, "error": str(e)[:150]}
 
 
+@lru_cache(maxsize=1)
+def client_budgets():
+    """{normalized_client -> {budget(monthly hrs), type, team}} from client_budgets.csv."""
+    import csv as _csv
+    here = os.path.dirname(__file__)
+    path = os.path.join(here, "client_budgets.csv")
+    if not os.path.exists(path):  # local-dev fallback: repo-root copy
+        path = os.path.join(here, "..", "client_budgets.csv")
+    out = {}
+    if not os.path.exists(path):
+        return out
+
+    def _n(c):
+        return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
+    try:
+        with open(path, encoding="utf-8-sig") as fh:
+            for r in _csv.DictReader(fh):
+                cn = (r.get("client") or "").strip()
+                try:
+                    bud = float(r.get("monthly_budget") or 0)
+                except Exception:
+                    bud = 0
+                if cn and bud > 0:
+                    out[_n(cn)] = {"budget": bud, "type": (r.get("type") or "").strip(),
+                                   "team": (r.get("team") or "").strip(), "client": cn}
+    except Exception:  # noqa
+        pass
+    return out
+
+
+@app.get("/api/budget")
+def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
+           department: Optional[str] = None, atl: Optional[str] = None,
+           employee: Optional[str] = None, client: Optional[str] = None,
+           client_type: Optional[str] = None, billable: Optional[str] = None,
+           status: Optional[str] = None):
+    """Per-client Budget vs Actual. Monthly budget (Resource sheet) is scaled to the
+    selected period; actual = tracked hours on that client in the period/scope."""
+    members, g = load()
+    f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
+         "employee": employee, "client": client, "client_type": client_type,
+         "billable": billable, "status": status}
+    _, d = apply_filters(members, g, f)
+    bud = client_budgets()
+    empty = {"clients": [], "total_budget": 0, "total_actual": 0, "on_budget": 0, "over": 0, "count": 0}
+    if d.empty or not bud:
+        return empty
+    from datetime import date as _date
+    try:
+        days = (_date.fromisoformat(date_to) - _date.fromisoformat(date_from)).days + 1 if (date_from and date_to) else 30
+    except Exception:
+        days = 30
+    months = max(days / 30.0, 0.1)
+
+    def _n(c):
+        return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
+    actual = d.groupby("client")["tracked_h"].sum()
+    rows = []
+    for cn, act in actual.items():
+        b = bud.get(_n(cn))
+        if not b:
+            continue
+        pb = b["budget"] * months
+        rows.append({"client": cn, "type": b["type"], "team": b["team"],
+                     "budget": round(pb, 1), "actual": round(float(act), 1),
+                     "variance": round(float(act) - pb, 1), "over": float(act) > pb,
+                     "pct": round(float(act) / pb * 100, 0) if pb else 0})
+    rows.sort(key=lambda x: -x["actual"])
+    tb = sum(r["budget"] for r in rows); ta = sum(r["actual"] for r in rows)
+    over = sum(1 for r in rows if r["over"])
+    return {"clients": rows, "total_budget": round(tb, 0), "total_actual": round(ta, 0),
+            "on_budget": len(rows) - over, "over": over, "count": len(rows)}
+
+
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Finovate Operations Command Center",
