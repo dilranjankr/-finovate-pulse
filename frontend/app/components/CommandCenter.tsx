@@ -10,7 +10,9 @@ import {
 } from "lucide-react";
 import {
   getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam,
+  login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
+  type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
@@ -64,17 +66,22 @@ const ROLE_DEF: { id: Role; label: string; tag: string; desc: string; Icon: Reac
   { id: "user", label: "User", tag: "Self only", desc: "Only your own dashboard — your hours, tasks and clients.", Icon: UserIcon, color: "#7b3fc0" },
 ];
 
-function RoleScreen({ opts, onPick }: { opts: FilterOptions | null; onPick: (r: Role, name?: string) => void }) {
-  const [sel, setSel] = useState<Role | null>(null);
-  const [name, setName] = useState("");
-  const [q, setQ] = useState("");
-  const people = (opts?.employees || []).filter((e) => e.toLowerCase().includes(q.toLowerCase()));
-  const canGo = sel && (sel !== "user" || name);
+function LoginScreen({ onLogin }: { onLogin: (u: AppUser) => void }) {
+  const [email, setEmail] = useState("");
+  const [pw, setPw] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const FEATS = ["Real-time utilization & productivity", "Team, client & billing intelligence", "Secure role-based access"];
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy || !email.trim() || !pw) return;
+    setBusy(true); setErr("");
+    try { const { user } = await login(email.trim(), pw); onLogin(user); }
+    catch (ex) { setErr((ex as Error).message || "Sign in failed"); setBusy(false); }
+  }
   return (
     <div className="role-screen">
       <div className="role-shell">
-        {/* brand panel */}
         <aside className="role-brand">
           <div className="role-brand-mark"><span className="rb-dot" />Insight</div>
           <div className="role-brand-mid">
@@ -86,39 +93,59 @@ function RoleScreen({ opts, onPick }: { opts: FilterOptions | null; onPick: (r: 
           </div>
           <div className="role-brand-foot">FINOVATE · Operations Command Center</div>
         </aside>
-        {/* role chooser */}
         <main className="role-pick">
           <div className="role-pick-head">
             <span className="role-eyebrow">Sign in</span>
-            <h1>Select your access</h1>
-            <p>Your dashboard adapts to the role you choose.</p>
+            <h1>Welcome back</h1>
+            <p>Enter your credentials to access your dashboard.</p>
           </div>
-          <div className="role-opts">
-            {ROLE_DEF.map((r) => (
-              <button key={r.id} type="button" className={`role-opt${sel === r.id ? " on" : ""}`} onClick={() => { setSel(r.id); setName(""); }} style={{ ["--rc" as string]: r.color }}>
-                <span className="role-opt-ic" style={{ background: r.color }}><r.Icon size={17} /></span>
-                <span className="role-opt-txt"><b>{r.label} <em>{r.tag}</em></b><i>{r.desc}</i></span>
-                <span className="role-opt-rad" />
-              </button>
-            ))}
-          </div>
-          {sel === "user" && (
-            <div className="role-user">
-              <label>Who are you?</label>
-              <div className="role-search"><Search size={14} /><input autoFocus placeholder="Search your name…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-              <div className="role-names">
-                {people.slice(0, 60).map((p) => (
-                  <button key={p} type="button" className={`role-name${name === p ? " on" : ""}`} onClick={() => setName(p)}>{p}</button>
-                ))}
-                {people.length === 0 && <span className="role-empty">No matching name</span>}
-              </div>
-            </div>
-          )}
-          <button type="button" className="role-go" disabled={!canGo} onClick={() => sel && onPick(sel, sel === "user" ? name : undefined)}>
-            {sel === "user" && !name ? "Select your name" : "Continue"}<ArrowRight size={16} />
-          </button>
-          <div className="role-note"><Lock size={11} /> Demo access — no password required.</div>
+          <form className="login-form" onSubmit={submit}>
+            <label className="login-lbl">Email</label>
+            <div className="login-field"><UserIcon size={15} /><input type="email" autoFocus autoComplete="username" placeholder="you@finovate.com" value={email} onChange={(e) => setEmail(e.target.value)} /></div>
+            <label className="login-lbl">Password</label>
+            <div className="login-field"><Lock size={15} /><input type="password" autoComplete="current-password" placeholder="••••••••" value={pw} onChange={(e) => setPw(e.target.value)} /></div>
+            {err && <div className="login-err"><ShieldAlert size={13} />{err}</div>}
+            <button type="submit" className="role-go" disabled={busy || !email.trim() || !pw}>
+              {busy ? <><span className="spin sm" /> Signing in…</> : <>Sign in <ArrowRight size={16} /></>}
+            </button>
+          </form>
+          <div className="role-note"><Lock size={11} /> Access is invite-only. Contact your administrator for an account.</div>
         </main>
+      </div>
+    </div>
+  );
+}
+
+function ChangePwModal({ onClose }: { onClose: () => void }) {
+  const [oldP, setOldP] = useState(""); const [newP, setNewP] = useState(""); const [conf, setConf] = useState("");
+  const [busy, setBusy] = useState(false); const [err, setErr] = useState(""); const [done, setDone] = useState(false);
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (busy) return;
+    if (newP.length < 6) { setErr("New password must be at least 6 characters"); return; }
+    if (newP !== conf) { setErr("Passwords do not match"); return; }
+    setBusy(true); setErr("");
+    try { await changePassword(oldP, newP); setDone(true); setTimeout(onClose, 1100); }
+    catch (ex) { setErr((ex as Error).message); setBusy(false); }
+  }
+  return (
+    <div className="modal-bg" onClick={onClose}>
+      <div className="modal sm-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-h"><div><h3>Change password</h3><div className="sub">choose a strong, unique password</div></div><div className="modal-x" onClick={onClose}><X size={16} /></div></div>
+        <div className="modal-b">
+          {done ? <div className="empty-s" style={{ color: "#16a34a" }}>✓ Password updated</div> : (
+            <form className="login-form" onSubmit={submit}>
+              <label className="login-lbl">Current password</label>
+              <div className="login-field"><Lock size={15} /><input type="password" autoFocus value={oldP} onChange={(e) => setOldP(e.target.value)} /></div>
+              <label className="login-lbl">New password</label>
+              <div className="login-field"><Lock size={15} /><input type="password" value={newP} onChange={(e) => setNewP(e.target.value)} /></div>
+              <label className="login-lbl">Confirm new password</label>
+              <div className="login-field"><Lock size={15} /><input type="password" value={conf} onChange={(e) => setConf(e.target.value)} /></div>
+              {err && <div className="login-err"><ShieldAlert size={13} />{err}</div>}
+              <button type="submit" className="role-go" disabled={busy || !oldP || !newP}>{busy ? <><span className="spin sm" /> Updating…</> : "Update password"}</button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -158,10 +185,44 @@ export default function CommandCenter({
   const chatRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight; }, [messages, aiBusy, chatOpen]);
 
-  // ---- role-based access (demo role-switcher; choice persisted in localStorage) ----
+  // ---- authenticated session (real login; role/scope come from the server) ----
+  const [authUser, setAuthUser] = useState<AppUser | null>(null);
   const [role, setRole] = useState<Role | null>(null);
   const [selfName, setSelfName] = useState<string>("");
   const [roleReady, setRoleReady] = useState(false);
+  const [usersModal, setUsersModal] = useState(false);
+  const [pwModal, setPwModal] = useState(false);
+  const [usersData, setUsersData] = useState<{ users: AdminUser[]; smtp: boolean; owner_email: string } | null>(null);
+  const [uForm, setUForm] = useState({ email: "", role: "employee", full_name: "", scope_team: "" });
+  const [uBusy, setUBusy] = useState(false);
+  const [uMsg, setUMsg] = useState<{ link?: string; sent?: boolean; err?: string } | null>(null);
+  async function loadUsers() {
+    setUsersData(null);
+    try { setUsersData(await listUsers()); } catch { setUsersData({ users: [], smtp: false, owner_email: "" }); }
+  }
+  useEffect(() => { if (usersModal) loadUsers(); }, [usersModal]);
+  async function submitCreateUser() {
+    if (uBusy || !uForm.email.trim()) return;
+    setUBusy(true); setUMsg(null);
+    try {
+      const r = await createUser({
+        email: uForm.email.trim(), role: uForm.role,
+        full_name: uForm.full_name.trim() || undefined,
+        scope_team: uForm.role === "lead" ? (uForm.scope_team || undefined) : undefined,
+      });
+      setUMsg({ link: r.invite_link, sent: r.email_sent });
+      setUForm({ email: "", role: "employee", full_name: "", scope_team: "" });
+      loadUsers();
+    } catch (e) { setUMsg({ err: (e as Error).message }); }
+    finally { setUBusy(false); }
+  }
+  async function doResend(id: number) {
+    try { const r = await resendInvite(id); setUMsg({ link: r.invite_link, sent: r.email_sent }); loadUsers(); }
+    catch (e) { setUMsg({ err: (e as Error).message }); }
+  }
+  async function toggleUser(id: number, active: boolean) {
+    try { await setUserStatus(id, active); loadUsers(); } catch (e) { alert((e as Error).message); }
+  }
   const [showSettings, setShowSettings] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
   const acctRef = useRef<HTMLDivElement>(null);
@@ -217,13 +278,51 @@ export default function CommandCenter({
     getCompareTrend(kind, names, draft).then((d) => { if (!cancelled) setCmpTrend(d); }).catch(() => { if (!cancelled) setCmpTrend(null); });
     return () => { cancelled = true; };
   }, [draft.employee, draft.atl, draft.department, draft.date_from, draft.date_to]);
-  useEffect(() => {
+  function mapRole(r: AppRole): Role {
+    return r === "owner" ? "owner" : r === "employee" ? "user" : "admin";
+  }
+  // scope a base filter set to the signed-in user (employee → self, lead → team)
+  function scopedBase(u: AppUser, o: FilterOptions | null): Filters {
+    const base: Filters = o ? currentMonth(o) : {};
+    if (u.role === "employee" && u.full_name) return { ...base, employee: u.full_name };
+    if (u.role === "lead" && u.scope_team) return { ...base, atl: u.scope_team };
+    return base;
+  }
+  function applyAuthUser(u: AppUser) {
+    setAuthUser(u);
+    setRole(mapRole(u.role));
+    setSelfName(u.role === "employee" ? (u.full_name || "") : "");
+  }
+  async function onLogin(u: AppUser) {
+    applyAuthUser(u);
     try {
-      const r = localStorage.getItem("fin_role") as Role | null;
-      const n = localStorage.getItem("fin_self") || "";
-      if (r && ROLE_CAPS[r]) { setRole(r); setSelfName(n); }
-    } catch { /* ignore */ }
-    setRoleReady(true);
+      let o = opts;
+      if (!o) { o = await getFilters(); setOpts(o); }
+      const base = scopedBase(u, o);
+      setDraft(base); apply(base);
+    } catch { /* surfaced on next interaction */ }
+  }
+  function doLogout() {
+    apiLogout();
+    setAuthUser(null); setRole(null); setSelfName(""); setAcctOpen(false);
+    setShowSettings(false); setUsersModal(false); setData(null);
+  }
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await fetchMe();
+        if (u) {
+          applyAuthUser(u);
+          if (!initialData) {                       // gated SSR → load scoped data now
+            let o = initialOpts || (await getFilters());
+            setOpts(o); const base = scopedBase(u, o);
+            setDraft(base); apply(base);
+          }
+        }
+      } catch { /* not signed in → login screen */ }
+      setRoleReady(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const caps = ROLE_CAPS[role || "user"];
 
@@ -252,9 +351,10 @@ export default function CommandCenter({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpts]);
 
-  // resilient client-side load if SSR couldn't reach the backend (cold start)
+  // resilient client-side load for OPEN mode (no auth) when SSR couldn't reach
+  // the backend. When a session token exists, the auth effect drives the load.
   useEffect(() => {
-    if (initialData) return;
+    if (initialData || getToken()) return;
     let cancelled = false;
     (async () => {
       try {
@@ -317,26 +417,6 @@ export default function CommandCenter({
   function goCompany() { const n = { ...draft, department: undefined, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({}); apply(n); }
   function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({ department: draft.department }); apply(n); }
   function goTeam() { const n = { ...draft, employee: undefined }; setDraft(n); apply(n); }
-  function pickRole(r: Role, name?: string) {
-    setRole(r);
-    try { localStorage.setItem("fin_role", r); } catch { /* ignore */ }
-    if (r === "user" && name) {
-      setSelfName(name);
-      try { localStorage.setItem("fin_self", name); } catch { /* ignore */ }
-      const base: Filters = opts ? currentMonth(opts) : {};
-      const next = { ...base, employee: name };
-      setDraft(next); apply(next);
-    } else {
-      setSelfName("");
-      try { localStorage.removeItem("fin_self"); } catch { /* ignore */ }
-    }
-  }
-  function switchRole() {
-    setRole(null); setSelfName(""); setShowSettings(false);
-    try { localStorage.removeItem("fin_role"); localStorage.removeItem("fin_self"); } catch { /* ignore */ }
-    const base: Filters = opts ? currentMonth(opts) : {};
-    setDraft(base); apply(base);
-  }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
   function openUnassigned() { setUnaModal(true); setUnaData(null); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
   function openHours() { setHoursModal(true); setHoursData(null); setHoursSearch(""); getHoursDetail(draft).then(setHoursData).catch(() => setHoursData({ rows: [], count: 0 })); }
@@ -375,8 +455,9 @@ export default function CommandCenter({
     a.click(); URL.revokeObjectURL(url);
   }
 
-  if (!roleReady || !data) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
-  if (!role) return <RoleScreen opts={opts} onPick={pickRole} />;
+  if (!roleReady) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
+  if (!authUser) return <LoginScreen onLogin={onLogin} />;
+  if (!data) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
 
   const live = data.source === "supabase";
   const sm = data.summary;
@@ -580,8 +661,8 @@ export default function CommandCenter({
           <span className="tb-sep" />
           {(() => {
             const rd = ROLE_DEF.find((r) => r.id === role)!;
-            const name = selfName || rd.label;
-            const email = (caps.self ? name.toLowerCase().split(" ")[0].replace(/[^a-z0-9]/g, "") : role) + "@finovate.app";
+            const name = authUser?.full_name || selfName || rd.label;
+            const email = authUser?.email || ((caps.self ? name.toLowerCase().split(" ")[0].replace(/[^a-z0-9]/g, "") : role) + "@finovate.app");
             return (
               <div className="acct" ref={acctRef}>
                 <button className={`acct-btn${acctOpen ? " on" : ""}`} onClick={() => setAcctOpen((o) => !o)} title="Account">
@@ -592,8 +673,8 @@ export default function CommandCenter({
                 {acctOpen && (
                   <div className="acct-menu" role="menu">
                     <div className="acct-head">
-                      <div className="acct-h-nm">{name}</div>
-                      <div className="acct-h-em">{email}</div>
+                      <div className="acct-h-nm">{authUser?.full_name || name}</div>
+                      <div className="acct-h-em">{authUser?.email || email}</div>
                       <span className="acct-badge" style={{ color: rd.color, background: rd.color + "1a" }}>{rd.label.toUpperCase()}</span>
                     </div>
                     <div className="acct-items">
@@ -602,12 +683,13 @@ export default function CommandCenter({
                       {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
                       {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); openMapping(); }}><Users size={16} />Employee mapping</button>}
-                      {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); switchRole(); }}><Users size={16} />Users &amp; roles</button>}
+                      {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); setUsersModal(true); }}><ShieldCheck size={16} />Users &amp; access</button>}
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); setPwModal(true); }}><Lock size={16} />Change password</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); window.open("https://github.com/dilranjankr/-finovate-pulse#readme", "_blank"); }}><BookOpen size={16} />Documentation</button>
                     </div>
                     <div className="acct-foot">
-                      <button className="acct-item danger" onClick={() => { setAcctOpen(false); switchRole(); }}><LogOut size={16} />Sign out</button>
+                      <button className="acct-item danger" onClick={() => { setAcctOpen(false); doLogout(); }}><LogOut size={16} />Sign out</button>
                     </div>
                   </div>
                 )}
@@ -1325,6 +1407,89 @@ export default function CommandCenter({
           </div>
         </div>
       )}
+
+      {/* USERS & ACCESS (owner) — invite, resend, enable/disable */}
+      {usersModal && (
+        <div className="modal-bg" onClick={() => { setUsersModal(false); setUMsg(null); }}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div>
+                <h3><ShieldCheck size={15} style={{ verticalAlign: -2 }} /> Users &amp; Access</h3>
+                <div className="sub">{usersData ? `${usersData.users.length} accounts · invite-only · ${usersData.smtp ? "email enabled" : "copy-link mode"}` : "loading…"}</div>
+              </div>
+              <div className="modal-x" onClick={() => { setUsersModal(false); setUMsg(null); }}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              {/* create form */}
+              <div className="usr-create">
+                <div className="usr-create-row">
+                  <input className="usr-in" type="email" placeholder="email@finovate.com" value={uForm.email} onChange={(e) => setUForm({ ...uForm, email: e.target.value })} />
+                  <select className="usr-in" value={uForm.role} onChange={(e) => setUForm({ ...uForm, role: e.target.value })}>
+                    <option value="employee">Employee — own data</option>
+                    <option value="lead">Team Lead — one team</option>
+                    <option value="manager">Manager — everything</option>
+                  </select>
+                  {uForm.role === "lead" ? (
+                    <select className="usr-in" value={uForm.scope_team} onChange={(e) => setUForm({ ...uForm, scope_team: e.target.value })}>
+                      <option value="">Select team…</option>
+                      {(opts?.atls || []).map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  ) : (
+                    <>
+                      <input className="usr-in" list="emp-names" placeholder={uForm.role === "employee" ? "Link to employee…" : "Full name"} value={uForm.full_name} onChange={(e) => setUForm({ ...uForm, full_name: e.target.value })} />
+                      <datalist id="emp-names">{(opts?.employees || []).map((n) => <option key={n} value={n} />)}</datalist>
+                    </>
+                  )}
+                  <button className="usr-add" disabled={uBusy || !uForm.email.trim()} onClick={submitCreateUser}>{uBusy ? <span className="spin sm" /> : "Invite"}</button>
+                </div>
+                {uMsg?.err && <div className="login-err"><ShieldAlert size={13} />{uMsg.err}</div>}
+                {uMsg?.link && (
+                  <div className="usr-invite">
+                    <div className="usr-invite-t">{uMsg.sent ? "✓ Invitation email sent." : "Invitation created — share this link:"}</div>
+                    {!uMsg.sent && (
+                      <div className="usr-link">
+                        <input readOnly value={typeof window !== "undefined" ? window.location.origin + uMsg.link : uMsg.link} onFocus={(e) => e.target.select()} />
+                        <button onClick={() => { try { navigator.clipboard.writeText(window.location.origin + uMsg.link); } catch { /* */ } }}>Copy</button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              {/* list */}
+              {!usersData ? <div className="loading" style={{ height: 120 }}><span className="spin" /> Loading…</div> : (
+                <div className="scrollwrap" style={{ maxHeight: 380 }}>
+                  <table className="hd-table">
+                    <thead><tr><th className="l">User</th><th className="l">Role</th><th className="l">Status</th><th className="l">Last login</th><th>Actions</th></tr></thead>
+                    <tbody>
+                      {usersData.users.map((u) => (
+                        <tr key={u.id}>
+                          <td className="l"><div className="usr-cell"><b>{u.full_name || u.email}</b><i>{u.email}{u.scope_team ? ` · ${u.scope_team}` : ""}</i></div></td>
+                          <td className="l"><span className={`urole ${u.role}`}>{u.role}</span></td>
+                          <td className="l"><span className={`ustat ${u.status}`}>{u.status}</span></td>
+                          <td className="l" style={{ color: "var(--muted)" }}>{u.last_login || "—"}</td>
+                          <td className="num">
+                            {u.role !== "owner" && (
+                              <div className="usr-acts">
+                                {u.status !== "active" && <button onClick={() => doResend(u.id)} title="Resend invite">Resend</button>}
+                                {u.status === "disabled"
+                                  ? <button onClick={() => toggleUser(u.id, true)} title="Enable">Enable</button>
+                                  : <button className="danger" onClick={() => toggleUser(u.id, false)} title="Disable">Disable</button>}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CHANGE PASSWORD */}
+      {pwModal && <ChangePwModal onClose={() => setPwModal(false)} />}
 
       {/* FLOATING AI CHAT */}
       <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Insight AI" aria-label="Ask AI">

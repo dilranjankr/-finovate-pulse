@@ -15,10 +15,12 @@ from zlib import crc32
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 
 import ai
+import auth
 import db
 import org
 
@@ -36,6 +38,263 @@ app.add_middleware(
     allow_origins=_origins,
     allow_methods=["*"], allow_headers=["*"],
 )
+
+# ===========================================================================
+# AUTH — single owner, owner-invited users, bcrypt + JWT session, scope gate.
+# Auth is active only when a write DB is configured; otherwise the API stays
+# open (CSV/dev mode) so nobody gets locked out.
+# ===========================================================================
+_AUTH_OPEN = ("/", "/api/ping", "/api/health")
+
+
+def _auth_enabled() -> bool:
+    return db.has_write()
+
+
+def _ensure_app_users():
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS app_users (
+            id BIGSERIAL PRIMARY KEY,
+            email TEXT UNIQUE NOT NULL,
+            password_hash TEXT,
+            role TEXT NOT NULL DEFAULT 'employee',
+            full_name TEXT,
+            linked_user_id TEXT,
+            scope_team TEXT,
+            status TEXT NOT NULL DEFAULT 'invited',
+            invite_token TEXT,
+            invite_expires TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            last_login TIMESTAMPTZ
+        )""")
+
+
+def _bootstrap_owner():
+    ex = db.q_write("SELECT id FROM app_users WHERE lower(email)=:e", {"e": auth.owner_email()})
+    if ex.empty:
+        db.execute("""INSERT INTO app_users(email, password_hash, role, full_name, status)
+                      VALUES (:e, :h, 'owner', 'Owner', 'active')""",
+                   {"e": auth.owner_email(), "h": auth.hash_password(auth.owner_password())})
+
+
+@app.on_event("startup")
+def _auth_startup():
+    if not _auth_enabled():
+        print("[auth] write DB not configured — API runs OPEN (no login).")
+        return
+    try:
+        _ensure_app_users()
+        _bootstrap_owner()
+        print(f"[auth] ready. owner = {auth.owner_email()}")
+    except Exception as e:  # noqa
+        print(f"[auth] setup failed ({str(e)[:120]}) — API running OPEN.")
+
+
+@app.middleware("http")
+async def _auth_gate(request, call_next):
+    path = request.url.path
+    if (request.method == "OPTIONS" or not _auth_enabled()
+            or path in _AUTH_OPEN or path.startswith("/api/auth/") or not path.startswith("/api")):
+        return await call_next(request)
+    authz = request.headers.get("authorization", "")
+    user = auth.decode_session(authz[7:]) if authz.lower().startswith("bearer ") else None
+    if not user:
+        from starlette.responses import JSONResponse
+        return JSONResponse({"detail": "Authentication required"}, status_code=401)
+    request.state.user = user
+    return await call_next(request)
+
+
+def _require(authorization: Optional[str], *roles) -> dict:
+    """Decode the Bearer token; optionally require one of `roles`. Raises 401/403."""
+    tok = authorization[7:] if authorization and authorization.lower().startswith("bearer ") else ""
+    u = auth.decode_session(tok)
+    if not u:
+        raise HTTPException(status_code=401, detail="Not signed in")
+    if roles and u.get("role") not in roles:
+        raise HTTPException(status_code=403, detail="Not allowed")
+    return u
+
+
+def _employee_left(linked_user_id: str) -> bool:
+    """A linked employee whose HR status is LEFT can no longer sign in."""
+    if not linked_user_id:
+        return False
+    try:
+        r = db.q_write("SELECT status FROM employee_mapping WHERE hubstaff_user_id=:u", {"u": linked_user_id})
+        return (not r.empty) and str(r.iloc[0]["status"]).strip().upper() == "LEFT"
+    except Exception:
+        return False
+
+
+class LoginReq(BaseModel):
+    email: str
+    password: str
+
+
+class AcceptReq(BaseModel):
+    token: str
+    password: str
+
+
+class ChangePwReq(BaseModel):
+    old_password: str
+    new_password: str
+
+
+class CreateUserReq(BaseModel):
+    email: str
+    role: str = "employee"
+    full_name: Optional[str] = None
+    linked_user_id: Optional[str] = None
+    scope_team: Optional[str] = None
+
+
+def _user_public(r) -> dict:
+    return {"id": int(r["id"]), "email": r["email"], "role": r["role"],
+            "full_name": r.get("full_name"), "linked_user_id": r.get("linked_user_id"),
+            "scope_team": r.get("scope_team"), "status": r["status"]}
+
+
+@app.post("/api/auth/login")
+def auth_login(body: LoginReq):
+    if not _auth_enabled():
+        raise HTTPException(status_code=400, detail="Auth not configured")
+    r = db.q_write("SELECT * FROM app_users WHERE lower(email)=:e", {"e": body.email.strip().lower()})
+    if r.empty:
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    u = r.iloc[0]
+    if u["status"] == "disabled":
+        raise HTTPException(status_code=403, detail="This account is disabled")
+    if u["status"] == "invited" or not u["password_hash"]:
+        raise HTTPException(status_code=403, detail="Set your password from the invite link first")
+    if _employee_left(u.get("linked_user_id")):
+        raise HTTPException(status_code=403, detail="This account is no longer active")
+    if not auth.verify_password(body.password, u["password_hash"]):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    pub = _user_public(u)
+    db.execute("UPDATE app_users SET last_login=now() WHERE id=:i", {"i": pub["id"]})
+    return {"token": auth.make_session(pub), "user": pub}
+
+
+@app.get("/api/auth/me")
+def auth_me(authorization: Optional[str] = Header(None)):
+    u = _require(authorization)
+    r = db.q_write("SELECT * FROM app_users WHERE lower(email)=:e", {"e": str(u["sub"]).lower()})
+    if r.empty or r.iloc[0]["status"] != "active":
+        raise HTTPException(status_code=401, detail="Session no longer valid")
+    return {"user": _user_public(r.iloc[0])}
+
+
+@app.get("/api/auth/invite")
+def auth_invite_info(token: str):
+    r = db.q_write("SELECT email, full_name, invite_expires, status FROM app_users WHERE invite_token=:t", {"t": token})
+    if r.empty:
+        raise HTTPException(status_code=404, detail="Invalid or used invite link")
+    u = r.iloc[0]
+    exp = u["invite_expires"]
+    if exp is not None and pd.Timestamp(exp).tz_localize(None) < pd.Timestamp.utcnow().tz_localize(None):
+        raise HTTPException(status_code=410, detail="This invite has expired — ask for a new one")
+    return {"email": u["email"], "full_name": u.get("full_name")}
+
+
+@app.post("/api/auth/accept")
+def auth_accept(body: AcceptReq):
+    if len(body.password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    r = db.q_write("SELECT * FROM app_users WHERE invite_token=:t", {"t": body.token})
+    if r.empty:
+        raise HTTPException(status_code=404, detail="Invalid or used invite link")
+    u = r.iloc[0]
+    exp = u["invite_expires"]
+    if exp is not None and pd.Timestamp(exp).tz_localize(None) < pd.Timestamp.utcnow().tz_localize(None):
+        raise HTTPException(status_code=410, detail="This invite has expired — ask for a new one")
+    db.execute("""UPDATE app_users SET password_hash=:h, status='active', invite_token=NULL,
+                  invite_expires=NULL, last_login=now() WHERE id=:i""",
+               {"h": auth.hash_password(body.password), "i": int(u["id"])})
+    pub = _user_public(u); pub["status"] = "active"
+    return {"token": auth.make_session(pub), "user": pub}
+
+
+@app.post("/api/auth/change_password")
+def auth_change_pw(body: ChangePwReq, authorization: Optional[str] = Header(None)):
+    u = _require(authorization)
+    if len(body.new_password) < 6:
+        raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
+    r = db.q_write("SELECT * FROM app_users WHERE lower(email)=:e", {"e": str(u["sub"]).lower()})
+    if r.empty or not auth.verify_password(body.old_password, r.iloc[0]["password_hash"]):
+        raise HTTPException(status_code=403, detail="Current password is incorrect")
+    db.execute("UPDATE app_users SET password_hash=:h WHERE id=:i",
+               {"h": auth.hash_password(body.new_password), "i": int(r.iloc[0]["id"])})
+    return {"ok": True}
+
+
+@app.get("/api/users")
+def users_list(authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    r = db.q_write("""SELECT id, email, role, full_name, linked_user_id, scope_team, status,
+                      invite_token, invite_expires, created_at, last_login
+                      FROM app_users ORDER BY role, lower(email)""")
+    out = []
+    for _, x in r.iterrows():
+        out.append({
+            "id": int(x["id"]), "email": x["email"], "role": x["role"], "full_name": x.get("full_name"),
+            "linked_user_id": x.get("linked_user_id"), "scope_team": x.get("scope_team"), "status": x["status"],
+            "has_invite": bool(x.get("invite_token")),
+            "invite_link": auth.build_invite_link(x["invite_token"]) if x.get("invite_token") else None,
+            "last_login": str(x["last_login"])[:16] if pd.notna(x.get("last_login")) else None,
+        })
+    return {"users": out, "smtp": auth.smtp_configured(), "owner_email": auth.owner_email()}
+
+
+@app.post("/api/users")
+def users_create(body: CreateUserReq, authorization: Optional[str] = Header(None)):
+    actor = _require(authorization, "owner")
+    email = body.email.strip().lower()
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    if body.role not in ("manager", "lead", "employee"):
+        raise HTTPException(status_code=400, detail="Role must be manager, lead or employee")
+    ex = db.q_write("SELECT id FROM app_users WHERE lower(email)=:e", {"e": email})
+    if not ex.empty:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+    token = auth.new_invite_token()
+    db.execute("""INSERT INTO app_users(email, role, full_name, linked_user_id, scope_team,
+                  status, invite_token, invite_expires)
+                  VALUES (:e,:r,:n,:l,:s,'invited',:t,:x)""",
+               {"e": email, "r": body.role, "n": body.full_name, "l": body.linked_user_id,
+                "s": body.scope_team, "t": token, "x": auth.invite_expiry()})
+    link = auth.build_invite_link(token)
+    sent, detail = auth.send_invite_email(email, body.full_name or "", actor.get("name") or "The owner", link)
+    return {"ok": True, "invite_link": link, "email_sent": sent, "email_detail": detail}
+
+
+@app.post("/api/users/{uid}/resend")
+def users_resend(uid: int, authorization: Optional[str] = Header(None)):
+    actor = _require(authorization, "owner")
+    r = db.q_write("SELECT * FROM app_users WHERE id=:i", {"i": uid})
+    if r.empty:
+        raise HTTPException(status_code=404, detail="User not found")
+    u = r.iloc[0]
+    token = auth.new_invite_token()
+    db.execute("UPDATE app_users SET invite_token=:t, invite_expires=:x, status='invited' WHERE id=:i",
+               {"t": token, "x": auth.invite_expiry(), "i": uid})
+    link = auth.build_invite_link(token)
+    sent, detail = auth.send_invite_email(u["email"], u.get("full_name") or "", actor.get("name") or "The owner", link)
+    return {"ok": True, "invite_link": link, "email_sent": sent, "email_detail": detail}
+
+
+@app.post("/api/users/{uid}/status")
+def users_set_status(uid: int, active: bool, authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    r = db.q_write("SELECT role FROM app_users WHERE id=:i", {"i": uid})
+    if r.empty:
+        raise HTTPException(status_code=404, detail="User not found")
+    if r.iloc[0]["role"] == "owner":
+        raise HTTPException(status_code=400, detail="The owner account cannot be disabled")
+    db.execute("UPDATE app_users SET status=:s WHERE id=:i",
+               {"s": "active" if active else "disabled", "i": uid})
+    return {"ok": True}
 
 
 def clean(o):

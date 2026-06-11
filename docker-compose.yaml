@@ -15,6 +15,20 @@ services:
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
+      # ---- Auth (login). Sessions sign with JWT_SECRET — set a long random
+      # value in Coolify so logins survive restarts. Owner is bootstrapped from
+      # OWNER_EMAIL/OWNER_PASSWORD on first boot (change the password after login).
+      - JWT_SECRET=${JWT_SECRET:-}
+      - OWNER_EMAIL=${OWNER_EMAIL:-admin@finovate.com}
+      - OWNER_PASSWORD=${OWNER_PASSWORD:-owner@123}
+      # PUBLIC_APP_URL = the public dashboard URL (used to build invite links).
+      - PUBLIC_APP_URL=${PUBLIC_APP_URL:-}
+      # Optional SMTP — set these to email invites; otherwise owner copies the link.
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASS=${SMTP_PASS:-}
+      - SMTP_FROM=${SMTP_FROM:-}
     # 'expose' (not 'ports') — Coolify's proxy routes the backend domain to this
     # internal port, so it never clashes with Coolify's own host ports.
     expose:
