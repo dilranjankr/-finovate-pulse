@@ -9,6 +9,9 @@ services:
       context: ./backend
     environment:
       - DATABASE_URL=${DATABASE_URL}
+      # Optional write connection (postgres role) — only needed to EDIT the
+      # employee_mapping table from the app. Reads work via DATABASE_URL.
+      - DATABASE_URL_WRITE=${DATABASE_URL_WRITE:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GEMINI_MODEL=${GEMINI_MODEL:-gemini-3.1-flash-lite}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
