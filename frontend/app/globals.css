@@ -554,6 +554,14 @@ select.map-inp { cursor: pointer; }
 .bv-pill span { font-size: 10.5px; color: var(--ink-2); font-weight: 600; }
 .bv-pill.ok b { color: #16a34a; }
 .bv-pill.bad b { color: #ef4444; }
+.bv-lead { font-size: 13px; color: var(--ink); line-height: 1.55; margin: 0 0 12px; }
+.bv-lead b { font-weight: 800; }
+.bv-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 10px; font-size: 11px; color: var(--ink-2); font-weight: 600; }
+.bv-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.bv-legend .sw { width: 12px; height: 8px; border-radius: 3px; display: inline-block; }
+.bv-legend .sw.bud { background: #94a3b8; }
+.bv-legend .sw.act { background: #16a34a; }
+.bv-legend .sw.over { background: #ef4444; }
 .bv-note { font-size: 11px; color: var(--ink-2); margin-bottom: 12px; line-height: 1.5; }
 .bv-bars { display: inline-flex; flex-direction: column; gap: 3px; width: 100%; min-width: 150px; }
 .bv-row { height: 7px; background: var(--chip); border-radius: 4px; overflow: hidden; }

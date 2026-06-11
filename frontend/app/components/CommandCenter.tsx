@@ -381,7 +381,6 @@ export default function CommandCenter({
   const billablePct = total > 0 ? (billable / total) * 100 : 0;
   const activeStaff = (data.employees || []).filter((e) => e.hr_status === "ACTIVE").length;
   const onTimePct = taskDel ? taskDel.on_time_pct : 0;
-  const onBudgetPct = budget && budget.count > 0 ? Math.round((budget.on_budget / budget.count) * 100) : null;
   const kTone = (v: number, good: number, warn: number) => (v >= good ? "ok" : v >= warn ? "warn" : "bad");
   const gradeStr = String(k.avg_grade?.value ?? "—");
   const cmp = data.period?.comparable;
@@ -697,11 +696,12 @@ export default function CommandCenter({
         {kpiCard("k-act", "Activity", n1(act) + "%", "teal", Activity, "activity",
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
         {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
-        {onBudgetPct !== null
-          ? kpiCard("k-budget", "Budget Health", onBudgetPct + "%", "rose", Briefcase, undefined,
-              () => setBudgetModal(true), kTone(onBudgetPct, 70, 50),
-              `${budget!.over} of ${budget!.count} clients over budget`)
-          : kpiCard("k-budget", "Budget Health", "—", "rose", Briefcase, undefined, undefined, undefined, "no budget match")}
+        {budget && budget.count > 0
+          ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
+              () => setBudgetModal(true),
+              budget.over > budget.count * 0.5 ? "bad" : budget.over > budget.count * 0.25 ? "warn" : "ok",
+              `${n0(budget.total_actual)}h used vs ${n0(budget.total_budget)}h budget`)
+          : kpiCard("k-budget", "Over Budget", "—", "rose", Briefcase, undefined, undefined, undefined, "no budget match")}
       </div>
 
       {/* Total Hours + Task Delivery — two donuts, one row */}
@@ -1455,13 +1455,22 @@ export default function CommandCenter({
                 </div>
               </div>
               <div className="modal-b">
+                <p className="bv-lead">
+                  <b>{budget.over} of {budget.count}</b> clients used <b>more</b> hours than their budget for this period.
+                  {" "}{budget.on_budget} are within budget. Overall <b>{n0(budget.total_actual)}h</b> tracked vs <b>{n0(budget.total_budget)}h</b> budgeted (<b>{usedPct}%</b>).
+                </p>
                 <div className="bv-summary">
                   <div className="bv-pill ok"><b>{budget.on_budget}</b><span>within budget</span></div>
                   <div className="bv-pill bad"><b>{budget.over}</b><span>over budget</span></div>
-                  <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>total budget (period)</span></div>
-                  <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>total actual</span></div>
+                  <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>budget (this period)</span></div>
+                  <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>actual tracked</span></div>
                 </div>
-                <div className="bv-note">Monthly budget from the Resource sheet, pro-rated to the selected period. A client over its pro-rated budget is flagged red.</div>
+                <div className="bv-legend">
+                  <span><i className="sw bud" /> Budget (pro-rated to period)</span>
+                  <span><i className="sw act" /> Actual — within budget</span>
+                  <span><i className="sw over" /> Actual — over budget</span>
+                </div>
+                <div className="bv-note">Monthly budget comes from the Resource sheet and is pro-rated to the selected date range. Change the period or any filter above and these numbers update with it.</div>
                 <div className="scrollwrap" style={{ maxHeight: 460 }}>
                   <table className="hd-table">
                     <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Team</th><th className="l">Type</th><th className="l">Budget vs Actual</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead>
