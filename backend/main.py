@@ -211,7 +211,7 @@ def _is_nb(name: str) -> bool:
 
 
 # --- Accurate attribution helpers (Fix 1) ---
-_OPS_TEAMS = ["Titans", "Syndicate", "Synergy", "Alliance", "Falcons", "Mavericks", "Bravix"]
+_OPS_TEAMS = ["Titans", "Syndicates", "Synergy", "Alliance", "Falcons", "Mavericks", "Bravix"]
 _INTERNAL_KW = ["emailing", "training", "nb tasks", "admin-operational", "admin operational",
                 "introductory", "operational works", "company maintenance", "master project",
                 "new initiatives", "initiatives", "tracker", "audit & reporting", "employee process",
@@ -228,7 +228,7 @@ def norm_team(raw: str) -> str:
         return "Archived Projects"
     if "operations" in low and "ledger" not in low:
         for t in _OPS_TEAMS:
-            if t.lower() in low:
+            if t.lower()[:6] in low:   # stem match (handles Syndicate/Syndicates)
                 return t
         return "Operations (other)"
     if "ledger labs" in low or low.startswith("ll:"):
@@ -465,27 +465,41 @@ def load_from_db():
     g["client"] = g["client_raw"].fillna("(no client)").replace("", "(no client)")
     g["client_type"] = g["client"].map(client_kind)
 
-    # From the HR mapping we take ONLY the employee's STATUS (Active/Left/External)
-    # and their display NAME. Department/Team stay PER-ACTIVITY (where the work was
-    # actually logged) — so an employee working on another team's task/project shows
-    # up under THAT team for that period, not just their home team.
-    hr_status_map, hr_name_map = {}, {}
+    # Department / Team come from the HR mapping (employee's home dept/team) so the
+    # dropdowns show the real HR org structure. Status + display name also from HR.
+    # Cross-team note: within Operations, an employee's work on ANOTHER Operations
+    # sub-team's task still shows under that sub-team (per-activity); only non-HR
+    # work buckets (Archived/Ledger Labs/Training…) roll up to the home team.
+    hr_status_map, hr_name_map, hr_team_map, hr_dept_map = {}, {}, {}, {}
+    OPS = set(_OPS_TEAMS)
     try:
-        hm = db.q("SELECT hubstaff_user_id uid, hr_full_name, status FROM employee_mapping "
-                  "WHERE coalesce(hubstaff_user_id,'')<>''")
+        hm = db.q("SELECT hubstaff_user_id uid, hr_full_name, department, team, status "
+                  "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>''")
 
         def _cl(v):
             s = str(v).strip()
             return "" if s.lower() in ("nan", "none", "") else s
 
         for _, r in hm.iterrows():
-            uid = str(r["uid"])
-            hr_status_map[uid] = (r["status"] or "UNKNOWN")
+            uid = str(r["uid"]); stt = (r["status"] or "UNKNOWN")
+            hr_status_map[uid] = stt
             nm = _cl(r["hr_full_name"])
             if nm and "client" not in nm.lower() and "not staff" not in nm.lower():
                 hr_name_map[uid] = nm
+            dp, tm = _cl(r["department"]), _cl(r["team"])
+            if stt == "EXTERNAL":
+                hr_dept_map[uid] = "US"; hr_team_map[uid] = "US Team"
+            elif dp:
+                hr_dept_map[uid] = dp
+                hr_team_map[uid] = tm if tm else dp
+        if hr_team_map:
+            ao = g["atl"]  # per-activity team (Titans, Bravix, Archived Projects, …)
+            g["atl"] = [a if a in OPS else (hr_team_map.get(u) or "Unassigned")
+                        for u, a in zip(g["user_id"], ao)]
+            g["department"] = ["Operations" if a in OPS else (hr_dept_map.get(u) or "Unassigned")
+                               for u, a in zip(g["user_id"], ao)]
     except Exception as _e:  # noqa
-        print("HR mapping (status/name) skipped:", str(_e)[:120])
+        print("HR mapping override skipped:", str(_e)[:120])
 
     # Billable vs Non-Billable straight from the NB task marker on the Hubstaff
     # task (activities.task_id -> hubstaff_tasks.summary, computed as nb_sec in the
