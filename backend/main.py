@@ -114,6 +114,29 @@ _scope_ctx: contextvars.ContextVar = contextvars.ContextVar("scope_uids", defaul
 
 
 @lru_cache(maxsize=1)
+def _hr_team_dept_maps():
+    """uid -> hr_team / hr_dept, replicating load()'s HR override (EXTERNAL ->
+    US Team) so drill-downs can roll non-OPS work to the home team like g does."""
+    tmap, dmap = {}, {}
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid, department, team, status "
+                        "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>''")
+    except Exception:
+        return tmap, dmap
+
+    def _cl(v):
+        s = str(v).strip()
+        return "" if s.lower() in ("nan", "none", "") else s
+    for _, r in hm.iterrows():
+        uid = str(r["uid"]); dp, tm = _cl(r["department"]), _cl(r["team"])
+        if str(r["status"] or "").upper() == "EXTERNAL":
+            dmap[uid] = "US"; tmap[uid] = "US Team"
+        elif dp:
+            dmap[uid] = dp; tmap[uid] = tm or dp
+    return tmap, dmap
+
+
+@lru_cache(maxsize=1)
 def _hr_hierarchy():
     """(by_uid, reports_of) from employee_mapping: identity + who-reports-to-whom."""
     try:
@@ -1861,8 +1884,8 @@ def hours_detail(
     f = dict(date_from=date_from, date_to=date_to, department=department, atl=atl,
              employee=employee, client=client, client_type=client_type,
              billable=billable, status=status)
-    m, _ = apply_filters(members, g, f)
-    uids = [str(x) for x in m["user_id"].unique().tolist()] if not m.empty else []
+    _, d = apply_filters(members, g, f)
+    uids = [str(x) for x in d["user_id"].unique().tolist()] if not d.empty else []
     if not db.has_db() or not uids:
         return {"rows": [], "count": 0}
     where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)"]
@@ -1872,42 +1895,69 @@ def hours_detail(
     if date_to:
         where.append("a.date <= :dt"); params["dt"] = date_to
     # Non-billable = time on NB-marked tasks/projects (same definition as the
-    # Total Hours card). A Billable / Non-Billable click shows only that slice.
+    # Total Hours card). team_raw/client_raw are computed exactly like g so the
+    # same scope filter applies — totals then match the card precisely.
     nb_expr = ("CASE WHEN trim(coalesce(ht.summary,'')) ~* :nb "
                "OR trim(coalesce(p.name,'')) ~* :nb THEN a.tracked ELSE 0 END")
     sql = f"""
-        SELECT coalesce(nullif(a.user_name,''), 'User '||a.user_id::text) emp,
+        SELECT a.user_id::text uid,
+               coalesce(nullif(a.user_name,''), 'User '||a.user_id::text) emp,
                coalesce(nullif(p.name,''), 'No Project') project,
                coalesce(nullif(ht.summary,''),
                         CASE WHEN a.task_id IS NULL THEN '(project only — no task)' ELSE '(unnamed task)' END) task,
+               CASE WHEN c.task_id IS NOT NULL AND coalesce(c.space_name,'')<>'' THEN c.space_name
+                    ELSE coalesce(nullif(split_part(p.name,' / ',1),''),'No Project') END AS team_raw,
+               CASE WHEN c.task_id IS NOT NULL AND coalesce(c.folder_name,'')<>'' THEN c.folder_name
+                    WHEN p.name LIKE '%/%' THEN trim(split_part(p.name,' / ',2))
+                    ELSE coalesce(nullif(p.name,''),'No Project') END AS client_raw,
                sum(a.tracked) t, sum({nb_expr}) nbsec
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
         LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
+        LEFT JOIN clickup_tasks c ON c.task_id = ht.remote_id
         WHERE {' AND '.join(where)}
-        GROUP BY 1, 2, 3 ORDER BY sum(a.tracked) DESC LIMIT 2000
+        GROUP BY 1, 2, 3, 4, 5, 6
     """
     try:
         df = db.q(sql, params)
     except Exception as e:  # noqa
         print("hours_detail failed:", e); return {"rows": [], "count": 0}
+    if df.empty:
+        return {"rows": [], "count": 0}
+    # EXACT same per-activity attribution as g: norm_team, then roll non-OPS work
+    # up to the HR home team (so totals match the Total Hours card precisely).
+    OPS = set(_OPS_TEAMS); tmap, dmap = _hr_team_dept_maps()
+    raw = df["team_raw"].map(norm_team)
+    df["atl"] = [a if a in OPS else (tmap.get(str(u)) or "Unassigned") for u, a in zip(df["uid"], raw)]
+    df["department"] = ["Operations" if a in OPS else (dmap.get(str(u)) or "Unassigned") for u, a in zip(df["uid"], raw)]
+    df["client"] = df["client_raw"].fillna("(no client)").replace("", "(no client)")
+    df["client_type"] = df["client"].map(client_kind)
+    for key, col in [("department", "department"), ("atl", "atl"), ("client", "client"), ("client_type", "client_type")]:
+        vals = _vals(f.get(key))
+        if vals:
+            df = df[df[col].isin(vals)]
+    if df.empty:
+        return {"rows": [], "count": 0}
+    df["t"] = pd.to_numeric(df["t"], errors="coerce").fillna(0)
+    df["nbsec"] = pd.to_numeric(df["nbsec"], errors="coerce").fillna(0)
+    agg = df.groupby(["emp", "project", "task"], as_index=False).agg(t=("t", "sum"), nbsec=("nbsec", "sum"))
     rows = []
-    for _, r in df.iterrows():
-        tot = float(r["t"] or 0); nbv = min(float(r["nbsec"] or 0), tot); bil = tot - nbv; nb = nbv
+    for r in agg.itertuples():
+        tot = float(r.t); nbv = min(float(r.nbsec), tot); bil = tot - nbv
         if billable == "Billable":
             if bil <= 0:
                 continue
-            rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
+            rows.append({"employee": r.emp, "project": r.project, "task": r.task,
                          "total": round(bil / SEC, 1), "billable": round(bil / SEC, 1), "non_billable": 0.0})
         elif billable == "Non-Billable":
-            if nb <= 0:
+            if nbv <= 0:
                 continue
-            rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
-                         "total": round(nb / SEC, 1), "billable": 0.0, "non_billable": round(nb / SEC, 1)})
+            rows.append({"employee": r.emp, "project": r.project, "task": r.task,
+                         "total": round(nbv / SEC, 1), "billable": 0.0, "non_billable": round(nbv / SEC, 1)})
         else:
-            rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
+            rows.append({"employee": r.emp, "project": r.project, "task": r.task,
                          "total": round(tot / SEC, 1), "billable": round(bil / SEC, 1),
-                         "non_billable": round(nb / SEC, 1)})
+                         "non_billable": round(nbv / SEC, 1)})
     rows.sort(key=lambda x: -x["total"])
     return clean({"rows": rows[:1000], "count": len(rows[:1000])})
 
@@ -2332,7 +2382,7 @@ def mapping_save(payload: dict):
     try:
         db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
         load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
-        _hr_hierarchy.cache_clear()
+        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear()
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
@@ -2367,7 +2417,7 @@ def mapping_init():
         except Exception:
             pass
         load.cache_clear()  # dashboard re-reads with the fresh mapping
-        _hr_hierarchy.cache_clear()
+        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear()
         return {"ok": True, "rows": n}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:300]}
