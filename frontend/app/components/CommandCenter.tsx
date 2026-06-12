@@ -900,6 +900,97 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* MONTH-END PROJECTION — at the current daily pace */}
+      {(() => {
+        const daily = data.hours_trend || [];
+        if (!draft.date_from || !draft.date_to || daily.length === 0) return null;
+        const df = new Date(draft.date_from + "T00:00:00Z"), dtb = new Date(draft.date_to + "T00:00:00Z");
+        const daysElapsed = Math.max(1, Math.round((dtb.getTime() - df.getTime()) / 86400000) + 1);
+        const daysInMonth = new Date(dtb.getUTCFullYear(), dtb.getUTCMonth() + 1, 0).getUTCDate();
+        const daysRemaining = Math.max(0, daysInMonth - dtb.getUTCDate());
+        if (daysRemaining === 0) return null;               // period already at/after month-end
+        const rate = total / daysElapsed;
+        const projHours = total + rate * daysRemaining;
+        const monthBudget = budget && budget.total_budget > 0 ? budget.total_budget / daysElapsed * daysInMonth : null;
+        const projVar = monthBudget !== null ? projHours - monthBudget : null;
+        const over = projVar !== null && projVar > 0;
+        return (
+          <div className={`proj-card${projVar !== null ? (over ? " over" : " ok") : ""}`}>
+            <div className="proj-l">
+              <span className="proj-lbl">Month-end Projection</span>
+              <div className="proj-val"><b className="num">{n0(projHours)}h</b><span>projected by month-end</span></div>
+              <span className="proj-sub">{n0(total)}h so far · {daysElapsed} of {daysInMonth} days · {daysRemaining} left · ~{n1(rate)}h/day pace</span>
+            </div>
+            {monthBudget !== null && (
+              <div className="proj-r">
+                <div className="proj-stat"><span>Monthly budget</span><b>{n0(monthBudget)}h</b></div>
+                <div className="proj-stat"><span>Projected vs budget</span><b style={{ color: over ? "#ef4444" : "#16a34a" }}>{projVar! > 0 ? "+" : ""}{n0(projVar!)}h</b></div>
+                <span className={`proj-badge ${over ? "bad" : "ok"}`}>{over ? "On track to exceed budget" : "On track within budget"}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* BUDGET BURN-UP + UTILIZATION TREND */}
+      {(() => {
+        const daily = data.hours_trend || [];
+        const kd = data.kpi_daily || [];
+        if (daily.length < 2 && kd.length < 2) return null;
+        const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
+        // burn-up: cumulative actual vs linear budget accrual
+        let cum = 0; const cumActual = daily.map((d) => (cum += d.hours));
+        const totalBud = budget?.total_budget || 0;
+        const budgetLine = daily.map((_, i) => totalBud * (i + 1) / daily.length);
+        return (
+          <div className="row2" style={{ marginBottom: 14 }}>
+            <div className="panel">
+              <div className="ph"><h3>Budget Burn-up <span className="hl">cumulative hours vs budget</span></h3></div>
+              {daily.length < 2 || totalBud === 0 ? <div className="empty-s">{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
+                <>
+                  <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"}
+                    series={[{ name: "Actual", color: "#2f6fbf", values: cumActual }, { name: "Budget", color: "#94a3b8", values: budgetLine, dash: true }]} />
+                  <div className="lc-leg"><span><i style={{ background: "#2f6fbf" }} />Actual (cumulative)</span><span><i style={{ background: "#94a3b8" }} />Budget (pace)</span></div>
+                </>
+              )}
+            </div>
+            <div className="panel">
+              <div className="ph"><h3>Utilization Trend <span className="hl">daily, target 80%</span></h3></div>
+              {kd.length < 2 ? <div className="empty-s">Not enough data</div> : (
+                <>
+                  <LineChart height={170} labels={kd.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "%"}
+                    series={[{ name: "Utilization", color: "#7b3fc0", values: kd.map((d) => d.utilization) }]} />
+                  <div className="lc-leg"><span><i style={{ background: "#7b3fc0" }} />Utilization %</span></div>
+                </>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* TOP / BOTTOM PERFORMERS */}
+      {((data.top3 && data.top3.length > 0) || (data.bottom3 && data.bottom3.length > 0)) && (
+        <div className="row2" style={{ marginBottom: 14 }}>
+          {([["Top Performers", data.top3 || [], "top"], ["Needs Support", data.bottom3 || [], "bot"]] as const).map(([title, list, kind]) => (
+            <div className="panel" key={kind}>
+              <div className="ph"><h3>{title} <span className="hl">{kind === "top" ? "highest" : "lowest"} by grade · utilization</span></h3></div>
+              <div className="perf-list">
+                {list.map((e, i) => (
+                  <div className="perf-row click" key={e.name + i} onClick={() => openEmployee(e.name)}>
+                    <span className={`perf-rank ${kind}`}>{i + 1}</span>
+                    <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                    <div className="perf-info"><b>{e.name}</b><span>{e.team}</span></div>
+                    <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
+                    <div className="perf-metrics"><b className="num">{n0(e.utilization)}%</b><span>util · {n0(e.billable)}h bill</span></div>
+                  </div>
+                ))}
+                {list.length === 0 && <div className="empty-s">No data</div>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
       {compare && (() => {
         const maxTotal = Math.max(1, ...compare.ents.map((e) => e.total));
@@ -1913,6 +2004,40 @@ function RingChart({ segs }: { segs: { label: string; value: number; color: stri
     <svg viewBox="0 0 200 200" className="ringchart">
       <g transform="rotate(-90 100 100)">{arcs}</g>
       {labels}
+    </svg>
+  );
+}
+
+// Compact multi-line SVG chart (used for Budget burn-up & Utilization trend).
+function LineChart({ series, labels, height = 150, fmtY, fmtX }: {
+  series: { name: string; color: string; values: (number | null)[]; dash?: boolean }[];
+  labels: string[]; height?: number; fmtY?: (v: number) => string; fmtX?: (s: string) => string;
+}) {
+  const W = 580, padL = 42, padB = 20, padT = 8, padR = 10;
+  const vals = series.flatMap((s) => s.values.filter((v): v is number => v != null));
+  const maxY = Math.max(1, ...vals) * 1.08;
+  const n = Math.max(1, labels.length);
+  const X = (i: number) => padL + (n === 1 ? 0.5 : i / (n - 1)) * (W - padL - padR);
+  const Y = (v: number) => padT + (1 - v / maxY) * (height - padT - padB);
+  const path = (vs: (number | null)[]) =>
+    vs.map((v, i) => v == null ? "" : `${i === 0 || vs[i - 1] == null ? "M" : "L"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  const ticks = [0, 0.5, 1].map((t) => t * maxY);
+  const step = Math.max(1, Math.ceil(n / 6));
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} width="100%" preserveAspectRatio="none" style={{ display: "block", overflow: "visible" }}>
+      {ticks.map((t, i) => (
+        <g key={i}>
+          <line x1={padL} x2={W - padR} y1={Y(t)} y2={Y(t)} stroke="var(--line-2)" strokeWidth="1" />
+          <text x={padL - 6} y={Y(t) + 3} textAnchor="end" fontSize="9.5" fill="var(--muted)">{fmtY ? fmtY(t) : Math.round(t)}</text>
+        </g>
+      ))}
+      {series.map((s) => (
+        <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth="2.2"
+          strokeDasharray={s.dash ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+      ))}
+      {labels.map((l, i) => (i % step === 0 || i === n - 1) ? (
+        <text key={i} x={X(i)} y={height - 5} textAnchor="middle" fontSize="9.5" fill="var(--muted)">{fmtX ? fmtX(l) : l}</text>
+      ) : null)}
     </svg>
   );
 }
