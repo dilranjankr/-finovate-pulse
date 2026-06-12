@@ -803,7 +803,40 @@ export default function CommandCenter({
       </div>
       )}
 
-      {/* KPI — 6 clean cards (label + big value + icon badge + delta) */}
+      {/* OPERATIONS HEALTH SCORE — composite of util, activity, on-time, budget */}
+      {(() => {
+        const budgetAdh = budget && budget.count > 0 ? (budget.on_budget / budget.count) * 100 : null;
+        const parts: [number, number, string, string][] = [
+          [0.30, Math.min(100, util), "Utilization", n1(util) + "%"],
+          [0.20, act, "Activity", n1(act) + "%"],
+        ];
+        if (taskDel && taskDel.due > 0) parts.push([0.25, onTimePct, "On-Time", n1(onTimePct) + "%"]);
+        if (budgetAdh !== null) parts.push([0.25, budgetAdh, "On Budget", n0(budgetAdh) + "%"]);
+        const wsum = parts.reduce((s, p) => s + p[0], 0);
+        const score = wsum ? Math.round(parts.reduce((s, p) => s + p[0] * p[1], 0) / wsum) : 0;
+        const grade = score >= 90 ? "A+" : score >= 80 ? "A" : score >= 70 ? "B+" : score >= 60 ? "B" : score >= 50 ? "C" : "D";
+        const tone = score >= 75 ? "ok" : score >= 55 ? "warn" : "bad";
+        return (
+          <div className={`ops-health t-${tone}`}>
+            <div className="oh-main">
+              <span className="oh-lbl">Operations Health</span>
+              <div className="oh-val"><b className="num">{score}</b><i>/100</i><span className={`grade ${gradeCls(grade)}`}>{grade}</span></div>
+              <span className="oh-sub">weighted: utilization, activity, on-time delivery &amp; budget adherence</span>
+            </div>
+            <div className="oh-factors">
+              {parts.map((p) => (
+                <div className="oh-f" key={p[2]}>
+                  <span className="oh-f-l">{p[2]}</span>
+                  <span className="oh-f-bar"><i style={{ width: `${Math.min(100, p[1])}%` }} /></span>
+                  <b className="oh-f-v num">{p[3]}</b>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* KPI — 8 clean cards (label + big value + icon badge + delta) */}
       <div className="kpi-grid">
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
           openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ capacity (working days × 8h) × 100, capped at 100%. Target 80%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"), kTone(util, 80, 60), "target 80%")}
@@ -1771,16 +1804,25 @@ export default function CommandCenter({
                 <div className="bv-note">Monthly budget comes from the Resource sheet and is pro-rated to the selected date range. Change the period or any filter above and these numbers update with it.</div>
                 <div className="scrollwrap" style={{ maxHeight: 460 }}>
                   <table className="hd-table">
-                    <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Team</th><th className="l">Type</th><th className="l">Budget vs Actual</th><th>Budget</th><th>Actual</th><th>Variance</th></tr></thead>
+                    <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Team</th><th className="l">Type</th><th className="l">Tasks (done / due)</th><th className="l">Budget vs Actual</th><th>Budget</th><th>Actual</th><th>Variance</th><th>Health</th></tr></thead>
                     <tbody>
                       {rows.map((r, i) => {
                         const bw = (r.budget / maxV) * 100, aw = (r.actual / maxV) * 100;
+                        const tt = r.tasks_total || 0, donePct = tt ? (r.tasks_done / tt) * 100 : 0;
                         return (
                           <tr key={r.client}>
                             <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
                             <td className="l tname click" style={{ fontWeight: 650 }} onClick={() => { setBudgetModal(false); openClient(r.client); }}>{r.client}</td>
                             <td className="l" style={{ color: "var(--ink-2)" }}>{r.team}</td>
                             <td className="l"><span className="hrb" style={{ background: "var(--chip)", color: "var(--ink-2)" }}>{r.type}</span></td>
+                            <td className="l">
+                              {tt ? (
+                                <span className="tk-cell" title={`${r.tasks_done} closed · ${r.tasks_open} open · ${tt} total`}>
+                                  <span className="tk-nums"><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> / <b style={{ color: "#e8930c" }}>{r.tasks_open}</b></span>
+                                  <span className="tk-bar"><i style={{ width: `${donePct}%` }} /></span>
+                                </span>
+                              ) : <span style={{ color: "var(--faint)" }}>—</span>}
+                            </td>
                             <td className="l">
                               <span className="bv-bars" title={`Budget ${n1(r.budget)}h · Actual ${n1(r.actual)}h`}>
                                 <span className="bv-row"><i className="bud" style={{ width: `${bw}%` }} /></span>
@@ -1790,6 +1832,7 @@ export default function CommandCenter({
                             <td className="num">{n0(r.budget)}h</td>
                             <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
                             <td className="num" style={{ fontWeight: 750, color: r.over ? "#ef4444" : "#16a34a" }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
+                            <td className="num"><span className={`grade ${gradeCls(r.health)}`} title={`Health score ${r.health_score}/100`}>{r.health}</span></td>
                           </tr>
                         );
                       })}

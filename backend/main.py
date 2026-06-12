@@ -2529,16 +2529,32 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
     def _n(c):
         return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
     actual = d.groupby("client")["tracked_h"].sum()
+    bil_by = d.groupby("client")["billable_h"].sum().to_dict()
+    cdim = clickup_intel().get("clients", {})        # per-folder ClickUp task counts
     rows = []
     for cn, act in actual.items():
         b = bud.get(_n(cn))
         if not b:
             continue
         pb = b["budget"] * months
+        act = float(act); over = act > pb
+        # task completion for this client (ClickUp folder)
+        ci = cdim.get(cn, {})
+        ttot = int(ci.get("total", 0)); topen = int(ci.get("active_tasks", 0))
+        tdone = max(0, ttot - topen)
+        # Client Health Score: budget adherence (50%) + task completion (30%)
+        # + billable share (20%) -> A–F grade.
+        bilpct = (float(bil_by.get(cn, 0)) / act * 100) if act else 0.0
+        budget_score = 100.0 if not over else max(0.0, 100.0 - ((act - pb) / pb * 100 if pb else 100))
+        task_score = (tdone / ttot * 100) if ttot else 70.0
+        hscore = 0.5 * budget_score + 0.3 * task_score + 0.2 * bilpct
         rows.append({"client": cn, "type": b["type"], "team": b["team"],
-                     "budget": round(pb, 1), "actual": round(float(act), 1),
-                     "variance": round(float(act) - pb, 1), "over": float(act) > pb,
-                     "pct": round(float(act) / pb * 100, 0) if pb else 0})
+                     "budget": round(pb, 1), "actual": round(act, 1),
+                     "variance": round(act - pb, 1), "over": over,
+                     "pct": round(act / pb * 100, 0) if pb else 0,
+                     "tasks_total": ttot, "tasks_open": topen, "tasks_done": tdone,
+                     "billable_pct": round(bilpct, 0),
+                     "health": grade_letter(hscore), "health_score": round(hscore)})
     rows.sort(key=lambda x: -x["actual"])
     tb = sum(r["budget"] for r in rows); ta = sum(r["actual"] for r in rows)
     over = sum(1 for r in rows if r["over"])

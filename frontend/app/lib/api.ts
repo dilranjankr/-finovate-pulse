@@ -262,6 +262,8 @@ export async function initMapping(): Promise<{ ok: boolean; rows?: number; detai
 export interface BudgetClient {
   client: string; type: string; team: string;
   budget: number; actual: number; variance: number; over: boolean; pct: number;
+  tasks_total: number; tasks_open: number; tasks_done: number;
+  billable_pct: number; health: string; health_score: number;
 }
 export interface BudgetData {
   clients: BudgetClient[]; total_budget: number; total_actual: number;
