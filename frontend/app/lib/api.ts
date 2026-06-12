@@ -431,6 +431,12 @@ export interface AttendanceData {
   summary: { employees: number; matched: number; effective_h: number; tracked_h: number; gap_h: number; real_util: number; overtime_h: number; short_h: number };
   rows: AttendanceRow[];
 }
+export interface AttendanceTrendPoint { month: string; effective_h: number; tracked_h: number; gap_h: number; real_util: number; overtime_h: number; }
+export async function getAttendanceTrend(): Promise<{ trend: AttendanceTrendPoint[] }> {
+  const r = await authedFetch(`${API}/api/attendance/trend`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
 export async function getAttendance(month?: string): Promise<AttendanceData> {
   const qs = month ? `?month=${encodeURIComponent(month)}` : "";
   const r = await authedFetch(`${API}/api/attendance${qs}`, { cache: "no-store" });

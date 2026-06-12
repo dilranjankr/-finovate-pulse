@@ -12,7 +12,7 @@ import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
-  getKekaStatus, uploadKeka, type KekaMonth, getAttendance, type AttendanceData,
+  getKekaStatus, uploadKeka, type KekaMonth, getAttendance, type AttendanceData, getAttendanceTrend, type AttendanceTrendPoint,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -197,9 +197,10 @@ export default function CommandCenter({
   async function openKeka() { setKekaModal(true); setKekaMsg(null); setKekaStatus(null); try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); } }
   const [attModal, setAttModal] = useState(false);
   const [attData, setAttData] = useState<AttendanceData | null>(null);
+  const [attTrend, setAttTrend] = useState<AttendanceTrendPoint[] | null>(null);
   const [attSort, setAttSort] = useState<"gap" | "util">("gap");
   async function openAttendance(month?: string) {
-    setAttModal(true); if (!month) setAttData(null);
+    setAttModal(true); if (!month) { setAttData(null); getAttendanceTrend().then((t) => setAttTrend(t.trend)).catch(() => setAttTrend([])); }
     try { setAttData(await getAttendance(month)); } catch { setAttData({ month: null, months: [], summary: { employees: 0, matched: 0, effective_h: 0, tracked_h: 0, gap_h: 0, real_util: 0, overtime_h: 0, short_h: 0 }, rows: [] }); }
   }
   async function doKekaUpload(file: File) {
@@ -1608,6 +1609,14 @@ export default function CommandCenter({
                         <div className="bv-pill"><b>{n0(s.overtime_h)}h</b><span>overtime</span></div>
                         <div className="bv-pill"><b>{n0(s.short_h)}h</b><span>short hours</span></div>
                       </div>
+                      {attTrend && attTrend.length >= 2 && (
+                        <div className="panel" style={{ marginBottom: 12, padding: "12px 16px" }}>
+                          <div className="ph"><h3>Real Utilization Trend <span className="hl">tracked ÷ effective, by month</span></h3></div>
+                          <LineChart height={150} labels={attTrend.map((t) => t.month + "-01")} fmtX={(s) => s.slice(0, 7)}
+                            tipDate={(s) => s.slice(0, 7)} fmtY={(v) => n0(v) + "%"}
+                            series={[{ name: "Real util", color: "#7b3fc0", values: attTrend.map((t) => t.real_util) }]} />
+                        </div>
+                      )}
                       <div className="bv-legend" style={{ justifyContent: "space-between" }}>
                         <span>Real utilization = tracked ÷ effective. Gap = present hours not tracked in Hubstaff.</span>
                         <div className="seg-toggle">

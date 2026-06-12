@@ -642,6 +642,38 @@ def attendance(month: Optional[str] = None, authorization: Optional[str] = Heade
     return clean({"month": month, "rows": rows, "summary": summary, "months": months})
 
 
+@app.get("/api/attendance/trend")
+def attendance_trend(authorization: Optional[str] = Header(None)):
+    """Per-month real-utilization / gap across every uploaded Keka month."""
+    _require(authorization)
+    members, g = load()
+    try:
+        kr = db.q_write("""SELECT month, sum(effective_min) eff, sum(overtime_min) ot
+                           FROM keka_attendance GROUP BY month ORDER BY month""")
+    except Exception:
+        return {"trend": []}
+    name2uid = set()
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>''")
+        name2uid = {str(x["uid"]) for _, x in hm.iterrows()}
+    except Exception:
+        pass
+    gg = _scope_df(g)
+    if gg is not None and not gg.empty:
+        gg = gg[gg["user_id"].astype(str).isin(name2uid)].copy()
+        gg["mon"] = gg["date_s"].str[:7]
+        trk_by_mon = gg.groupby("mon")["tracked_h"].sum().to_dict()
+    else:
+        trk_by_mon = {}
+    out = []
+    for _, r in kr.iterrows():
+        m = r["month"]; eff = float(r["eff"] or 0) / 60.0; trk = float(trk_by_mon.get(m, 0))
+        out.append({"month": m, "effective_h": round(eff), "tracked_h": round(trk),
+                    "gap_h": round(eff - trk), "real_util": round(trk / eff * 100, 0) if eff else 0,
+                    "overtime_h": round(float(r["ot"] or 0) / 60.0)})
+    return {"trend": out}
+
+
 @app.get("/api/keka/status")
 def keka_status(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")
