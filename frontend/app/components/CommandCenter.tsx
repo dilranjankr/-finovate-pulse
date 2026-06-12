@@ -9,10 +9,10 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam,
+  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
-  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
+  type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
 import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
@@ -161,10 +161,6 @@ export default function CommandCenter({
   const [loading, setLoading] = useState(false);
   const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string; dayKey?: "utilization" | "activity" | "productivity" }>(null);
-  const [bd, setBd] = useState<BreakdownData | null>(null);
-  const [bdList, setBdList] = useState<BreakdownListData | null>(null);
-  const [bdModal, setBdModal] = useState<null | { kind: "task" | "project"; mode: "all" | "billable" | "nonbillable" }>(null);
-  const [projFilter, setProjFilter] = useState<string | null>(null);
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
   const [clientTab, setClientTab] = useState<"top" | "bottom">("top");
   const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
@@ -374,7 +370,6 @@ export default function CommandCenter({
   }
 
   useEffect(() => {
-    if (initialOpts) getBreakdown(currentMonth(initialOpts)).then(setBd).catch(() => setBd(null));
     // fetch on-time delivery for the initial period (covers SSR initialData path)
     const r0 = initialOpts ? currentMonth(initialOpts) : (draft.date_from ? draft : null);
     if (r0) getTaskDelivery(r0).then(setTaskDel).catch(() => setTaskDel(null));
@@ -394,24 +389,18 @@ export default function CommandCenter({
         const r = currentMonth(o);
         getTaskDelivery(r).then((td) => { if (!cancelled) setTaskDel(td); }).catch(() => {});
         getBudget(r).then((bg) => { if (!cancelled) setBudget(bg); }).catch(() => {});
-        const [cmd, b] = await Promise.all([getCommand(r), getBreakdown(r).catch(() => null)]);
+        const cmd = await getCommand(r);
         if (cancelled) return;
-        setData(cmd); setBd(b);
+        setData(cmd);
       } catch { /* retry on next interaction */ }
     })();
     return () => { cancelled = true; };
   }, [initialData, initialOpts]);
 
-  function openBdList(kind: "task" | "project", mode: "all" | "billable" | "nonbillable") {
-    setBdModal({ kind, mode });
-    setProjFilter(null);
-    setBdList(null);
-    getBreakdownList(draft).then(setBdList).catch(() => setBdList({ by_task: [], by_project: [] }));
-  }
-
   async function apply(f: Filters) {
     setLoading(true);
-    getBreakdown(f).then(setBd).catch(() => setBd(null));
+    // keep the dropdowns scoped to the active period + drill scope
+    refetchOpts({ department: f.department, atl: f.atl, date_from: f.date_from, date_to: f.date_to });
     getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
     getBudget(f).then(setBudget).catch(() => setBudget(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
@@ -437,20 +426,24 @@ export default function CommandCenter({
     }
     return "";
   })();
-  async function refetchOpts(scope: { department?: string; atl?: string }) {
+  async function refetchOpts(scope: { department?: string; atl?: string; date_from?: string; date_to?: string }) {
     try { setOpts(await getFilters(scope)); } catch { /* keep */ }
   }
   function setField(key: keyof Filters, v: string) { const next = { ...draft, [key]: v || undefined }; setDraft(next); apply(next); }
-  function setDept(v: string) { const next = { ...draft, department: v || undefined, atl: undefined, employee: undefined }; setDraft(next); refetchOpts({ department: v || undefined }); apply(next); }
-  function setAtl(v: string) { const next = { ...draft, atl: v || undefined, employee: undefined }; setDraft(next); refetchOpts({ department: draft.department, atl: v || undefined }); apply(next); }
-  function clearFilters() { const base: Filters = opts ? currentMonth(opts) : {}; setDraft(base); refetchOpts({}); apply(base); }
+  function setDept(v: string) { const next = { ...draft, department: v || undefined, atl: undefined, employee: undefined }; setDraft(next); apply(next); }
+  function setAtl(v: string) { const next = { ...draft, atl: v || undefined, employee: undefined }; setDraft(next); apply(next); }
+  function clearFilters() { const base: Filters = opts ? currentMonth(opts) : {}; setDraft(base); apply(base); }
   // breadcrumb drill-up: jump to a parent scope, clearing deeper filters
-  function goCompany() { const n = { ...draft, department: undefined, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({}); apply(n); }
-  function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); refetchOpts({ department: draft.department }); apply(n); }
+  function goCompany() { const n = { ...draft, department: undefined, atl: undefined, employee: undefined }; setDraft(n); apply(n); }
+  function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); apply(n); }
   function goTeam() { const n = { ...draft, employee: undefined }; setDraft(n); apply(n); }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
   function openUnassigned() { setUnaModal(true); setUnaData(null); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
-  function openHours() { setHoursModal(true); setHoursData(null); setHoursSearch(""); getHoursDetail(draft).then(setHoursData).catch(() => setHoursData({ rows: [], count: 0 })); }
+  function openHours(mode?: "Billable" | "Non-Billable") {
+    setHoursModal(true); setHoursData(null); setHoursSearch("");
+    const f: Filters = mode ? { ...draft, billable: mode } : draft;
+    getHoursDetail(f).then(setHoursData).catch(() => setHoursData({ rows: [], count: 0 }));
+  }
   function exportHoursCsv() {
     const q = hoursSearch.trim().toLowerCase();
     const rows = (hoursData?.rows || []).filter((r) => !q || r.employee.toLowerCase().includes(q) || r.project.toLowerCase().includes(q) || r.task.toLowerCase().includes(q));
@@ -818,6 +811,8 @@ export default function CommandCenter({
           openMetric("Billable", "#16a34a", "Billable hours and their share of total tracked time.", (e) => e.billable, (v) => n0(v) + "h"), undefined, n1(billablePct) + "% of total")}
         {kpiCard("k-act", "Activity", n1(act) + "%", "teal", Activity, "activity",
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
+        {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
+          openMetric("Productivity", "#e8930c", "Billable hours ÷ tracked hours × 100 — the share of tracked time that is billable.", (e) => e.productivity, (v) => n1(v) + "%", "productivity"), undefined, "billable share")}
         {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
         {budget && budget.count > 0
           ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
@@ -829,7 +824,8 @@ export default function CommandCenter({
 
       {/* Total Hours + Task Delivery — two donuts, one row */}
       <div className="donut-row">
-        <DonutCard title="Total Hours" sub="billable vs non-billable" onClick={openHours}
+        <DonutCard title="Total Hours" sub="billable vs non-billable — click a slice" onClick={() => openHours()}
+          onSeg={(label) => openHours(label === "Billable" ? "Billable" : "Non-Billable")}
           centerValue={n0(total)} centerLabel="hrs total" fmt={(v) => n0(v) + "h"}
           note={`${n1(billablePct)}% of tracked time is billable this period.`}
           segs={[{ label: "Billable", value: billable, color: "#16a34a" }, { label: "Non-Billable", value: nonbill, color: "#8b5cf6" }]} />
@@ -850,28 +846,6 @@ export default function CommandCenter({
             </div>
           );
         })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No tasks due this period</div></div>}
-        {bd && (() => {
-          const tb = bd.task_billable_h, tn = bd.task_non_billable_h, pb = bd.project_billable_h, pn = bd.project_non_billable_h;
-          const tot = tb + tn + pb + pn || 1; const taskH = tb + tn, projH = pb + pn;
-          const rows = [
-            { label: "On a Task", val: taskH, bill: tb, nb: tn },
-            { label: "On a Project", val: projH, bill: pb, nb: pn },
-          ];
-          return (
-            <div className="dcard kclk" onClick={() => openBdList("task", "all")}>
-              <div className="dcard-h"><h3>Task vs Project</h3><span className="dcard-sub">where time is tracked</span></div>
-              <div className="tvp">
-                {rows.map((r) => (
-                  <div className="tvp-block" key={r.label}>
-                    <div className="tvp-top"><span className="tvp-lbl">{r.label}</span><b className="tvp-v num">{n0(r.val)}h <span>{n0((r.val / tot) * 100)}%</span></b></div>
-                    <div className="tvp-bar"><i style={{ width: `${(r.bill / (r.val || 1)) * 100}%`, background: "#16a34a" }} /><i style={{ width: `${(r.nb / (r.val || 1)) * 100}%`, background: "#8b5cf6" }} /></div>
-                    <div className="tvp-sub"><span><i style={{ background: "#16a34a" }} />Billable {n0(r.bill)}h</span><span><i style={{ background: "#8b5cf6" }} />Non-bill {n0(r.nb)}h</span></div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          );
-        })()}
       </div>
 
       {/* BY DEPARTMENT + BY TEAM — horizontal bar charts, one row */}
@@ -1134,64 +1108,6 @@ export default function CommandCenter({
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 
-      {/* TASK / PROJECT drill-down list */}
-      {bdModal && (() => {
-        const { kind, mode } = bdModal;
-        let src = (kind === "task" ? bdList?.by_task : bdList?.by_project) || [];
-        if (kind === "task" && projFilter) src = src.filter((r) => r.project === projFilter);
-        const pick = (r: { total: number; billable: number; non_billable: number }) =>
-          mode === "nonbillable" ? r.non_billable : mode === "billable" ? r.billable : r.total;
-        const rows = src.filter((r) => pick(r) > 0).sort((a, b) => pick(b) - pick(a));
-        const max = Math.max(1, ...rows.map(pick));
-        const kLbl = kind === "task" ? "Task" : "Project";
-        const color = mode === "nonbillable" ? "#9aa3b2" : "#0f9043";
-        const title = projFilter ? "Tasks in project" : mode === "billable" ? `Billable ${kLbl}s` : mode === "nonbillable" ? `Non-Billable ${kLbl}s` : `Time by ${kLbl}`;
-        // open a project's tasks: switch to the task list filtered to that project
-        const openProjectTasks = (proj: string) => { setBdModal({ kind: "task", mode: "all" }); setProjFilter(proj); };
-        return (
-          <div className="modal-bg" onClick={() => setBdModal(null)}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-h">
-                <div>
-                  <h3>{title}</h3>
-                  <div className="sub">{bdList ? `${rows.length} ${kLbl.toLowerCase()}s${kind === "project" && !projFilter ? " (no task)" : ""}` : "loading…"} · {projFilter || data.context.label}</div>
-                </div>
-                <div className="modal-h-r">
-                  {projFilter && <button className="tb-act" onClick={() => { setBdModal({ kind: "project", mode: "all" }); setProjFilter(null); }}><ArrowRight size={14} style={{ transform: "rotate(180deg)" }} /><span>All projects</span></button>}
-                  <div className="modal-x" onClick={() => setBdModal(null)}><X size={16} /></div>
-                </div>
-              </div>
-              <div className="modal-b">
-                {!bdList ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div> : (
-                  <table>
-                    <thead><tr><th className="l">#</th>{kind === "task" && <th className="l">Project</th>}<th className="l">{kLbl}</th><th className="l">{mode === "all" ? "Billable / Non-Billable" : "Share"}</th><th>{mode === "all" ? "Total" : "Hours"}</th></tr></thead>
-                    <tbody>
-                      {rows.map((r, i) => {
-                        const v = pick(r);
-                        const bilW = r.total ? (r.billable / r.total) * 100 : 0;
-                        return (
-                          <tr key={r.name + i}>
-                            <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
-                            {kind === "task" && <td className="l">{r.project && r.project !== "(no project)" && !projFilter ? <button type="button" className="proj-link" onClick={() => openProjectTasks(r.project!)} title="See this project's tasks">{r.project}</button> : <span style={{ color: "var(--muted)", fontWeight: 600 }}>{r.project || "—"}</span>}</td>}
-                            <td className="l tname">{kind === "project" ? <button type="button" className="proj-link" onClick={() => openProjectTasks(r.name)} title="See this project's tasks">{r.name}</button> : r.name}</td>
-                            <td className="l">
-                              {mode === "all"
-                                ? <span className="brkbar"><span className="brkbar-t"><span className="bil" style={{ width: `${bilW}%` }} /><span className="nbil" style={{ width: `${100 - bilW}%` }} /></span></span>
-                                : <span className="brkbar"><span className="brkbar-t"><span style={{ width: `${(v / max) * 100}%`, background: color, height: "100%" }} /></span></span>}
-                            </td>
-                            <td className="num" style={{ fontWeight: 750 }}>{n0(v)}h</td>
-                          </tr>
-                        );
-                      })}
-                      {rows.length === 0 && <tr><td colSpan={kind === "task" ? 5 : 4} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* KPI DETAIL — per-employee breakdown of the clicked metric */}
       {detail && (() => {
@@ -1966,9 +1882,10 @@ function RingChart({ segs }: { segs: { label: string; value: number; color: stri
   );
 }
 
-function DonutCard({ title, sub, segs, centerValue, centerLabel, onClick, fmt, note }: {
+function DonutCard({ title, sub, segs, centerValue, centerLabel, onClick, onSeg, fmt, note }: {
   title: string; sub?: string; segs: { label: string; value: number; color: string }[];
-  centerValue: string; centerLabel: string; onClick?: () => void; fmt?: (v: number) => string; note?: string;
+  centerValue: string; centerLabel: string; onClick?: () => void; onSeg?: (label: string) => void;
+  fmt?: (v: number) => string; note?: string;
 }) {
   const total = segs.reduce((s, x) => s + x.value, 0) || 1;
   const f = fmt || ((v: number) => Intl.NumberFormat("en-IN").format(Math.round(v)));
@@ -1981,7 +1898,9 @@ function DonutCard({ title, sub, segs, centerValue, centerLabel, onClick, fmt, n
       </div>
       <div className="dcard-leg">
         {segs.map((s) => (
-          <div className="dleg" key={s.label}>
+          <div className={`dleg${onSeg ? " clk" : ""}`} key={s.label}
+            onClick={onSeg ? (e) => { e.stopPropagation(); onSeg(s.label); } : undefined}
+            title={onSeg ? `View ${s.label.toLowerCase()} hours` : undefined}>
             <span className="d" style={{ background: s.color }} />
             <span className="nm">{s.label}</span>
             <b className="v num">{f(s.value)}</b>

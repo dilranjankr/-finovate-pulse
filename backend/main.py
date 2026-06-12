@@ -1213,11 +1213,14 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
     dep_vals, atl_vals = _vals(department), _vals(atl)
     has_sets = "team_set" in members.columns
 
-    # Dropdowns list every option from the full history (period-active filtering
-    # was reverted on request) — date params are accepted but not applied here.
-    # Scoped to the caller's permitted people so a lead/employee only sees their
-    # own teams/clients/colleagues in the dropdowns.
+    # Dropdowns are scoped to (a) the caller's permitted people and (b) the
+    # SELECTED PERIOD — only departments/teams/clients/employees with data in
+    # that window appear. date_min/date_max below still use the full history.
     gp = _scope_df(g)
+    if date_from:
+        gp = gp[gp["date_s"] >= date_from]
+    if date_to:
+        gp = gp[gp["date_s"] <= date_to]
 
     # name -> HR status (ACTIVE / RELIEVED / EXTERNAL / UNKNOWN) for the dropdown dots
     emp_status = {}
@@ -1868,6 +1871,8 @@ def hours_detail(
         where.append("a.date >= :df"); params["df"] = date_from
     if date_to:
         where.append("a.date <= :dt"); params["dt"] = date_to
+    # Non-billable = time on NB-marked tasks/projects (same definition as the
+    # Total Hours card). A Billable / Non-Billable click shows only that slice.
     nb_expr = ("CASE WHEN trim(coalesce(ht.summary,'')) ~* :nb "
                "OR trim(coalesce(p.name,'')) ~* :nb THEN a.tracked ELSE 0 END")
     sql = f"""
@@ -1875,12 +1880,12 @@ def hours_detail(
                coalesce(nullif(p.name,''), 'No Project') project,
                coalesce(nullif(ht.summary,''),
                         CASE WHEN a.task_id IS NULL THEN '(project only — no task)' ELSE '(unnamed task)' END) task,
-               sum(a.tracked) t, sum({nb_expr}) nb
+               sum(a.tracked) t, sum({nb_expr}) nbsec
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
         LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
         WHERE {' AND '.join(where)}
-        GROUP BY 1, 2, 3 ORDER BY sum(a.tracked) DESC LIMIT 1000
+        GROUP BY 1, 2, 3 ORDER BY sum(a.tracked) DESC LIMIT 2000
     """
     try:
         df = db.q(sql, params)
@@ -1888,11 +1893,23 @@ def hours_detail(
         print("hours_detail failed:", e); return {"rows": [], "count": 0}
     rows = []
     for _, r in df.iterrows():
-        tot = float(r["t"] or 0); nb = float(r["nb"] or 0)
-        rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
-                     "total": round(tot / SEC, 1), "billable": round(max(0.0, tot - nb) / SEC, 1),
-                     "non_billable": round(nb / SEC, 1)})
-    return clean({"rows": rows, "count": len(rows)})
+        tot = float(r["t"] or 0); nbv = min(float(r["nbsec"] or 0), tot); bil = tot - nbv; nb = nbv
+        if billable == "Billable":
+            if bil <= 0:
+                continue
+            rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
+                         "total": round(bil / SEC, 1), "billable": round(bil / SEC, 1), "non_billable": 0.0})
+        elif billable == "Non-Billable":
+            if nb <= 0:
+                continue
+            rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
+                         "total": round(nb / SEC, 1), "billable": 0.0, "non_billable": round(nb / SEC, 1)})
+        else:
+            rows.append({"employee": r["emp"], "project": r["project"], "task": r["task"],
+                         "total": round(tot / SEC, 1), "billable": round(bil / SEC, 1),
+                         "non_billable": round(nb / SEC, 1)})
+    rows.sort(key=lambda x: -x["total"])
+    return clean({"rows": rows[:1000], "count": len(rows[:1000])})
 
 
 @app.get("/api/compare_trend")
