@@ -687,21 +687,13 @@ select.map-inp { cursor: pointer; }
 .kc2.t-warn { box-shadow: inset 3px 0 0 #e8930c; }
 .kc2.t-bad  { box-shadow: inset 3px 0 0 #ef4444; }
 /* KPI cards — clean (label + big value + circular icon badge + delta pill) */
-/* Month-end projection card */
-.proj-card { display: flex; align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid #94a3b8; border-radius: 9px; padding: 14px 20px; margin-bottom: 14px; }
-.proj-card.ok { border-left-color: #16a34a; } .proj-card.over { border-left-color: #ef4444; }
-.proj-l { display: flex; flex-direction: column; gap: 2px; }
-.proj-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
-.proj-val { display: flex; align-items: baseline; gap: 8px; }
-.proj-val b { font-size: 30px; font-weight: 850; color: var(--ink); line-height: 1; }
-.proj-val span { font-size: 12px; color: var(--ink-2); font-weight: 600; }
-.proj-sub { font-size: 11px; color: var(--muted); }
-.proj-r { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
-.proj-stat { display: flex; flex-direction: column; gap: 1px; }
-.proj-stat span { font-size: 10.5px; color: var(--muted); font-weight: 600; }
-.proj-stat b { font-size: 17px; font-weight: 800; color: var(--ink); }
-.proj-badge { font-size: 11px; font-weight: 700; padding: 5px 12px; border-radius: 999px; }
-.proj-badge.ok { background: #f0fdf4; color: #15803d; } .proj-badge.bad { background: #fef2f2; color: #b91c1c; }
+/* line chart + hover tooltip */
+.lc-wrap { position: relative; }
+.lc-tip { position: absolute; top: 4px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.12); border-radius: 8px; padding: 7px 10px; font-size: 11px; pointer-events: none; white-space: nowrap; z-index: 5; display: flex; flex-direction: column; gap: 3px; }
+.lc-tip b { font-size: 11.5px; font-weight: 750; color: var(--ink); margin-bottom: 1px; }
+.lc-tip span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
+.lc-tip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.lc-tip em { font-style: normal; font-weight: 750; color: var(--ink); }
 /* line chart legend */
 .lc-leg { display: flex; gap: 16px; margin-top: 8px; font-size: 11px; color: var(--ink-2); font-weight: 600; }
 .lc-leg span { display: inline-flex; align-items: center; gap: 6px; }

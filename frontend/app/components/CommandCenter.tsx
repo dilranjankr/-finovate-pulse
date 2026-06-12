@@ -900,44 +900,14 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* MONTH-END PROJECTION — at the current daily pace */}
-      {(() => {
-        const daily = data.hours_trend || [];
-        if (!draft.date_from || !draft.date_to || daily.length === 0) return null;
-        const df = new Date(draft.date_from + "T00:00:00Z"), dtb = new Date(draft.date_to + "T00:00:00Z");
-        const daysElapsed = Math.max(1, Math.round((dtb.getTime() - df.getTime()) / 86400000) + 1);
-        const daysInMonth = new Date(dtb.getUTCFullYear(), dtb.getUTCMonth() + 1, 0).getUTCDate();
-        const daysRemaining = Math.max(0, daysInMonth - dtb.getUTCDate());
-        if (daysRemaining === 0) return null;               // period already at/after month-end
-        const rate = total / daysElapsed;
-        const projHours = total + rate * daysRemaining;
-        const monthBudget = budget && budget.total_budget > 0 ? budget.total_budget / daysElapsed * daysInMonth : null;
-        const projVar = monthBudget !== null ? projHours - monthBudget : null;
-        const over = projVar !== null && projVar > 0;
-        return (
-          <div className={`proj-card${projVar !== null ? (over ? " over" : " ok") : ""}`}>
-            <div className="proj-l">
-              <span className="proj-lbl">Month-end Projection</span>
-              <div className="proj-val"><b className="num">{n0(projHours)}h</b><span>projected by month-end</span></div>
-              <span className="proj-sub">{n0(total)}h so far · {daysElapsed} of {daysInMonth} days · {daysRemaining} left · ~{n1(rate)}h/day pace</span>
-            </div>
-            {monthBudget !== null && (
-              <div className="proj-r">
-                <div className="proj-stat"><span>Monthly budget</span><b>{n0(monthBudget)}h</b></div>
-                <div className="proj-stat"><span>Projected vs budget</span><b style={{ color: over ? "#ef4444" : "#16a34a" }}>{projVar! > 0 ? "+" : ""}{n0(projVar!)}h</b></div>
-                <span className={`proj-badge ${over ? "bad" : "ok"}`}>{over ? "On track to exceed budget" : "On track within budget"}</span>
-              </div>
-            )}
-          </div>
-        );
-      })()}
-
       {/* BUDGET BURN-UP + UTILIZATION TREND */}
       {(() => {
         const daily = data.hours_trend || [];
         const kd = data.kpi_daily || [];
         if (daily.length < 2 && kd.length < 2) return null;
         const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
+        const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
         // burn-up: cumulative actual vs linear budget accrual
         let cum = 0; const cumActual = daily.map((d) => (cum += d.hours));
         const totalBud = budget?.total_budget || 0;
@@ -948,7 +918,7 @@ export default function CommandCenter({
               <div className="ph"><h3>Budget Burn-up <span className="hl">cumulative hours vs budget</span></h3></div>
               {daily.length < 2 || totalBud === 0 ? <div className="empty-s">{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
                 <>
-                  <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"}
+                  <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"} tipDate={tipDate}
                     series={[{ name: "Actual", color: "#2f6fbf", values: cumActual }, { name: "Budget", color: "#94a3b8", values: budgetLine, dash: true }]} />
                   <div className="lc-leg"><span><i style={{ background: "#2f6fbf" }} />Actual (cumulative)</span><span><i style={{ background: "#94a3b8" }} />Budget (pace)</span></div>
                 </>
@@ -958,7 +928,7 @@ export default function CommandCenter({
               <div className="ph"><h3>Utilization Trend <span className="hl">daily, target 80%</span></h3></div>
               {kd.length < 2 ? <div className="empty-s">Not enough data</div> : (
                 <>
-                  <LineChart height={170} labels={kd.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "%"}
+                  <LineChart height={170} labels={kd.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "%"} tipDate={tipDate}
                     series={[{ name: "Utilization", color: "#7b3fc0", values: kd.map((d) => d.utilization) }]} />
                   <div className="lc-leg"><span><i style={{ background: "#7b3fc0" }} />Utilization %</span></div>
                 </>
@@ -2008,12 +1978,15 @@ function RingChart({ segs }: { segs: { label: string; value: number; color: stri
   );
 }
 
-// Compact multi-line SVG chart (used for Budget burn-up & Utilization trend).
-function LineChart({ series, labels, height = 150, fmtY, fmtX }: {
+// Compact multi-line SVG chart with hover tooltip (Budget burn-up & Utilization).
+function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
   series: { name: string; color: string; values: (number | null)[]; dash?: boolean }[];
   labels: string[]; height?: number; fmtY?: (v: number) => string; fmtX?: (s: string) => string;
+  tipDate?: (s: string) => string;
 }) {
   const W = 580, padL = 42, padB = 20, padT = 8, padR = 10;
+  const [hi, setHi] = useState<number | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
   const vals = series.flatMap((s) => s.values.filter((v): v is number => v != null));
   const maxY = Math.max(1, ...vals) * 1.08;
   const n = Math.max(1, labels.length);
@@ -2023,22 +1996,44 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX }: {
     vs.map((v, i) => v == null ? "" : `${i === 0 || vs[i - 1] == null ? "M" : "L"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   const ticks = [0, 0.5, 1].map((t) => t * maxY);
   const step = Math.max(1, Math.ceil(n / 6));
+  const onMove = (e: React.MouseEvent) => {
+    const rect = ref.current?.getBoundingClientRect(); if (!rect) return;
+    const px = ((e.clientX - rect.left) / rect.width) * W;          // viewBox x
+    const frac = (px - padL) / (W - padL - padR);
+    setHi(Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))));
+  };
+  const fy = fmtY || ((v: number) => String(Math.round(v)));
+  const leftPct = hi != null ? (X(hi) / W) * 100 : 0;
   return (
-    <svg viewBox={`0 0 ${W} ${height}`} width="100%" preserveAspectRatio="none" style={{ display: "block", overflow: "visible" }}>
-      {ticks.map((t, i) => (
-        <g key={i}>
-          <line x1={padL} x2={W - padR} y1={Y(t)} y2={Y(t)} stroke="var(--line-2)" strokeWidth="1" />
-          <text x={padL - 6} y={Y(t) + 3} textAnchor="end" fontSize="9.5" fill="var(--muted)">{fmtY ? fmtY(t) : Math.round(t)}</text>
-        </g>
-      ))}
-      {series.map((s) => (
-        <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth="2.2"
-          strokeDasharray={s.dash ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-      ))}
-      {labels.map((l, i) => (i % step === 0 || i === n - 1) ? (
-        <text key={i} x={X(i)} y={height - 5} textAnchor="middle" fontSize="9.5" fill="var(--muted)">{fmtX ? fmtX(l) : l}</text>
-      ) : null)}
-    </svg>
+    <div ref={ref} className="lc-wrap" onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
+      <svg viewBox={`0 0 ${W} ${height}`} width="100%" preserveAspectRatio="none" style={{ display: "block", overflow: "visible" }}>
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={padL} x2={W - padR} y1={Y(t)} y2={Y(t)} stroke="var(--line-2)" strokeWidth="1" />
+            <text x={padL - 6} y={Y(t) + 3} textAnchor="end" fontSize="9.5" fill="var(--muted)">{fy(t)}</text>
+          </g>
+        ))}
+        {series.map((s) => (
+          <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth="2.2"
+            strokeDasharray={s.dash ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+        ))}
+        {hi != null && <line x1={X(hi)} x2={X(hi)} y1={padT} y2={height - padB} stroke="var(--muted)" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
+        {hi != null && series.map((s) => s.values[hi] != null && (
+          <circle key={s.name} cx={X(hi)} cy={Y(s.values[hi] as number)} r="3.2" fill="var(--card)" stroke={s.color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
+        ))}
+        {labels.map((l, i) => (i % step === 0 || i === n - 1) ? (
+          <text key={i} x={X(i)} y={height - 5} textAnchor="middle" fontSize="9.5" fill="var(--muted)">{fmtX ? fmtX(l) : l}</text>
+        ) : null)}
+      </svg>
+      {hi != null && (
+        <div className="lc-tip" style={{ left: `${leftPct}%`, transform: `translateX(${leftPct > 60 ? "-100%" : "0"})` }}>
+          <b>{tipDate ? tipDate(labels[hi]) : labels[hi]}</b>
+          {series.map((s) => (
+            <span key={s.name}><i style={{ background: s.color }} />{s.name}: <em>{s.values[hi] != null ? fy(s.values[hi] as number) : "—"}</em></span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
