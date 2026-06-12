@@ -9,7 +9,7 @@ import {
   Check, ArrowRight, BookOpen,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam,
+  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
@@ -271,6 +271,12 @@ export default function CommandCenter({
   const [taskDel, setTaskDel] = useState<import("../lib/api").TaskDelivery | null>(null);
   const [budget, setBudget] = useState<import("../lib/api").BudgetData | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
+  const [clientsModal, setClientsModal] = useState(false);
+  const [clientsData, setClientsData] = useState<import("../lib/api").ClientsListData | null>(null);
+  async function openClients() {
+    setClientsModal(true); setClientsData(null);
+    try { setClientsData(await getClientsList(draft)); } catch { setClientsData({ clients: [], count: 0, total_hours: 0 }); }
+  }
   const [budgetSort, setBudgetSort] = useState<"over" | "actual">("over");
   const [mapModal, setMapModal] = useState(false);
   const [mapData, setMapData] = useState<import("../lib/api").MappingData | null>(null);
@@ -803,39 +809,6 @@ export default function CommandCenter({
       </div>
       )}
 
-      {/* OPERATIONS HEALTH SCORE — composite of util, activity, on-time, budget */}
-      {(() => {
-        const budgetAdh = budget && budget.count > 0 ? (budget.on_budget / budget.count) * 100 : null;
-        const parts: [number, number, string, string][] = [
-          [0.30, Math.min(100, util), "Utilization", n1(util) + "%"],
-          [0.20, act, "Activity", n1(act) + "%"],
-        ];
-        if (taskDel && taskDel.due > 0) parts.push([0.25, onTimePct, "On-Time", n1(onTimePct) + "%"]);
-        if (budgetAdh !== null) parts.push([0.25, budgetAdh, "On Budget", n0(budgetAdh) + "%"]);
-        const wsum = parts.reduce((s, p) => s + p[0], 0);
-        const score = wsum ? Math.round(parts.reduce((s, p) => s + p[0] * p[1], 0) / wsum) : 0;
-        const grade = score >= 90 ? "A+" : score >= 80 ? "A" : score >= 70 ? "B+" : score >= 60 ? "B" : score >= 50 ? "C" : "D";
-        const tone = score >= 75 ? "ok" : score >= 55 ? "warn" : "bad";
-        return (
-          <div className={`ops-health t-${tone}`}>
-            <div className="oh-main">
-              <span className="oh-lbl">Operations Health</span>
-              <div className="oh-val"><b className="num">{score}</b><i>/100</i><span className={`grade ${gradeCls(grade)}`}>{grade}</span></div>
-              <span className="oh-sub">weighted: utilization, activity, on-time delivery &amp; budget adherence</span>
-            </div>
-            <div className="oh-factors">
-              {parts.map((p) => (
-                <div className="oh-f" key={p[2]}>
-                  <span className="oh-f-l">{p[2]}</span>
-                  <span className="oh-f-bar"><i style={{ width: `${Math.min(100, p[1])}%` }} /></span>
-                  <b className="oh-f-v num">{p[3]}</b>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })()}
-
       {/* KPI — 8 clean cards (label + big value + icon badge + delta) */}
       <div className="kpi-grid">
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
@@ -847,7 +820,7 @@ export default function CommandCenter({
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ tracked hours × 100 — the share of tracked time that is billable.", (e) => e.productivity, (v) => n1(v) + "%", "productivity"), undefined, "billable share")}
         {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
-        {kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, undefined, undefined, "worked this period")}
+        {kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, openClients, undefined, "worked this period")}
         {kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
         {budget && budget.count > 0
           ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
@@ -1763,6 +1736,50 @@ export default function CommandCenter({
         );
       })()}
 
+      {/* ACTIVE CLIENTS — who was worked on this period (real clients only) */}
+      {clientsModal && (
+        <div className="modal-bg" onClick={() => setClientsModal(false)}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div>
+                <h3><Building2 size={15} style={{ verticalAlign: -2 }} /> Active Clients</h3>
+                <div className="sub">{clientsData ? `${clientsData.count} clients · ${n0(clientsData.total_hours)}h tracked · ${data.context.label}` : "loading…"}</div>
+              </div>
+              <div className="modal-x" onClick={() => setClientsModal(false)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              {!clientsData ? <div className="loading" style={{ height: 140 }}><span className="spin" /> Loading…</div>
+                : clientsData.clients.length === 0 ? <div className="empty-s">No clients in scope</div> : (() => {
+                  const maxH = Math.max(1, ...clientsData.clients.map((c) => c.hours));
+                  return (
+                    <div className="scrollwrap" style={{ maxHeight: 460 }}>
+                      <table className="hd-table">
+                        <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Type</th><th>People</th><th className="l">Tasks (done / open)</th><th className="l">Hours</th><th>Bill %</th></tr></thead>
+                        <tbody>
+                          {clientsData.clients.map((c, i) => {
+                            const tt = c.tasks_done + c.tasks_open, dp = tt ? (c.tasks_done / tt) * 100 : 0;
+                            return (
+                              <tr key={c.client} className="click" onClick={() => { setClientsModal(false); openClient(c.client); }}>
+                                <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
+                                <td className="l tname" style={{ fontWeight: 650 }}>{c.client}</td>
+                                <td className="l"><span className="hrb" style={{ background: "var(--chip)", color: "var(--ink-2)" }}>{c.type}</span></td>
+                                <td className="num" style={{ color: "var(--ink-2)" }}>{c.people}</td>
+                                <td className="l">{tt ? <span className="tk-cell" title={`${c.tasks_done} closed · ${c.tasks_open} open`}><span className="tk-nums"><b style={{ color: "#16a34a" }}>{c.tasks_done}</b> / <b style={{ color: "#e8930c" }}>{c.tasks_open}</b></span><span className="tk-bar"><i style={{ width: `${dp}%` }} /></span></span> : <span style={{ color: "var(--faint)" }}>—</span>}</td>
+                                <td className="l"><span className="cl-hbar" title={`${n1(c.hours)}h`}><i style={{ width: `${(c.hours / maxH) * 100}%` }} /><em>{n0(c.hours)}h</em></span></td>
+                                <td className="num" style={{ color: "var(--ink-2)" }}>{n0(c.billable_pct)}%</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* BUDGET vs ACTUAL — per-client monthly budget (Resource sheet) vs tracked hours */}
       {budgetModal && budget && (() => {
         const rows = [...budget.clients].sort((a, b) =>
@@ -1804,20 +1821,19 @@ export default function CommandCenter({
                 <div className="bv-note">Monthly budget comes from the Resource sheet and is pro-rated to the selected date range. Change the period or any filter above and these numbers update with it.</div>
                 <div className="scrollwrap" style={{ maxHeight: 460 }}>
                   <table className="hd-table">
-                    <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Team</th><th className="l">Type</th><th className="l">Tasks (done / due)</th><th className="l">Budget vs Actual</th><th>Budget</th><th>Actual</th><th>Variance</th><th>Health</th></tr></thead>
+                    <thead><tr><th className="l">Client</th><th className="l">Tasks</th><th className="l">Budget vs Actual</th><th>Variance</th><th>Health</th></tr></thead>
                     <tbody>
-                      {rows.map((r, i) => {
+                      {rows.map((r) => {
                         const bw = (r.budget / maxV) * 100, aw = (r.actual / maxV) * 100;
-                        const tt = r.tasks_total || 0, donePct = tt ? (r.tasks_done / tt) * 100 : 0;
+                        const tt = (r.tasks_done + r.tasks_open) || 0, donePct = tt ? (r.tasks_done / tt) * 100 : 0;
                         return (
-                          <tr key={r.client}>
-                            <td className="l" style={{ color: "var(--faint)", fontWeight: 700 }}>{i + 1}</td>
-                            <td className="l tname click" style={{ fontWeight: 650 }} onClick={() => { setBudgetModal(false); openClient(r.client); }}>{r.client}</td>
-                            <td className="l" style={{ color: "var(--ink-2)" }}>{r.team}</td>
-                            <td className="l"><span className="hrb" style={{ background: "var(--chip)", color: "var(--ink-2)" }}>{r.type}</span></td>
+                          <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
+                            <td className="l">
+                              <div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.client}</span><span className="bvc-meta">{r.team} · {r.type}</span></div>
+                            </td>
                             <td className="l">
                               {tt ? (
-                                <span className="tk-cell" title={`${r.tasks_done} closed · ${r.tasks_open} open · ${tt} total`}>
+                                <span className="tk-cell" title={`${r.tasks_done} closed · ${r.tasks_open} open this period`}>
                                   <span className="tk-nums"><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> / <b style={{ color: "#e8930c" }}>{r.tasks_open}</b></span>
                                   <span className="tk-bar"><i style={{ width: `${donePct}%` }} /></span>
                                 </span>
@@ -1828,9 +1844,8 @@ export default function CommandCenter({
                                 <span className="bv-row"><i className="bud" style={{ width: `${bw}%` }} /></span>
                                 <span className="bv-row"><i className={r.over ? "act over" : "act"} style={{ width: `${aw}%` }} /></span>
                               </span>
+                              <span className="bv-nums">{n0(r.actual)}h <i>used</i> / {n0(r.budget)}h <i>budget</i></span>
                             </td>
-                            <td className="num">{n0(r.budget)}h</td>
-                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
                             <td className="num" style={{ fontWeight: 750, color: r.over ? "#ef4444" : "#16a34a" }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
                             <td className="num"><span className={`grade ${gradeCls(r.health)}`} title={`Health score ${r.health_score}/100`}>{r.health}</span></td>
                           </tr>

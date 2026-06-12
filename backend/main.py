@@ -1507,11 +1507,20 @@ def command(
     budget_vs_actual = {"budget": round(budget, 0), "actual": round(total, 0), "variance": round(variance, 0)}
     alerts = _alerts(emp, members, d, task_summary, live_activity, people)
     insights = _insights(d, emp)
+    # real external clients only — exclude internal buckets (NB Tasks, Training,
+    # Accounting, "(no client)" …) so the count is meaningful and lines up with
+    # the budgeted-client list instead of inflating with non-client folders.
+    if not empty:
+        _real = d[(d["client_type"] != "Internal")
+                  & (~d["client"].isin(["(no client)", "Unassigned", "No Project"]))]
+        _n_clients = int(_real["client"].nunique())
+    else:
+        _n_clients = 0
     summary = {
         "employees": people, "active_days": int(d["date_s"].nunique()) if not empty else 0,
         "departments": int(d["department"].nunique()) if not empty else 0,
         "teams": int(d["atl"].nunique()) if not empty else 0,
-        "clients": int(d["client"].nunique()) if not empty else 0,
+        "clients": _n_clients,
         "avg_hours_per_emp": round(total / people, 1) if people else 0,
         "billable_pct": round(bill / total * 100, 0) if total else 0,
         "tasks_active_emp": int((emp["task_status"] == "Active").sum()) if not emp.empty else 0,
@@ -2502,6 +2511,73 @@ def client_budgets():
     return out
 
 
+def _client_period_tasks(uids, date_from, date_to):
+    """{folder -> {'done','open'}}: distinct ClickUp tasks that had Hubstaff time
+    logged in the period (per client), split by closed vs open status."""
+    out = {}
+    if not db.has_db() or not uids:
+        return out
+    where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)", "a.task_id IS NOT NULL"]
+    params = {"uids": list(uids), "cl": list(CLOSED_STATUS)}
+    if date_from:
+        where.append("a.date >= :df"); params["df"] = date_from
+    if date_to:
+        where.append("a.date <= :dt"); params["dt"] = date_to
+    closed = "lower(coalesce(c.status,'')) = ANY(:cl)"
+    try:
+        df = db.q(f"""
+            SELECT coalesce(c.folder_name,'') fo,
+                   count(DISTINCT CASE WHEN {closed} THEN c.task_id END) done,
+                   count(DISTINCT CASE WHEN NOT ({closed}) THEN c.task_id END) opn
+            FROM hubstaff_activities a
+            JOIN hubstaff_tasks ht ON ht.id = a.task_id
+            JOIN clickup_tasks c ON c.task_id = ht.remote_id
+            WHERE {' AND '.join(where)}
+            GROUP BY 1
+        """, params)
+    except Exception as e:  # noqa
+        print("period tasks failed:", e); return out
+    for _, r in df.iterrows():
+        fo = r["fo"]
+        if fo:
+            out[fo] = {"done": int(r["done"] or 0), "open": int(r["opn"] or 0)}
+    return out
+
+
+@app.get("/api/clients")
+def clients_list(date_from: Optional[str] = None, date_to: Optional[str] = None,
+                 department: Optional[str] = None, atl: Optional[str] = None,
+                 employee: Optional[str] = None, client: Optional[str] = None,
+                 client_type: Optional[str] = None, billable: Optional[str] = None,
+                 status: Optional[str] = None):
+    """Real external clients worked in the scope/period — for the Active Clients
+    drill-down. Excludes internal buckets (NB Tasks, Training, Accounting …)."""
+    members, g = load()
+    f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
+         "employee": employee, "client": client, "client_type": client_type,
+         "billable": billable, "status": status}
+    _, d = apply_filters(members, g, f)
+    if d.empty:
+        return {"clients": [], "count": 0, "total_hours": 0}
+    d = d[(d["client_type"] != "Internal")
+          & (~d["client"].isin(["(no client)", "Unassigned", "No Project"]))]
+    if d.empty:
+        return {"clients": [], "count": 0, "total_hours": 0}
+    tasks = _client_period_tasks([str(x) for x in d["user_id"].unique()], date_from, date_to)
+    grp = d.groupby("client").agg(hours=("tracked_h", "sum"), billable=("billable_h", "sum"),
+                                  people=("user_id", "nunique")).reset_index()
+    rows = []
+    for r in grp.itertuples():
+        ci = tasks.get(r.client, {})
+        rows.append({"client": r.client, "type": client_kind(r.client),
+                     "hours": round(float(r.hours), 1),
+                     "billable_pct": round(float(r.billable) / float(r.hours) * 100, 0) if r.hours else 0,
+                     "people": int(r.people),
+                     "tasks_done": int(ci.get("done", 0)), "tasks_open": int(ci.get("open", 0))})
+    rows.sort(key=lambda x: -x["hours"])
+    return {"clients": rows, "count": len(rows), "total_hours": round(float(d["tracked_h"].sum()), 0)}
+
+
 @app.get("/api/budget")
 def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
            department: Optional[str] = None, atl: Optional[str] = None,
@@ -2530,7 +2606,8 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
         return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
     actual = d.groupby("client")["tracked_h"].sum()
     bil_by = d.groupby("client")["billable_h"].sum().to_dict()
-    cdim = clickup_intel().get("clients", {})        # per-folder ClickUp task counts
+    # period-scoped task counts: tasks that had time logged in this window
+    tasks = _client_period_tasks([str(x) for x in d["user_id"].unique()], date_from, date_to)
     rows = []
     for cn, act in actual.items():
         b = bud.get(_n(cn))
@@ -2538,10 +2615,10 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
             continue
         pb = b["budget"] * months
         act = float(act); over = act > pb
-        # task completion for this client (ClickUp folder)
-        ci = cdim.get(cn, {})
-        ttot = int(ci.get("total", 0)); topen = int(ci.get("active_tasks", 0))
-        tdone = max(0, ttot - topen)
+        # task completion for this client in the period (closed vs open)
+        ci = tasks.get(cn, {})
+        tdone = int(ci.get("done", 0)); topen = int(ci.get("open", 0))
+        ttot = tdone + topen
         # Client Health Score: budget adherence (50%) + task completion (30%)
         # + billable share (20%) -> A–F grade.
         bilpct = (float(bil_by.get(cn, 0)) / act * 100) if act else 0.0

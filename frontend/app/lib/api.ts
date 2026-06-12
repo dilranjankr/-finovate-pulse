@@ -269,6 +269,19 @@ export interface BudgetData {
   clients: BudgetClient[]; total_budget: number; total_actual: number;
   on_budget: number; over: number; count: number;
 }
+export interface ClientListRow {
+  client: string; type: string; hours: number; billable_pct: number;
+  people: number; tasks_done: number; tasks_open: number;
+}
+export interface ClientsListData { clients: ClientListRow[]; count: number; total_hours: number; }
+export async function getClientsList(f: Filters): Promise<ClientsListData> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await authedFetch(`${API}/api/clients?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("clients failed");
+  return r.json();
+}
+
 export async function getBudget(f: Filters): Promise<BudgetData> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });

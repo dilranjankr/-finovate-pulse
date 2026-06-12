@@ -571,6 +571,13 @@ select.map-inp { cursor: pointer; }
 .bv-legend .sw.act { background: #16a34a; }
 .bv-legend .sw.over { background: #ef4444; }
 .bv-note { font-size: 11px; color: var(--ink-2); margin-bottom: 12px; line-height: 1.5; }
+.bvc-name { display: flex; flex-direction: column; gap: 1px; }
+.bvc-meta { font-size: 10.5px; color: var(--muted); }
+.bv-nums { display: block; font-size: 10.5px; color: var(--ink-2); margin-top: 3px; }
+.bv-nums i { font-style: normal; color: var(--muted); }
+.cl-hbar { display: inline-flex; align-items: center; gap: 8px; min-width: 110px; }
+.cl-hbar i { flex: 1; height: 7px; background: #2f6fbf; border-radius: 4px; min-width: 4px; }
+.cl-hbar em { font-style: normal; font-size: 12px; font-weight: 700; color: var(--ink-2); min-width: 42px; }
 .tk-cell { display: inline-flex; flex-direction: column; gap: 3px; min-width: 70px; }
 .tk-nums { font-size: 12px; font-weight: 700; }
 .tk-bar { height: 5px; background: #fde9c8; border-radius: 3px; overflow: hidden; }
@@ -662,23 +669,6 @@ select.map-inp { cursor: pointer; }
 .kc2.t-warn { box-shadow: inset 3px 0 0 #e8930c; }
 .kc2.t-bad  { box-shadow: inset 3px 0 0 #ef4444; }
 /* KPI cards — clean (label + big value + circular icon badge + delta pill) */
-/* Operations Health Score hero */
-.ops-health { display: flex; align-items: center; gap: 26px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid #94a3b8; border-radius: 9px; padding: 14px 20px; margin-bottom: 14px; }
-.ops-health.t-ok { border-left-color: #16a34a; } .ops-health.t-warn { border-left-color: #e8930c; } .ops-health.t-bad { border-left-color: #ef4444; }
-.oh-main { display: flex; flex-direction: column; gap: 2px; min-width: 210px; }
-.oh-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-2); }
-.oh-val { display: flex; align-items: baseline; gap: 6px; }
-.oh-val b { font-size: 34px; font-weight: 850; color: var(--ink); line-height: 1; }
-.oh-val i { font-style: normal; font-size: 14px; color: var(--muted); font-weight: 600; }
-.oh-val .grade { margin-left: 6px; font-size: 14px; padding: 3px 10px; align-self: center; }
-.oh-sub { font-size: 10.5px; color: var(--muted); }
-.oh-factors { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px 22px; flex: 1; }
-.oh-f { display: grid; grid-template-columns: 78px 1fr auto; align-items: center; gap: 9px; }
-.oh-f-l { font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
-.oh-f-bar { height: 7px; background: var(--chip); border-radius: 4px; overflow: hidden; }
-.oh-f-bar i { display: block; height: 100%; background: #2f6fbf; border-radius: 4px; }
-.oh-f-v { font-size: 12px; font-weight: 750; color: var(--ink); min-width: 40px; text-align: right; }
-@media (max-width: 760px) { .ops-health { flex-direction: column; align-items: stretch; gap: 12px; } }
 .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
 @media (max-width: 1024px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
