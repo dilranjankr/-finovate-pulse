@@ -8,6 +8,7 @@ Run:  uvicorn main:app --reload --port 8000
 """
 import os
 import re
+import contextvars
 import difflib
 from functools import lru_cache
 from typing import Optional
@@ -106,19 +107,111 @@ def _auth_startup():
         print(f"[auth] setup failed ({str(e)[:120]}) — API running OPEN.")
 
 
-@app.middleware("http")
-async def _auth_gate(request, call_next):
-    path = request.url.path
-    if (request.method == "OPTIONS" or not _auth_enabled()
-            or path in _AUTH_OPEN or path.startswith("/api/auth/") or not path.startswith("/api")):
-        return await call_next(request)
-    authz = request.headers.get("authorization", "")
-    user = auth.decode_session(authz[7:]) if authz.lower().startswith("bearer ") else None
-    if not user:
-        from starlette.responses import JSONResponse
-        return JSONResponse({"detail": "Authentication required"}, status_code=401)
-    request.state.user = user
-    return await call_next(request)
+# Per-request data scope (set of allowed hubstaff_user_ids; None = all). Set by
+# the auth middleware, read by apply_filters and the drill-down endpoints so a
+# signed-in user only ever sees the people their role permits.
+_scope_ctx: contextvars.ContextVar = contextvars.ContextVar("scope_uids", default=None)
+
+
+@lru_cache(maxsize=1)
+def _hr_hierarchy():
+    """(by_uid, reports_of) from employee_mapping: identity + who-reports-to-whom."""
+    try:
+        r = db.q_write("""SELECT hubstaff_user_id uid, hr_full_name name, team, reporting_to
+                          FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>''""")
+    except Exception:
+        return {}, {}
+    def _s(v):
+        return str(v).strip() if pd.notna(v) else ""
+    by_uid, reports_of = {}, {}
+    for _, x in r.iterrows():
+        uid = _s(x["uid"]); nm = _s(x["name"])
+        if not uid:
+            continue
+        by_uid[uid] = {"name": nm, "team": _s(x["team"])}
+        mgr = _s(x["reporting_to"])
+        if mgr:
+            reports_of.setdefault(mgr, []).append({"uid": uid, "name": nm})
+    return by_uid, reports_of
+
+
+def _transitive_reports(manager_name: str) -> set:
+    """All hubstaff_user_ids reporting up to `manager_name` (any depth)."""
+    _, reports_of = _hr_hierarchy()
+    out, seen, stack = set(), set(), [manager_name]
+    while stack:
+        mgr = stack.pop()
+        if mgr in seen:
+            continue
+        seen.add(mgr)
+        for r in reports_of.get(mgr, []):
+            out.add(r["uid"]); stack.append(r["name"])
+    return out
+
+
+def scope_uids_for(u: dict):
+    """Allowed hubstaff_user_ids for a signed-in user. None = everyone (owner)."""
+    role = u.get("role")
+    if role == "owner":
+        return None
+    by_uid, _ = _hr_hierarchy()
+    if role == "manager":
+        name = u.get("name") or ""
+        ids = _transitive_reports(name)
+        if u.get("linked_user_id"):
+            ids.add(str(u["linked_user_id"]))          # include the manager
+        return ids or None
+    if role == "lead":
+        team = u.get("scope_team") or ""
+        return {uid for uid, v in by_uid.items() if v["team"] == team}
+    # employee → only themselves
+    if u.get("linked_user_id"):
+        return {str(u["linked_user_id"])}
+    name = u.get("name") or ""
+    return {uid for uid, v in by_uid.items() if v["name"] == name}
+
+
+def _scope_df(df):
+    """Restrict any user_id-bearing frame to the caller's permitted people."""
+    sc = _scope_ctx.get()
+    if sc is not None and df is not None and not df.empty:
+        return df[df["user_id"].astype(str).isin(sc)]
+    return df
+
+
+def _scope_allows(uid) -> bool:
+    sc = _scope_ctx.get()
+    return sc is None or str(uid) in sc
+
+
+class AuthScopeMiddleware:
+    """Pure-ASGI middleware: gates /api with a Bearer token (401 otherwise) and
+    publishes the caller's data scope via a contextvar (propagates to sync
+    endpoints, unlike BaseHTTPMiddleware)."""
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        path = scope.get("path", ""); method = scope.get("method", "")
+        if (method == "OPTIONS" or not _auth_enabled() or path in _AUTH_OPEN
+                or path.startswith("/api/auth/") or not path.startswith("/api")):
+            return await self.app(scope, receive, send)
+        headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
+        authz = headers.get("authorization", "")
+        user = auth.decode_session(authz[7:]) if authz.lower().startswith("bearer ") else None
+        if not user:
+            from starlette.responses import JSONResponse
+            return await JSONResponse({"detail": "Authentication required"}, status_code=401)(scope, receive, send)
+        tok = _scope_ctx.set(scope_uids_for(user))
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            _scope_ctx.reset(tok)
+
+
+app.add_middleware(AuthScopeMiddleware)
 
 
 def _require(authorization: Optional[str], *roles) -> dict:
@@ -934,6 +1027,11 @@ def _vals(x):
 def apply_filters(members, g, f):
     has_sets = "team_set" in members.columns
     m = members
+    # ROLE SCOPE (security): restrict to the signed-in user's permitted people
+    # BEFORE any user-supplied filter, so no filter can widen beyond their scope.
+    sc = _scope_ctx.get()
+    if sc is not None:
+        m = m[m["user_id"].astype(str).isin(sc)]
     for key, col in [("employee", "name"), ("role", "role"), ("status", "status")]:
         vals = _vals(f.get(key))
         if vals:
@@ -1114,7 +1212,9 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
 
     # Dropdowns list every option from the full history (period-active filtering
     # was reverted on request) — date params are accepted but not applied here.
-    gp = g
+    # Scoped to the caller's permitted people so a lead/employee only sees their
+    # own teams/clients/colleagues in the dropdowns.
+    gp = _scope_df(g)
 
     if has_sets:
         name_map = dict(zip(members["user_id"], members["name"]))
@@ -1811,6 +1911,8 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
         return {"found": False}
     mr = row.iloc[0]
     uid = mr["user_id"]
+    if not _scope_allows(uid):            # role scope: can't view people outside it
+        return {"found": False}
     d = g[g["user_id"] == uid]
     if date_from:
         d = d[d["date_s"] >= date_from]
@@ -1870,7 +1972,7 @@ def _period_months(date_from, date_to):
 def client_profile(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
     """Per-client drill-down: hours, billable mix, budget vs actual, people, trend."""
     members, g = load()
-    d = g[g["client"] == name]
+    d = _scope_df(g[g["client"] == name])
     if date_from:
         d = d[d["date_s"] >= date_from]
     if date_to:
@@ -1912,7 +2014,7 @@ def client_profile(name: str, date_from: Optional[str] = None, date_to: Optional
 def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
     """Per-team drill-down: capacity/utilization, members, top clients, trend."""
     members, g = load()
-    d = g[g["atl"] == name]
+    d = _scope_df(g[g["atl"] == name])
     if date_from:
         d = d[d["date_s"] >= date_from]
     if date_to:
@@ -2191,6 +2293,7 @@ def mapping_save(payload: dict):
     try:
         db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
         load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
+        _hr_hierarchy.cache_clear()
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
@@ -2225,6 +2328,7 @@ def mapping_init():
         except Exception:
             pass
         load.cache_clear()  # dashboard re-reads with the fresh mapping
+        _hr_hierarchy.cache_clear()
         return {"ok": True, "rows": n}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:300]}
