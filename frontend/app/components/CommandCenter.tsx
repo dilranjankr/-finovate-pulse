@@ -1811,20 +1811,19 @@ export default function CommandCenter({
                 <div className="bv-grid scrollwrap" style={{ maxHeight: 494 }}>
                   {rows.map((r) => {
                     const tt = (r.tasks_done + r.tasks_open) || 0;
-                    const pct = r.budget > 0 ? (r.actual / r.budget) * 100 : 0;
                     const col = r.over ? "#ef4444" : "#16a34a";
                     return (
                       <div key={r.client} className={`bv-card ${r.over ? "over" : "ok"}`} onClick={() => { setBudgetModal(false); openClient(r.client); }}>
                         <div className="bv-card-top">
                           <div className="bv-card-nm"><b className="tname">{r.client}</b><span>{r.team} · {r.type}</span></div>
-                          <span className="bv-card-pct" style={{ color: col }}>{n0(pct)}<i>%</i></span>
+                          <span className="bv-badge" style={{ color: col, background: r.over ? "#fef2f2" : "#f0fdf4" }}>{r.over ? "Over" : "Within"}</span>
                         </div>
-                        <div className="bv-card-bar"><i style={{ width: `${Math.min(100, pct)}%`, background: col }} /></div>
-                        <div className="bv-card-foot">
-                          <span className="bv-card-hrs"><b>{n0(r.actual)}h</b> <i>/ {n0(r.budget)}h budget</i></span>
-                          <span style={{ color: col, fontWeight: 750 }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</span>
+                        <div className="bv-rows">
+                          <div className="bv-r"><span>Used</span><b>{n0(r.actual)}h</b></div>
+                          <div className="bv-r"><span>Budget</span><b>{n0(r.budget)}h</b></div>
+                          <div className="bv-r"><span>Variance</span><b style={{ color: col }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</b></div>
+                          <div className="bv-r"><span>Tasks</span><b>{tt > 0 ? <>{r.tasks_done} done · {r.tasks_open} open</> : "—"}</b></div>
                         </div>
-                        {tt > 0 && <div className="bv-card-tasks"><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</div>}
                       </div>
                     );
                   })}

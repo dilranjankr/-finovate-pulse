@@ -580,14 +580,11 @@ select.map-inp { cursor: pointer; }
 .bv-card-nm { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .bv-card-nm b { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bv-card-nm span { font-size: 10.5px; color: var(--muted); }
-.bv-card-pct { font-size: 22px; font-weight: 850; line-height: 1; flex-shrink: 0; }
-.bv-card-pct i { font-style: normal; font-size: 12px; font-weight: 700; }
-.bv-card-bar { height: 7px; background: var(--chip); border-radius: 4px; overflow: hidden; margin: 11px 0 9px; }
-.bv-card-bar i { display: block; height: 100%; border-radius: 4px; }
-.bv-card-foot { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12px; }
-.bv-card-hrs b { font-weight: 800; color: var(--ink); }
-.bv-card-hrs i { font-style: normal; color: var(--muted); font-size: 11px; }
-.bv-card-tasks { font-size: 10.5px; color: var(--ink-2); margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--line-2); }
+.bv-badge { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .03em; padding: 3px 9px; border-radius: 999px; flex-shrink: 0; }
+.bv-rows { margin-top: 11px; display: flex; flex-direction: column; gap: 6px; }
+.bv-r { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.bv-r span { color: var(--ink-2); }
+.bv-r b { font-weight: 750; color: var(--ink); }
 .usebar { display: inline-flex; align-items: center; gap: 9px; min-width: 130px; }
 .usebar-t { flex: 1; height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
 .usebar-t i { display: block; height: 100%; border-radius: 4px; }
