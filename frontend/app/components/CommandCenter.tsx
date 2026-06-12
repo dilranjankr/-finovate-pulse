@@ -878,12 +878,20 @@ export default function CommandCenter({
           const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
           return (
             <div className="dcard">
-              <div className="dcard-h"><h3>Utilization Trend</h3><span className="dcard-sub">daily, tracked ÷ office hours</span></div>
+              <div className="dcard-h"><h3>Performance Trend</h3><span className="dcard-sub">daily · utilization · activity · productivity</span></div>
               {kd.length < 2 ? <div className="empty-s" style={{ padding: 40 }}>Not enough data</div> : (
                 <div style={{ marginTop: "auto" }}>
                   <LineChart height={158} labels={kd.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "%"} tipDate={tipDate}
-                    series={[{ name: "Utilization", color: "#7b3fc0", values: kd.map((d) => d.utilization) }]} />
-                  <div className="lc-leg"><span><i style={{ background: "#7b3fc0" }} />Utilization %</span></div>
+                    series={[
+                      { name: "Utilization", color: "#7b3fc0", values: kd.map((d) => d.utilization) },
+                      { name: "Activity", color: "#0d9488", values: kd.map((d) => d.activity) },
+                      { name: "Productivity", color: "#e8930c", values: kd.map((d) => d.productivity) },
+                    ]} />
+                  <div className="lc-leg">
+                    <span><i style={{ background: "#7b3fc0" }} />Utilization</span>
+                    <span><i style={{ background: "#0d9488" }} />Activity</span>
+                    <span><i style={{ background: "#e8930c" }} />Productivity</span>
+                  </div>
                 </div>
               )}
             </div>
