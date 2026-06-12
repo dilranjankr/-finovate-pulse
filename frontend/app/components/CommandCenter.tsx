@@ -12,7 +12,7 @@ import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
-  getKekaStatus, uploadKeka, type KekaMonth,
+  getKekaStatus, uploadKeka, type KekaMonth, getAttendance, type AttendanceData,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -195,12 +195,21 @@ export default function CommandCenter({
   const [kekaBusy, setKekaBusy] = useState(false);
   const [kekaMsg, setKekaMsg] = useState<{ ok?: string; err?: string } | null>(null);
   async function openKeka() { setKekaModal(true); setKekaMsg(null); setKekaStatus(null); try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); } }
+  const [attModal, setAttModal] = useState(false);
+  const [attData, setAttData] = useState<AttendanceData | null>(null);
+  const [attSort, setAttSort] = useState<"gap" | "util">("gap");
+  async function openAttendance(month?: string) {
+    setAttModal(true); if (!month) setAttData(null);
+    try { setAttData(await getAttendance(month)); } catch { setAttData({ month: null, months: [], summary: { employees: 0, matched: 0, effective_h: 0, tracked_h: 0, gap_h: 0, real_util: 0, overtime_h: 0, short_h: 0 }, rows: [] }); }
+  }
   async function doKekaUpload(file: File) {
     setKekaBusy(true); setKekaMsg(null);
     try {
       const r = await uploadKeka(file);
       setKekaMsg({ ok: `Uploaded ${r.rows} rows · ${r.employees} employees · ${r.months.join(", ")}` });
       setKekaStatus((await getKekaStatus()).months);
+      getAttendance(r.months[0]).then(setAttData).catch(() => { });   // refresh analysis
+
     } catch (e) { setKekaMsg({ err: (e as Error).message }); }
     finally { setKekaBusy(false); }
   }
@@ -728,7 +737,7 @@ export default function CommandCenter({
                       {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
                       {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); openMapping(); }}><Users size={16} />Employee mapping</button>}
-                      {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openKeka(); }}><Clock size={16} />Keka attendance</button>}
+                      {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openAttendance(); }}><Clock size={16} />Attendance (Keka)</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); setUsersModal(true); }}><ShieldCheck size={16} />Users &amp; access</button>}
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setPwModal(true); }}><Lock size={16} />Change password</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
@@ -1559,6 +1568,79 @@ export default function CommandCenter({
                 )}
               </div>
             )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ATTENDANCE & COMPLIANCE — Keka effective hours vs Hubstaff tracked */}
+      {attModal && (
+        <div className="modal-bg" onClick={() => setAttModal(false)}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div>
+                <h3><Clock size={15} style={{ verticalAlign: -2 }} /> Attendance &amp; Compliance</h3>
+                <div className="sub">{attData ? (attData.month ? `Keka ${attData.month} matched to Hubstaff · ${attData.summary.matched}/${attData.summary.employees} linked` : "no data") : "loading…"}</div>
+              </div>
+              <div className="modal-h-r">
+                {attData && attData.months.length > 0 && (
+                  <select className="usr-in" style={{ maxWidth: 130 }} value={attData.month || ""} onChange={(e) => openAttendance(e.target.value)}>
+                    {attData.months.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                )}
+                <button className="tb-act" onClick={openKeka}><Download size={14} style={{ transform: "rotate(180deg)" }} /><span>Upload</span></button>
+                <div className="modal-x" onClick={() => setAttModal(false)}><X size={16} /></div>
+              </div>
+            </div>
+            <div className="modal-b">
+              {!attData ? <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div>
+                : !attData.month ? <div className="empty-s">No attendance uploaded yet. Click <b>Upload</b> to add a Keka month.</div> : (() => {
+                  const s = attData.summary;
+                  const rows = [...attData.rows].sort((a, b) => attSort === "gap" ? b.gap_h - a.gap_h : a.real_util - b.real_util);
+                  const maxE = Math.max(1, ...rows.map((r) => r.effective_h));
+                  return (
+                    <>
+                      <div className="bv-summary">
+                        <div className="bv-pill"><b>{n0(s.real_util)}%</b><span>real utilization</span></div>
+                        <div className="bv-pill bad"><b>{n0(s.gap_h)}h</b><span>present but untracked</span></div>
+                        <div className="bv-pill"><b>{n0(s.effective_h)}h</b><span>effective (present)</span></div>
+                        <div className="bv-pill"><b>{n0(s.tracked_h)}h</b><span>tracked (Hubstaff)</span></div>
+                        <div className="bv-pill"><b>{n0(s.overtime_h)}h</b><span>overtime</span></div>
+                        <div className="bv-pill"><b>{n0(s.short_h)}h</b><span>short hours</span></div>
+                      </div>
+                      <div className="bv-legend" style={{ justifyContent: "space-between" }}>
+                        <span>Real utilization = tracked ÷ effective. Gap = present hours not tracked in Hubstaff.</span>
+                        <div className="seg-toggle">
+                          <button className={attSort === "gap" ? "on" : ""} onClick={() => setAttSort("gap")}>Biggest gap</button>
+                          <button className={attSort === "util" ? "on" : ""} onClick={() => setAttSort("util")}>Lowest util</button>
+                        </div>
+                      </div>
+                      <div className="scrollwrap" style={{ maxHeight: 440 }}>
+                        <table className="hd-table">
+                          <thead><tr><th className="l">Employee</th><th className="l">Effective vs Tracked</th><th>Effective</th><th>Tracked</th><th>Gap</th><th>Real util</th><th>OT</th><th>Short</th><th>Present</th></tr></thead>
+                          <tbody>
+                            {rows.map((r) => {
+                              const ew = (r.effective_h / maxE) * 100, tw = (r.tracked_h / maxE) * 100;
+                              return (
+                                <tr key={r.name} className={r.matched ? "click" : ""} onClick={r.matched ? () => { setAttModal(false); openEmployee(r.name); } : undefined}>
+                                  <td className="l"><div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.name}{!r.matched && <span className="hrb unk" style={{ marginLeft: 6 }}>unlinked</span>}</span><span className="bvc-meta">{r.department}</span></div></td>
+                                  <td className="l"><span className="bv-bars" title={`Effective ${n1(r.effective_h)}h · Tracked ${n1(r.tracked_h)}h`}><span className="bv-row"><i style={{ width: `${ew}%`, background: "#94a3b8" }} /></span><span className="bv-row"><i style={{ width: `${tw}%`, background: r.real_util < 50 ? "#ef4444" : "#16a34a" }} /></span></span></td>
+                                  <td className="num">{n0(r.effective_h)}h</td>
+                                  <td className="num" style={{ fontWeight: 700 }}>{n0(r.tracked_h)}h</td>
+                                  <td className="num" style={{ fontWeight: 750, color: r.gap_h > 20 ? "#ef4444" : "var(--ink-2)" }}>{n0(r.gap_h)}h</td>
+                                  <td className="num" style={{ fontWeight: 700, color: r.real_util < 50 ? "#ef4444" : r.real_util < 75 ? "#e8930c" : "#16a34a" }}>{n0(r.real_util)}%</td>
+                                  <td className="num" style={{ color: "var(--muted)" }}>{n0(r.overtime_h)}h</td>
+                                  <td className="num" style={{ color: "var(--muted)" }}>{n0(r.short_h)}h</td>
+                                  <td className="num" style={{ color: "var(--muted)" }}>{r.present_days}d</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
             </div>
           </div>
         </div>

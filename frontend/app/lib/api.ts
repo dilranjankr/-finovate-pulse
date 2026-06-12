@@ -421,6 +421,22 @@ export async function setUserStatus(id: number, active: boolean): Promise<void> 
   const r = await authedFetch(`${API}/api/users/${id}/status?active=${active}`, { method: "POST" });
   if (!r.ok) throw new Error(await asError(r));
 }
+export interface AttendanceRow {
+  name: string; department: string; effective_h: number; tracked_h: number; gap_h: number;
+  real_util: number; overtime_h: number; short_h: number; present_days: number; off_days: number;
+  late_days: number; matched: boolean;
+}
+export interface AttendanceData {
+  month: string | null; months: string[];
+  summary: { employees: number; matched: number; effective_h: number; tracked_h: number; gap_h: number; real_util: number; overtime_h: number; short_h: number };
+  rows: AttendanceRow[];
+}
+export async function getAttendance(month?: string): Promise<AttendanceData> {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : "";
+  const r = await authedFetch(`${API}/api/attendance${qs}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
 export interface KekaMonth { month: string; rows: number; employees: number; effective_hours: number; }
 export async function getKekaStatus(): Promise<{ months: KekaMonth[] }> {
   const r = await authedFetch(`${API}/api/keka/status`, { cache: "no-store" });

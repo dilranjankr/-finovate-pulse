@@ -578,6 +578,70 @@ async def keka_upload(file: UploadFile = File(...), authorization: Optional[str]
             "employees": len({r["emp_name"] for r in rows})}
 
 
+@app.get("/api/attendance")
+def attendance(month: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """Keka attendance matched to Hubstaff tracked time for a month: per employee
+    effective vs tracked hours, the present-but-untracked gap, real utilization,
+    overtime, short hours and attendance. Scope-aware."""
+    _require(authorization)
+    members, g = load()
+    months = []
+    try:
+        mm = db.q_write("SELECT DISTINCT month FROM keka_attendance ORDER BY month DESC")
+        months = mm["month"].tolist()
+    except Exception:
+        return {"month": None, "rows": [], "summary": {}, "months": []}
+    if not month:
+        month = months[0] if months else None
+    if not month:
+        return {"month": None, "rows": [], "summary": {}, "months": []}
+    try:
+        kr = db.q_write("""
+            SELECT emp_name, max(department) department,
+                   sum(effective_min) eff, sum(overtime_min) ot, sum(short_eff_min) sh,
+                   count(*) FILTER (WHERE effective_min>0) present_days,
+                   count(*) FILTER (WHERE late_by_min>0) late_days,
+                   count(*) FILTER (WHERE effective_min=0 AND upper(coalesce(status,'')) NOT LIKE 'WO%') off_days
+            FROM keka_attendance WHERE month=:m GROUP BY emp_name""", {"m": month})
+    except Exception:
+        return {"month": month, "rows": [], "summary": {}, "months": months}
+    gm = _scope_df(g[g["date_s"].str.startswith(month)])
+    tracked = gm.groupby("user_id")["tracked_h"].sum().to_dict() if (gm is not None and not gm.empty) else {}
+    name2uid = {}
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid, hr_full_name nm FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>''")
+        for _, x in hm.iterrows():
+            nm = str(x["nm"] or "").strip().lower()
+            if nm:
+                name2uid[nm] = str(x["uid"])
+    except Exception:
+        pass
+    sc = _scope_ctx.get()
+    rows = []
+    for _, r in kr.iterrows():
+        nm = str(r["emp_name"]).strip()
+        uid = name2uid.get(nm.lower())
+        if sc is not None and (uid is None or str(uid) not in sc):
+            continue
+        eff = float(r["eff"] or 0) / 60.0
+        trk = float(tracked.get(str(uid), 0)) if uid else 0.0
+        rows.append({"name": nm, "department": r["department"] or "—",
+                     "effective_h": round(eff, 1), "tracked_h": round(trk, 1),
+                     "gap_h": round(eff - trk, 1), "real_util": round(trk / eff * 100, 0) if eff else 0,
+                     "overtime_h": round(float(r["ot"] or 0) / 60.0, 1),
+                     "short_h": round(float(r["sh"] or 0) / 60.0, 1),
+                     "present_days": int(r["present_days"]), "off_days": int(r["off_days"]),
+                     "late_days": int(r["late_days"]), "matched": uid is not None})
+    rows.sort(key=lambda x: -x["gap_h"])
+    teff = sum(r["effective_h"] for r in rows); ttrk = sum(r["tracked_h"] for r in rows)
+    summary = {"employees": len(rows), "matched": sum(1 for r in rows if r["matched"]),
+               "effective_h": round(teff), "tracked_h": round(ttrk), "gap_h": round(teff - ttrk),
+               "real_util": round(ttrk / teff * 100, 0) if teff else 0,
+               "overtime_h": round(sum(r["overtime_h"] for r in rows)),
+               "short_h": round(sum(r["short_h"] for r in rows))}
+    return clean({"month": month, "rows": rows, "summary": summary, "months": months})
+
+
 @app.get("/api/keka/status")
 def keka_status(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")
