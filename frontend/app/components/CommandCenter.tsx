@@ -1808,25 +1808,26 @@ export default function CommandCenter({
                   <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>used</span></div>
                   <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>budgeted</span></div>
                 </div>
-                <div className="bv-grid scrollwrap" style={{ maxHeight: 494 }}>
-                  {rows.map((r) => {
-                    const tt = (r.tasks_done + r.tasks_open) || 0;
-                    const col = r.over ? "#ef4444" : "#16a34a";
-                    return (
-                      <div key={r.client} className={`bv-card ${r.over ? "over" : "ok"}`} onClick={() => { setBudgetModal(false); openClient(r.client); }}>
-                        <div className="bv-card-top">
-                          <div className="bv-card-nm"><b className="tname">{r.client}</b><span>{r.team} · {r.type}</span></div>
-                          <span className="bv-badge" style={{ color: col, background: r.over ? "#fef2f2" : "#f0fdf4" }}>{r.over ? "Over" : "Within"}</span>
-                        </div>
-                        <div className="bv-rows">
-                          <div className="bv-r"><span>Used</span><b>{n0(r.actual)}h</b></div>
-                          <div className="bv-r"><span>Budget</span><b>{n0(r.budget)}h</b></div>
-                          <div className="bv-r"><span>Variance</span><b style={{ color: col }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</b></div>
-                          <div className="bv-r"><span>Tasks</span><b>{tt > 0 ? <>{r.tasks_done} done · {r.tasks_open} open</> : "—"}</b></div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                <div className="scrollwrap" style={{ maxHeight: 490 }}>
+                  <table className="hd-table">
+                    <thead><tr><th className="l">Client</th><th>Used</th><th>Budget</th><th>Variance</th><th className="l">Tasks (done / open)</th><th>Status</th></tr></thead>
+                    <tbody>
+                      {rows.map((r) => {
+                        const tt = (r.tasks_done + r.tasks_open) || 0;
+                        const col = r.over ? "#ef4444" : "#16a34a";
+                        return (
+                          <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
+                            <td className="l"><div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.client}</span><span className="bvc-meta">{r.team} · {r.type}</span></div></td>
+                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
+                            <td className="num" style={{ color: "var(--ink-2)" }}>{n0(r.budget)}h</td>
+                            <td className="num" style={{ fontWeight: 750, color: col }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
+                            <td className="l">{tt > 0 ? <span><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</span> : <span style={{ color: "var(--faint)" }}>—</span>}</td>
+                            <td className="num"><span className="bv-badge" style={{ color: col, background: r.over ? "#fef2f2" : "#f0fdf4" }}>{r.over ? "Over" : "Within"}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </div>
