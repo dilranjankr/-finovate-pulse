@@ -574,6 +574,7 @@ async def keka_upload(file: UploadFile = File(...), authorization: Optional[str]
     eng = db._engine_write()
     with eng.begin() as con:
         con.execute(_text(ins), rows)
+    keka_effective_hours.cache_clear()        # new attendance changes the capacity
     return {"ok": True, "rows": len(rows), "months": sorted(months),
             "employees": len({r["emp_name"] for r in rows})}
 
@@ -1324,7 +1325,7 @@ def _period_headline(members, g, f):
     if dd.empty:
         return {"total": 0.0, "billable": 0.0, "non_billable": 0.0, "util": 0.0, "prod": 0.0, "act": 0.0, "emps": 0}
     b = float(dd["billable_h"].sum()); nb = float(dd["non_billable_h"].sum()); t = b + nb
-    cap = sum(_user_wdays(dd).values()) * 8  # working-day capacity (Fix 6)
+    cap = sum(_user_cap_hours(dd).values())  # REAL office-hour capacity (Keka)
     tr = float(dd["tracked"].sum())
     return {"total": t, "billable": b, "non_billable": nb,
             "util": min(100.0, t / cap * 100) if cap else 0.0,
@@ -1352,11 +1353,50 @@ def spark(arr, k=24):
 
 def _user_wdays(d):
     """Fix 6: expected WORKING days (Mon-Fri + 1st Saturday) per user across their
-    active span within the filtered data — the capacity denominator for utilization."""
+    active span within the filtered data — fallback capacity when no Keka data."""
     if d.empty:
         return {}
     span = d.groupby("user_id")["date_s"].agg(["min", "max"])
     return {u: max(1, _working_days(r["min"], r["max"])) for u, r in span.iterrows()}
+
+
+@lru_cache(maxsize=64)
+def keka_effective_hours(date_from, date_to):
+    """{hubstaff_uid: office hours} from Keka daily effective time over the range —
+    the REAL utilization denominator (replaces the flat 8h/day assumption)."""
+    out = {}
+    if not db.has_write():
+        return out
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
+                        "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
+                        "AND coalesce(hr_full_name,'')<>''")
+        n2u = {str(x["nm"]): str(x["uid"]) for _, x in hm.iterrows() if x["nm"]}
+        where, params = [], {}
+        if date_from:
+            where.append("work_date >= :df"); params["df"] = date_from
+        if date_to:
+            where.append("work_date <= :dt"); params["dt"] = date_to
+        w = (" WHERE " + " AND ".join(where)) if where else ""
+        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum(effective_min) eff "
+                        f"FROM keka_attendance{w} GROUP BY 1", params)
+        for _, x in kr.iterrows():
+            uid = n2u.get(str(x["nm"]))
+            if uid and float(x["eff"] or 0) > 0:
+                out[uid] = float(x["eff"]) / 60.0
+    except Exception:  # noqa
+        pass
+    return out
+
+
+def _user_cap_hours(d):
+    """{uid: capacity HOURS}: real Keka office hours for the active range when
+    available, else working-days × 8 (fallback for anyone without attendance)."""
+    wd = _user_wdays(d)
+    if not wd:
+        return {}
+    keka = keka_effective_hours(str(d["date_s"].min()), str(d["date_s"].max()))
+    return {u: float(keka.get(str(u)) or (wd[u] * 8)) for u in wd}
 
 
 def group_metrics(d, by):
@@ -1366,27 +1406,26 @@ def group_metrics(d, by):
         prod_w=("prod_w", "sum"), tracked=("tracked", "sum"),
         revenue=("revenue", "sum"), empdays=("ud", "nunique"),
         people=("user_id", "nunique")).reset_index()
-    # Expected working-day capacity per group. Each user's working-day capacity is
-    # split across the groups they appear in, PROPORTIONAL to their hours there — so
-    # a multi-team person's capacity isn't counted in full for every team. Result:
-    # a group's utilization = hours-weighted average of its members' true utilization.
-    wd = _user_wdays(d)
+    # Capacity = REAL office hours (Keka effective) per user, split across the groups
+    # they appear in proportional to hours — so utilization = tracked ÷ office time.
+    ch = _user_cap_hours(d)
     if by == "user_id":
-        grp["wdays"] = grp["user_id"].map(lambda u: wd.get(u, 0))
+        grp["caph"] = grp["user_id"].map(lambda u: ch.get(u, 0.0))
     else:
         utot = d.groupby("user_id")["tracked_h"].sum().to_dict()
         gu = d.groupby([by, "user_id"])["tracked_h"].sum().reset_index()
-        gu["capd"] = [wd.get(u, 0) * (h / utot.get(u, 1) if utot.get(u, 0) else 0)
+        gu["capd"] = [ch.get(u, 0.0) * (h / utot.get(u, 1) if utot.get(u, 0) else 0)
                       for u, h in zip(gu["user_id"], gu["tracked_h"])]
-        wdays_s = gu.groupby(by)["capd"].sum()
-        grp["wdays"] = grp[by].map(wdays_s).fillna(grp["empdays"])
-    cap = (grp["wdays"] * 8).replace(0, 1)
+        caps_s = gu.groupby(by)["capd"].sum()
+        grp["caph"] = grp[by].map(caps_s).fillna(0.0)
+    cap = grp["caph"].replace(0, 1)
     grp["utilization"] = (grp["total"] / cap * 100).clip(upper=100)
     grp["activity"] = (grp["overall"] / grp["total"].replace(0, 1) * 100)
     grp["avg_day"] = grp["total"] / grp["empdays"].replace(0, 1)
     # Productivity = billable share of tracked time (billable hours / total × 100)
     grp["productivity"] = (grp["billable"] / grp["total"].replace(0, 1) * 100)
-    grp["budget"] = grp["wdays"] * 8
+    grp["wdays"] = grp["caph"] / 8.0          # office-hours expressed as days
+    grp["budget"] = grp["caph"]               # capacity hours
     grp["variance"] = grp["total"] - grp["budget"]
     grp["grade"] = (0.5 * grp["utilization"] + 0.5 * grp["productivity"]).apply(grade_letter)
     return grp
@@ -1563,7 +1602,7 @@ def command(
     total = bill + nonb
     empdays = int(d["ud"].nunique()) if not empty else 0
     people = int(d["user_id"].nunique()) if not empty else 0
-    cap = (sum(_user_wdays(d).values()) * 8) if not empty else 0  # working-day capacity (Fix 6)
+    cap = sum(_user_cap_hours(d).values()) if not empty else 0  # REAL office-hour capacity (Keka)
     util = min(100.0, total / cap * 100) if cap else 0.0
     prod = float(bill / total * 100) if total else 0.0  # productivity = billable share
     revenue = float(d["revenue"].sum()) if not empty else 0.0
@@ -2232,10 +2271,11 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
     bill = float(d["billable_h"].sum())
     overall = float(d["overall_h"].sum())
     empdays = int(d["date_s"].nunique())
-    # Fix 6: capacity = expected WORKING days (Mon-Fri + 1st Saturday) across the
-    # employee's active span in the period, x 8h (not just the days they showed up).
+    # Capacity = REAL office hours from Keka for the period; fallback to working
+    # days × 8 when this employee has no attendance data.
     wdays = _working_days(d["date_s"].min(), d["date_s"].max()) if not d.empty else 0
-    cap = max(wdays, 1) * 8
+    keka_h = keka_effective_hours(str(d["date_s"].min()), str(d["date_s"].max())) if not d.empty else {}
+    cap = float(keka_h.get(str(uid)) or max(wdays, 1) * 8)
     util = min(100.0, tracked / cap * 100) if cap else 0.0
     act = overall / tracked * 100 if tracked else 0.0
     prod = float(bill / tracked * 100) if tracked else 0.0  # productivity = billable share
@@ -2603,7 +2643,7 @@ def mapping_save(payload: dict):
     try:
         db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
         load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
-        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear()
+        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
@@ -2638,7 +2678,7 @@ def mapping_init():
         except Exception:
             pass
         load.cache_clear()  # dashboard re-reads with the fresh mapping
-        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear()
+        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
         return {"ok": True, "rows": n}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:300]}
