@@ -431,6 +431,19 @@ export interface AttendanceData {
   summary: { employees: number; matched: number; effective_h: number; tracked_h: number; gap_h: number; real_util: number; overtime_h: number; short_h: number };
   rows: AttendanceRow[];
 }
+export interface WorkforceData {
+  has_keka: boolean; attendance_pct: number; present_days: number; off_days: number;
+  overtime_h: number; short_h: number; late_days: number;
+  cross_team_pct: number; cross_team_h: number; total_tracked_h: number;
+  funnel: { office_h: number; tracked_h: number; billable_h: number };
+}
+export async function getWorkforce(f: Filters): Promise<WorkforceData> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await authedFetch(`${API}/api/workforce?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("workforce failed");
+  return r.json();
+}
 export interface AttendanceTrendPoint { month: string; effective_h: number; tracked_h: number; gap_h: number; real_util: number; overtime_h: number; }
 export async function getAttendanceTrend(): Promise<{ trend: AttendanceTrendPoint[] }> {
   const r = await authedFetch(`${API}/api/attendance/trend`, { cache: "no-store" });

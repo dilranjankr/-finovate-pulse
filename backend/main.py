@@ -675,6 +675,66 @@ def attendance_trend(authorization: Optional[str] = Header(None)):
     return {"trend": out}
 
 
+@app.get("/api/workforce")
+def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
+              department: Optional[str] = None, atl: Optional[str] = None,
+              employee: Optional[str] = None, client: Optional[str] = None,
+              client_type: Optional[str] = None, billable: Optional[str] = None,
+              status: Optional[str] = None):
+    """Workforce + flow metrics for the scope/period: attendance %, overtime,
+    short hours, cross-team share and the office -> tracked -> billable funnel."""
+    members, g = load()
+    f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
+         "employee": employee, "client": client, "client_type": client_type,
+         "billable": billable, "status": status}
+    _, d = apply_filters(members, g, f)
+    blank = {"has_keka": False, "attendance_pct": 0, "present_days": 0, "off_days": 0,
+             "overtime_h": 0, "short_h": 0, "late_days": 0, "cross_team_pct": 0,
+             "cross_team_h": 0, "total_tracked_h": 0,
+             "funnel": {"office_h": 0, "tracked_h": 0, "billable_h": 0}}
+    if d.empty:
+        return blank
+    tracked_h = float(d["tracked_h"].sum()); billable_h = float(d["billable_h"].sum())
+    # cross-team: activity team (atl) != employee's HR home team
+    home, _dep = _hr_team_dept_maps()
+    dd = d.copy(); dd["home"] = dd["user_id"].astype(str).map(home)
+    cross_mask = dd["home"].notna() & (dd["home"] != "") & (dd["atl"] != dd["home"])
+    cross_h = float(dd.loc[cross_mask, "tracked_h"].sum())
+    out = dict(blank)
+    out.update({"cross_team_h": round(cross_h, 1), "total_tracked_h": round(tracked_h, 1),
+                "cross_team_pct": round(cross_h / tracked_h * 100, 0) if tracked_h else 0})
+    df_, dt_ = str(d["date_s"].min()), str(d["date_s"].max())
+    uids = {str(u) for u in d["user_id"].unique()}
+    office_h = 0.0
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
+                        "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
+                        "AND coalesce(hr_full_name,'')<>''")
+        names = sorted({str(x["nm"]) for _, x in hm.iterrows() if str(x["uid"]) in uids and x["nm"]})
+        if names:
+            kr = db.q_write("""
+                SELECT round(sum(effective_min)/60.0) eff, round(sum(overtime_min)/60.0) ot,
+                       round(sum(short_eff_min)/60.0) sh,
+                       count(*) FILTER (WHERE effective_min>0) present,
+                       count(*) FILTER (WHERE late_by_min>0) late,
+                       count(*) FILTER (WHERE effective_min=0 AND upper(coalesce(status,'')) NOT LIKE 'WO%') off
+                FROM keka_attendance
+                WHERE lower(trim(emp_name)) = ANY(:names) AND work_date BETWEEN :df AND :dt
+            """, {"names": names, "df": df_, "dt": dt_})
+            if not kr.empty:
+                r = kr.iloc[0]
+                office_h = float(r["eff"] or 0)
+                present = int(r["present"] or 0); off = int(r["off"] or 0)
+                out.update({"has_keka": office_h > 0, "overtime_h": int(r["ot"] or 0),
+                            "short_h": int(r["sh"] or 0), "late_days": int(r["late"] or 0),
+                            "present_days": present, "off_days": off,
+                            "attendance_pct": round(present / (present + off) * 100, 0) if (present + off) else 0})
+    except Exception:  # noqa
+        pass
+    out["funnel"] = {"office_h": round(office_h), "tracked_h": round(tracked_h), "billable_h": round(billable_h)}
+    return clean(out)
+
+
 @app.get("/api/keka/status")
 def keka_status(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")

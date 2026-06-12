@@ -12,7 +12,7 @@ import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
-  getKekaStatus, uploadKeka, type KekaMonth,
+  getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -286,6 +286,7 @@ export default function CommandCenter({
   const [cmpTrend, setCmpTrend] = useState<CompareTrendData | null>(null);
   const [taskDel, setTaskDel] = useState<import("../lib/api").TaskDelivery | null>(null);
   const [budget, setBudget] = useState<import("../lib/api").BudgetData | null>(null);
+  const [workforce, setWorkforce] = useState<WorkforceData | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
   const [clientsModal, setClientsModal] = useState(false);
   const [clientsData, setClientsData] = useState<import("../lib/api").ClientsListData | null>(null);
@@ -396,6 +397,7 @@ export default function CommandCenter({
     const r0 = initialOpts ? currentMonth(initialOpts) : (draft.date_from ? draft : null);
     if (r0) getTaskDelivery(r0).then(setTaskDel).catch(() => setTaskDel(null));
     if (r0) getBudget(r0).then(setBudget).catch(() => setBudget(null));
+    if (r0) getWorkforce(r0).then(setWorkforce).catch(() => setWorkforce(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpts]);
 
@@ -411,6 +413,7 @@ export default function CommandCenter({
         const r = currentMonth(o);
         getTaskDelivery(r).then((td) => { if (!cancelled) setTaskDel(td); }).catch(() => {});
         getBudget(r).then((bg) => { if (!cancelled) setBudget(bg); }).catch(() => {});
+        getWorkforce(r).then((wf) => { if (!cancelled) setWorkforce(wf); }).catch(() => {});
         const cmd = await getCommand(r);
         if (cancelled) return;
         setData(cmd);
@@ -425,6 +428,7 @@ export default function CommandCenter({
     refetchOpts({ department: f.department, atl: f.atl, date_from: f.date_from, date_to: f.date_to });
     getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
     getBudget(f).then(setBudget).catch(() => setBudget(null));
+    getWorkforce(f).then(setWorkforce).catch(() => setWorkforce(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
   }
   // date range helpers (used by quick presets in the period bar)
@@ -973,26 +977,64 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* TOP / BOTTOM PERFORMERS */}
-      {((data.top3 && data.top3.length > 0) || (data.bottom3 && data.bottom3.length > 0)) && (
+      {/* WORKFORCE + OFFICE→TRACKED→BILLABLE FUNNEL */}
+      {workforce && (workforce.has_keka || workforce.total_tracked_h > 0) && (
         <div className="row2" style={{ marginBottom: 14 }}>
-          {([["Top Performers", data.top3 || [], "top"], ["Needs Support", data.bottom3 || [], "bot"]] as const).map(([title, list, kind]) => (
-            <div className="panel" key={kind}>
-              <div className="ph"><h3>{title} <span className="hl">{kind === "top" ? "highest" : "lowest"} by grade · utilization</span></h3></div>
-              <div className="perf-list">
-                {list.map((e, i) => (
-                  <div className="perf-row click" key={e.name + i} onClick={() => openEmployee(e.name)}>
-                    <span className={`perf-rank ${kind}`}>{i + 1}</span>
-                    <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
-                    <div className="perf-info"><b>{e.name}</b><span>{e.team}</span></div>
-                    <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
-                    <div className="perf-metrics"><b className="num">{n0(e.utilization)}%</b><span>util · {n0(e.billable)}h bill</span></div>
-                  </div>
-                ))}
-                {list.length === 0 && <div className="empty-s">No data</div>}
-              </div>
+          <div className="panel">
+            <div className="ph"><h3>Workforce <span className="hl">attendance &amp; effort, this period</span></h3></div>
+            <div className="wf-tiles">
+              <div className="wf-tile"><b className="num">{workforce.has_keka ? n0(workforce.attendance_pct) + "%" : "—"}</b><span>Attendance</span></div>
+              <div className="wf-tile"><b className="num" style={{ color: "#e8930c" }}>{workforce.has_keka ? n0(workforce.overtime_h) + "h" : "—"}</b><span>Overtime</span></div>
+              <div className="wf-tile"><b className="num" style={{ color: "#ef4444" }}>{workforce.has_keka ? n0(workforce.short_h) + "h" : "—"}</b><span>Short hours</span></div>
+              <div className="wf-tile"><b className="num" style={{ color: "#7b3fc0" }}>{n0(workforce.cross_team_pct)}%</b><span>Cross-team work</span></div>
             </div>
-          ))}
+            {workforce.has_keka && <div className="wf-note">{n0(workforce.present_days)} present · {n0(workforce.off_days)} leave/absent days · {n0(workforce.late_days)} late arrivals</div>}
+          </div>
+          <div className="panel">
+            <div className="ph"><h3>Office → Tracked → Billable <span className="hl">where the time goes</span></h3></div>
+            {!workforce.has_keka ? <div className="empty-s" style={{ padding: 30 }}>Upload Keka attendance to see office hours.</div> : (() => {
+              const fn = workforce.funnel; const max = Math.max(1, fn.office_h);
+              const stages: [string, number, string][] = [["Office hours", fn.office_h, "#2f6fbf"], ["Tracked", fn.tracked_h, "#0d9488"], ["Billable", fn.billable_h, "#16a34a"]];
+              return (
+                <div className="funnel">
+                  {stages.map(([label, val, color], i) => (
+                    <div className="fn-row" key={label}>
+                      <span className="fn-l">{label}</span>
+                      <span className="fn-bar"><i style={{ width: `${(val / max) * 100}%`, background: color }} /></span>
+                      <b className="fn-v num">{n0(val)}h</b>
+                      <span className="fn-p">{i === 0 ? "100%" : `${Math.round((val / max) * 100)}%`}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
+      {/* PERFORMERS — top & bottom in one panel */}
+      {((data.top3 && data.top3.length > 0) || (data.bottom3 && data.bottom3.length > 0)) && (
+        <div className="panel" style={{ marginBottom: 14 }}>
+          <div className="ph"><h3>Performers <span className="hl">top &amp; bottom by grade · utilization</span></h3></div>
+          <div className="perf-split">
+            {([["Top Performers", data.top3 || [], "top"], ["Needs Support", data.bottom3 || [], "bot"]] as const).map(([title, list, kind]) => (
+              <div className="perf-col" key={kind}>
+                <div className={`perf-col-h ${kind}`}>{title}</div>
+                <div className="perf-list">
+                  {list.map((e, i) => (
+                    <div className="perf-row click" key={e.name + i} onClick={() => openEmployee(e.name)}>
+                      <span className={`perf-rank ${kind}`}>{i + 1}</span>
+                      <span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span>
+                      <div className="perf-info"><b>{e.name}</b><span>{e.team}</span></div>
+                      <span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span>
+                      <div className="perf-metrics"><b className="num">{n0(e.utilization)}%</b><span>util · {n0(e.billable)}h bill</span></div>
+                    </div>
+                  ))}
+                  {list.length === 0 && <div className="empty-s">No data</div>}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
