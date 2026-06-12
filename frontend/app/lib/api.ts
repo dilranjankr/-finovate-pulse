@@ -405,3 +405,22 @@ export async function setUserStatus(id: number, active: boolean): Promise<void> 
   const r = await authedFetch(`${API}/api/users/${id}/status?active=${active}`, { method: "POST" });
   if (!r.ok) throw new Error(await asError(r));
 }
+export interface EmailSettings {
+  smtp_host: string; smtp_port: string; smtp_user: string; smtp_from: string;
+  public_app_url: string; password_set: boolean; ready: boolean;
+  sources: Record<string, "app" | "env" | "none">;
+}
+export async function getEmailSettings(): Promise<EmailSettings> {
+  const r = await authedFetch(`${API}/api/settings/email`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
+export async function saveEmailSettings(body: Partial<{ smtp_host: string; smtp_port: string; smtp_user: string; smtp_pass: string; smtp_from: string; public_app_url: string }>): Promise<{ ok: boolean; ready: boolean }> {
+  const r = await postJson("/api/settings/email", body);
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
+export async function testEmail(to: string): Promise<void> {
+  const r = await postJson("/api/settings/email/test", { to });
+  if (!r.ok) throw new Error(await asError(r));
+}

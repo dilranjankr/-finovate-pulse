@@ -11,6 +11,7 @@ import {
 import {
   getFilters, getCommand, getBreakdown, getBreakdownList, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
+  getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type BreakdownData, type BreakdownListData, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -222,6 +223,36 @@ export default function CommandCenter({
   }
   async function toggleUser(id: number, active: boolean) {
     try { await setUserStatus(id, active); loadUsers(); } catch (e) { alert((e as Error).message); }
+  }
+  // ---- email (SMTP) settings, editable in-app (overrides Coolify env) ----
+  const [usersTab, setUsersTab] = useState<"users" | "email">("users");
+  const [emailCfg, setEmailCfg] = useState<EmailSettings | null>(null);
+  const [emailForm, setEmailForm] = useState({ smtp_host: "", smtp_port: "587", smtp_user: "", smtp_pass: "", smtp_from: "", public_app_url: "" });
+  const [emailBusy, setEmailBusy] = useState("");
+  const [emailMsg, setEmailMsg] = useState<{ ok?: string; err?: string } | null>(null);
+  const [testTo, setTestTo] = useState("");
+  async function loadEmailCfg() {
+    setEmailCfg(null);
+    try {
+      const c = await getEmailSettings();
+      setEmailCfg(c);
+      setEmailForm({ smtp_host: c.smtp_host || "", smtp_port: c.smtp_port || "587", smtp_user: c.smtp_user || "", smtp_pass: "", smtp_from: c.smtp_from || "", public_app_url: c.public_app_url || "" });
+      setTestTo((t) => t || c.smtp_from || "");
+    } catch { /* owner-only */ }
+  }
+  useEffect(() => { if (usersModal && usersTab === "email") loadEmailCfg(); }, [usersModal, usersTab]);
+  async function saveEmailCfg() {
+    setEmailBusy("save"); setEmailMsg(null);
+    try { await saveEmailSettings(emailForm); setEmailMsg({ ok: "Settings saved." }); loadEmailCfg(); }
+    catch (e) { setEmailMsg({ err: (e as Error).message }); }
+    finally { setEmailBusy(""); }
+  }
+  async function sendTestEmail() {
+    if (!testTo.trim()) return;
+    setEmailBusy("test"); setEmailMsg(null);
+    try { await testEmail(testTo.trim()); setEmailMsg({ ok: `Test email sent to ${testTo.trim()} — check the inbox.` }); }
+    catch (e) { setEmailMsg({ err: (e as Error).message }); }
+    finally { setEmailBusy(""); }
   }
   const [showSettings, setShowSettings] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
@@ -1417,9 +1448,16 @@ export default function CommandCenter({
                 <h3><ShieldCheck size={15} style={{ verticalAlign: -2 }} /> Users &amp; Access</h3>
                 <div className="sub">{usersData ? `${usersData.users.length} accounts · invite-only · ${usersData.smtp ? "email enabled" : "copy-link mode"}` : "loading…"}</div>
               </div>
-              <div className="modal-x" onClick={() => { setUsersModal(false); setUMsg(null); }}><X size={16} /></div>
+              <div className="modal-h-r">
+                <div className="seg-toggle">
+                  <button className={usersTab === "users" ? "on" : ""} onClick={() => setUsersTab("users")}>Users</button>
+                  <button className={usersTab === "email" ? "on" : ""} onClick={() => setUsersTab("email")}>Email settings</button>
+                </div>
+                <div className="modal-x" onClick={() => { setUsersModal(false); setUMsg(null); }}><X size={16} /></div>
+              </div>
             </div>
             <div className="modal-b">
+            {usersTab === "users" && (<>
               {/* create form */}
               <div className="usr-create">
                 <div className="usr-create-row">
@@ -1483,6 +1521,38 @@ export default function CommandCenter({
                   </table>
                 </div>
               )}
+            </>)}
+            {usersTab === "email" && (
+              <div className="email-cfg">
+                {!emailCfg ? <div className="loading" style={{ height: 120 }}><span className="spin" /> Loading…</div> : (
+                  <>
+                    <div className={`email-status ${emailCfg.ready ? "ok" : "warn"}`}>
+                      {emailCfg.ready
+                        ? <><Check size={14} /> Email is active — invitations are sent automatically.</>
+                        : <><ShieldAlert size={14} /> Email not configured — invites use a copy-link until you add an SMTP password below.</>}
+                    </div>
+                    <p className="email-help">Saved here, these override the server (Coolify) settings instantly — no redeploy. Leave a field blank to fall back to the server value. For Gmail, the password must be an <b>App Password</b>.</p>
+                    <div className="email-grid">
+                      <label>SMTP host<input value={emailForm.smtp_host} placeholder="smtp.gmail.com" onChange={(e) => setEmailForm({ ...emailForm, smtp_host: e.target.value })} /></label>
+                      <label>Port<input value={emailForm.smtp_port} placeholder="587" onChange={(e) => setEmailForm({ ...emailForm, smtp_port: e.target.value })} /></label>
+                      <label>Username<input value={emailForm.smtp_user} placeholder="you@gmail.com" onChange={(e) => setEmailForm({ ...emailForm, smtp_user: e.target.value })} /></label>
+                      <label>From address<input value={emailForm.smtp_from} placeholder="you@gmail.com" onChange={(e) => setEmailForm({ ...emailForm, smtp_from: e.target.value })} /></label>
+                      <label>App password<input type="password" value={emailForm.smtp_pass} placeholder={emailCfg.password_set ? "•••••••• (saved — leave blank to keep)" : "16-char Gmail App Password"} onChange={(e) => setEmailForm({ ...emailForm, smtp_pass: e.target.value })} /></label>
+                      <label>Dashboard URL (for invite links)<input value={emailForm.public_app_url} placeholder="https://your-app-url" onChange={(e) => setEmailForm({ ...emailForm, public_app_url: e.target.value })} /></label>
+                    </div>
+                    {emailMsg?.err && <div className="login-err"><ShieldAlert size={13} />{emailMsg.err}</div>}
+                    {emailMsg?.ok && <div className="email-ok"><Check size={13} />{emailMsg.ok}</div>}
+                    <div className="email-actions">
+                      <button className="usr-add" disabled={!!emailBusy} onClick={saveEmailCfg}>{emailBusy === "save" ? <span className="spin sm" /> : "Save settings"}</button>
+                      <div className="email-test">
+                        <input type="email" placeholder="send test to…" value={testTo} onChange={(e) => setTestTo(e.target.value)} />
+                        <button disabled={!!emailBusy || !testTo.trim()} onClick={sendTestEmail}>{emailBusy === "test" ? <span className="spin sm" /> : "Send test"}</button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             </div>
           </div>
         </div>

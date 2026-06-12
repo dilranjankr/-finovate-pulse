@@ -619,6 +619,21 @@ select.map-inp { cursor: pointer; }
 .usr-acts button { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 4px 10px; font-size: 11.5px; font-weight: 650; color: var(--ink-2); cursor: pointer; }
 .usr-acts button.danger { color: #b91c1c; border-color: #fecaca; }
 .usr-acts button:hover { background: var(--chip); }
+/* Email settings panel */
+.email-status { display: flex; align-items: center; gap: 8px; padding: 10px 13px; border-radius: 9px; font-size: 12.5px; font-weight: 650; margin-bottom: 10px; }
+.email-status.ok { background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; }
+.email-status.warn { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
+.email-help { font-size: 11.5px; color: var(--ink-2); line-height: 1.55; margin: 0 0 14px; }
+.email-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 11px; }
+.email-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 650; color: var(--ink-2); }
+.email-grid input { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13px; background: var(--card); color: var(--ink); outline: none; }
+.email-grid input:focus { border-color: #2f6fbf; }
+.email-ok { display: flex; align-items: center; gap: 6px; background: #f0fdf4; color: #15803d; border: 1px solid #bbf7d0; border-radius: 8px; padding: 8px 11px; font-size: 12px; font-weight: 600; margin-top: 12px; }
+.email-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; flex-wrap: wrap; }
+.email-test { display: flex; gap: 7px; }
+.email-test input { border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13px; background: var(--card); color: var(--ink); outline: none; min-width: 180px; }
+.email-test button { background: var(--chip); border: 1px solid var(--line); border-radius: 8px; padding: 0 16px; font-weight: 650; font-size: 13px; color: var(--ink); cursor: pointer; }
+.email-test button:disabled { opacity: .5; cursor: default; }
 /* Task Delivery panel */
 .td-panel { margin-bottom: 14px; padding: 16px 18px; }
 .td-score { margin-left: auto; font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }

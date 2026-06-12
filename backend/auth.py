@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 import bcrypt
 import jwt
 
+import db
+
 SESSION_HOURS = int(os.environ.get("SESSION_HOURS", "12"))
 INVITE_HOURS = int(os.environ.get("INVITE_HOURS", "48"))
 ROLES = ("owner", "manager", "lead", "employee")
@@ -33,6 +35,22 @@ def _secret() -> str:
 
 def owner_email() -> str:
     return (os.environ.get("OWNER_EMAIL") or "admin@finovate.com").strip().lower()
+
+
+# ---- settings (in-app overrides of env) ------------------------------------
+# Values saved in the app_settings table take priority over environment
+# variables, so the owner can change email config from the UI without a
+# redeploy. Blank in-app value → fall back to the Coolify env var.
+def _db_settings() -> dict:
+    try:
+        r = db.q_write("SELECT key, value FROM app_settings")
+        return {row["key"]: (row["value"] or "") for _, row in r.iterrows()}
+    except Exception:
+        return {}
+
+
+def _resolve(s: dict, key: str, env: str) -> str:
+    return (s.get(key) or "").strip() or os.environ.get(env, "").strip()
 
 
 def owner_password() -> str:
@@ -82,16 +100,29 @@ def invite_expiry() -> datetime:
 
 
 def build_invite_link(token: str) -> str:
-    base = (os.environ.get("PUBLIC_APP_URL") or "").rstrip("/")
+    base = _resolve(_db_settings(), "public_app_url", "PUBLIC_APP_URL").rstrip("/")
     return f"{base}/invite?token={token}" if base else f"/invite?token={token}"
 
 
 # ---- invitation email ------------------------------------------------------
+def smtp_settings() -> dict:
+    """Resolved SMTP config (in-app DB settings override Coolify env)."""
+    s = _db_settings()
+    return {
+        "host": _resolve(s, "smtp_host", "SMTP_HOST"),
+        "port": _resolve(s, "smtp_port", "SMTP_PORT") or "587",
+        "user": _resolve(s, "smtp_user", "SMTP_USER"),
+        "password": _resolve(s, "smtp_pass", "SMTP_PASS"),
+        "from": _resolve(s, "smtp_from", "SMTP_FROM"),
+        "public_app_url": _resolve(s, "public_app_url", "PUBLIC_APP_URL"),
+    }
+
+
 def smtp_configured() -> bool:
     # Require a password too — Gmail (and most providers) reject unauthenticated
     # SMTP, so without it we stay in copy-link mode rather than silently failing.
-    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_FROM")
-                and os.environ.get("SMTP_PASS"))
+    c = smtp_settings()
+    return bool(c["host"] and c["from"] and c["password"])
 
 
 def _invite_html(name: str, owner: str, link: str) -> str:
@@ -124,14 +155,15 @@ def _invite_html(name: str, owner: str, link: str) -> str:
 
 def send_invite_email(to_email: str, name: str, owner: str, link: str) -> tuple[bool, str]:
     """Returns (sent, detail). Falls back to copy-link when SMTP isn't configured."""
-    if not smtp_configured():
+    c = smtp_settings()
+    if not (c["host"] and c["from"] and c["password"]):
         return False, "smtp-not-configured"
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text import MIMEText
     msg = MIMEMultipart("alternative")
     msg["Subject"] = "You've been invited to Finovate Insight"
-    msg["From"] = os.environ["SMTP_FROM"]
+    msg["From"] = c["from"]
     msg["To"] = to_email
     text = (f"Hi {name},\n\n{owner} has created an account for you on Finovate Insight.\n"
             f"Set your password and sign in: {link}\n\n"
@@ -140,12 +172,11 @@ def send_invite_email(to_email: str, name: str, owner: str, link: str) -> tuple[
     msg.attach(MIMEText(text, "plain"))
     msg.attach(MIMEText(_invite_html(name, owner, link), "html"))
     try:
-        host = os.environ["SMTP_HOST"]; port = int(os.environ.get("SMTP_PORT", "587"))
-        with smtplib.SMTP(host, port, timeout=15) as s:
+        with smtplib.SMTP(c["host"], int(c["port"] or 587), timeout=15) as s:
             s.starttls()
-            if os.environ.get("SMTP_USER"):
-                s.login(os.environ["SMTP_USER"], os.environ.get("SMTP_PASS", ""))
-            s.sendmail(os.environ["SMTP_FROM"], [to_email], msg.as_string())
+            if c["user"]:
+                s.login(c["user"], c["password"])
+            s.sendmail(c["from"], [to_email], msg.as_string())
         return True, "sent"
     except Exception as e:  # noqa
         return False, str(e)[:200]

@@ -69,6 +69,21 @@ def _ensure_app_users():
         )""")
 
 
+def _ensure_app_settings():
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value TEXT,
+            updated_at TIMESTAMPTZ DEFAULT now()
+        )""")
+
+
+def _set_setting(key: str, value: str):
+    db.execute("""INSERT INTO app_settings(key, value, updated_at) VALUES (:k, :v, now())
+                  ON CONFLICT (key) DO UPDATE SET value=:v, updated_at=now()""",
+               {"k": key, "v": value})
+
+
 def _bootstrap_owner():
     ex = db.q_write("SELECT id FROM app_users WHERE lower(email)=:e", {"e": auth.owner_email()})
     if ex.empty:
@@ -84,6 +99,7 @@ def _auth_startup():
         return
     try:
         _ensure_app_users()
+        _ensure_app_settings()
         _bootstrap_owner()
         print(f"[auth] ready. owner = {auth.owner_email()}")
     except Exception as e:  # noqa
@@ -294,6 +310,71 @@ def users_set_status(uid: int, active: bool, authorization: Optional[str] = Head
         raise HTTPException(status_code=400, detail="The owner account cannot be disabled")
     db.execute("UPDATE app_users SET status=:s WHERE id=:i",
                {"s": "active" if active else "disabled", "i": uid})
+    return {"ok": True}
+
+
+class EmailSettingsReq(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[str] = None
+    smtp_user: Optional[str] = None
+    smtp_pass: Optional[str] = None      # blank = keep existing
+    smtp_from: Optional[str] = None
+    public_app_url: Optional[str] = None
+
+
+class TestEmailReq(BaseModel):
+    to: str
+
+
+def _setting_source(key: str, env: str) -> str:
+    """Where the effective value comes from: 'app', 'env', or 'none'."""
+    try:
+        r = db.q_write("SELECT value FROM app_settings WHERE key=:k", {"k": key})
+        if not r.empty and str(r.iloc[0]["value"] or "").strip():
+            return "app"
+    except Exception:
+        pass
+    return "env" if os.environ.get(env, "").strip() else "none"
+
+
+@app.get("/api/settings/email")
+def email_settings_get(authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    c = auth.smtp_settings()
+    keys = [("smtp_host", "SMTP_HOST"), ("smtp_port", "SMTP_PORT"), ("smtp_user", "SMTP_USER"),
+            ("smtp_pass", "SMTP_PASS"), ("smtp_from", "SMTP_FROM"), ("public_app_url", "PUBLIC_APP_URL")]
+    return {
+        "smtp_host": c["host"], "smtp_port": c["port"], "smtp_user": c["user"],
+        "smtp_from": c["from"], "public_app_url": c["public_app_url"],
+        "password_set": bool(c["password"]),                 # value never returned
+        "ready": auth.smtp_configured(),
+        "sources": {k: _setting_source(k, e) for k, e in keys},
+    }
+
+
+@app.post("/api/settings/email")
+def email_settings_save(body: EmailSettingsReq, authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    mapping = {"smtp_host": body.smtp_host, "smtp_port": body.smtp_port,
+               "smtp_user": body.smtp_user, "smtp_from": body.smtp_from,
+               "public_app_url": body.public_app_url}
+    for k, v in mapping.items():
+        if v is not None:
+            _set_setting(k, v.strip())
+    if body.smtp_pass:                                       # only overwrite when provided
+        _set_setting("smtp_pass", body.smtp_pass.strip())
+    return {"ok": True, "ready": auth.smtp_configured()}
+
+
+@app.post("/api/settings/email/test")
+def email_settings_test(body: TestEmailReq, authorization: Optional[str] = Header(None)):
+    actor = _require(authorization, "owner")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", body.to.strip()):
+        raise HTTPException(status_code=400, detail="Enter a valid email address")
+    link = auth.build_invite_link("test-link-preview")
+    sent, detail = auth.send_invite_email(body.to.strip(), "there", actor.get("name") or "Finovate Insight", link)
+    if not sent:
+        raise HTTPException(status_code=400, detail=f"Could not send: {detail}")
     return {"ok": True}
 
 
