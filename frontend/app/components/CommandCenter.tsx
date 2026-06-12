@@ -1784,7 +1784,6 @@ export default function CommandCenter({
       {budgetModal && budget && (() => {
         const rows = [...budget.clients].sort((a, b) =>
           budgetSort === "over" ? b.variance - a.variance : b.actual - a.actual);
-        const maxV = Math.max(1, ...rows.map((r) => Math.max(r.budget, r.actual)));
         const usedPct = budget.total_budget > 0 ? Math.round((budget.total_actual / budget.total_budget) * 100) : 0;
         return (
           <div className="modal-bg" onClick={() => setBudgetModal(false)}>
@@ -1803,29 +1802,19 @@ export default function CommandCenter({
                 </div>
               </div>
               <div className="modal-b">
-                <p className="bv-lead">
-                  <b>{budget.over} of {budget.count}</b> clients used <b>more</b> hours than their budget for this period.
-                  {" "}{budget.on_budget} are within budget. Overall <b>{n0(budget.total_actual)}h</b> tracked vs <b>{n0(budget.total_budget)}h</b> budgeted (<b>{usedPct}%</b>).
-                </p>
                 <div className="bv-summary">
-                  <div className="bv-pill ok"><b>{budget.on_budget}</b><span>within budget</span></div>
                   <div className="bv-pill bad"><b>{budget.over}</b><span>over budget</span></div>
-                  <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>budget (this period)</span></div>
-                  <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>actual tracked</span></div>
+                  <div className="bv-pill ok"><b>{budget.on_budget}</b><span>within budget</span></div>
+                  <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>used</span></div>
+                  <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>budgeted</span></div>
                 </div>
-                <div className="bv-legend">
-                  <span><i className="sw bud" /> Budget (pro-rated to period)</span>
-                  <span><i className="sw act" /> Actual — within budget</span>
-                  <span><i className="sw over" /> Actual — over budget</span>
-                </div>
-                <div className="bv-note">Monthly budget comes from the Resource sheet and is pro-rated to the selected date range. Change the period or any filter above and these numbers update with it.</div>
-                <div className="scrollwrap" style={{ maxHeight: 460 }}>
+                <div className="scrollwrap" style={{ maxHeight: 480 }}>
                   <table className="hd-table">
-                    <thead><tr><th className="l">Client</th><th className="l">Tasks</th><th className="l">Budget vs Actual</th><th>Variance</th><th>Health</th></tr></thead>
+                    <thead><tr><th className="l">Client</th><th className="l">Tasks (done / open)</th><th className="l">Budget used</th><th>Actual</th><th>Variance</th></tr></thead>
                     <tbody>
                       {rows.map((r) => {
-                        const bw = (r.budget / maxV) * 100, aw = (r.actual / maxV) * 100;
                         const tt = (r.tasks_done + r.tasks_open) || 0, donePct = tt ? (r.tasks_done / tt) * 100 : 0;
+                        const pct = r.budget > 0 ? (r.actual / r.budget) * 100 : 0;
                         return (
                           <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
                             <td className="l">
@@ -1840,14 +1829,13 @@ export default function CommandCenter({
                               ) : <span style={{ color: "var(--faint)" }}>—</span>}
                             </td>
                             <td className="l">
-                              <span className="bv-bars" title={`Budget ${n1(r.budget)}h · Actual ${n1(r.actual)}h`}>
-                                <span className="bv-row"><i className="bud" style={{ width: `${bw}%` }} /></span>
-                                <span className="bv-row"><i className={r.over ? "act over" : "act"} style={{ width: `${aw}%` }} /></span>
+                              <span className="usebar" title={`${n0(r.actual)}h used of ${n0(r.budget)}h budget`}>
+                                <span className="usebar-t"><i style={{ width: `${Math.min(100, pct)}%`, background: r.over ? "#ef4444" : "#16a34a" }} /></span>
+                                <em style={{ color: r.over ? "#ef4444" : "#16a34a" }}>{n0(pct)}%</em>
                               </span>
-                              <span className="bv-nums">{n0(r.actual)}h <i>used</i> / {n0(r.budget)}h <i>budget</i></span>
                             </td>
+                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h <span style={{ color: "var(--muted)", fontWeight: 500 }}>/ {n0(r.budget)}</span></td>
                             <td className="num" style={{ fontWeight: 750, color: r.over ? "#ef4444" : "#16a34a" }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
-                            <td className="num"><span className={`grade ${gradeCls(r.health)}`} title={`Health score ${r.health_score}/100`}>{r.health}</span></td>
                           </tr>
                         );
                       })}

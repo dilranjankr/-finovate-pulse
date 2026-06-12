@@ -571,6 +571,10 @@ select.map-inp { cursor: pointer; }
 .bv-legend .sw.act { background: #16a34a; }
 .bv-legend .sw.over { background: #ef4444; }
 .bv-note { font-size: 11px; color: var(--ink-2); margin-bottom: 12px; line-height: 1.5; }
+.usebar { display: inline-flex; align-items: center; gap: 9px; min-width: 130px; }
+.usebar-t { flex: 1; height: 8px; background: var(--chip); border-radius: 4px; overflow: hidden; }
+.usebar-t i { display: block; height: 100%; border-radius: 4px; }
+.usebar em { font-style: normal; font-size: 12px; font-weight: 750; min-width: 38px; text-align: right; }
 .bvc-name { display: flex; flex-direction: column; gap: 1px; }
 .bvc-meta { font-size: 10.5px; color: var(--muted); }
 .bv-nums { display: block; font-size: 10.5px; color: var(--ink-2); margin-top: 3px; }
