@@ -658,7 +658,7 @@ select.map-inp { cursor: pointer; }
 .kc2.t-warn { box-shadow: inset 3px 0 0 #e8930c; }
 .kc2.t-bad  { box-shadow: inset 3px 0 0 #ef4444; }
 /* KPI cards — clean (label + big value + circular icon badge + delta pill) */
-.kpi-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 14px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
 @media (max-width: 1024px) { .kpi-grid { grid-template-columns: repeat(3, 1fr); } }
 @media (max-width: 640px) { .kpi-grid { grid-template-columns: repeat(2, 1fr); } }
 .kc3 { background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 12px 13px; transition: box-shadow .15s, transform .12s, border-color .15s; }

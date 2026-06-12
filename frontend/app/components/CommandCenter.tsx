@@ -814,6 +814,8 @@ export default function CommandCenter({
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ tracked hours × 100 — the share of tracked time that is billable.", (e) => e.productivity, (v) => n1(v) + "%", "productivity"), undefined, "billable share")}
         {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
+        {kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, undefined, undefined, "worked this period")}
+        {kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
         {budget && budget.count > 0
           ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
               () => setBudgetModal(true),
