@@ -1216,6 +1216,14 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
     # own teams/clients/colleagues in the dropdowns.
     gp = _scope_df(g)
 
+    # name -> HR status (ACTIVE / RELIEVED / EXTERNAL / UNKNOWN) for the dropdown dots
+    emp_status = {}
+    if "hr_status" in members.columns:
+        for _, mr in members.iterrows():
+            nm = mr.get("name")
+            if isinstance(nm, str) and nm:
+                emp_status[nm] = str(mr.get("hr_status") or "UNKNOWN")
+
     if has_sets:
         name_map = dict(zip(members["user_id"], members["name"]))
         # cascade: department -> teams/clients/employees within that dept
@@ -1233,6 +1241,7 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
             "employees": employees,
             "clients": srt(clients_scoped),
             "client_types": client_types,
+            "employee_status": emp_status,
             "total_members": int(len(members)),
             "source": "supabase" if db.has_db() else "csv",
         })
@@ -1250,6 +1259,7 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
         "employees": sorted(atl_scope["name"].dropna().unique().tolist()),
         "clients": srt(dep_scope["client"]),
         "client_types": srt(dim["client_type"]),
+        "employee_status": emp_status,
         "total_members": int(len(members)),
         "source": "supabase" if db.has_db() else "csv",
     })

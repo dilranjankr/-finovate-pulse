@@ -743,7 +743,7 @@ export default function CommandCenter({
             </label>
             <MultiSelect Icon={Building2} label="Department" value={draft.department} opts={opts?.departments} on={setDept} allLabel="All Departments" />
             <MultiSelect Icon={Network} label="Team" value={draft.atl} opts={opts?.atls} on={setAtl} allLabel="All Teams" />
-            <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" />
+            <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" status={opts?.employee_status} />
             <MultiSelect Icon={Briefcase} label="Client" value={draft.client} opts={opts?.clients} on={(v) => setField("client", v)} allLabel="All Clients" />
             <MultiSelect Icon={Receipt} label="Type" value={draft.client_type} opts={opts?.client_types} on={(v) => setField("client_type", v)} allLabel="All Types" />
             {/* Billable / Non-Billable — default All */}
@@ -2191,9 +2191,15 @@ function GaugeChart({ value, color = "#e23b3b" }: { value: number; color?: strin
   );
 }
 
-function MultiSelect({ Icon, label, value, opts, on, allLabel }: {
+// HR status → dot colour + tooltip. Active = green, left/relieved = red.
+const STATUS_DOT: Record<string, [string, string]> = {
+  ACTIVE: ["sd-on", "Active"], RELIEVED: ["sd-off", "Left"], LEFT: ["sd-off", "Left"],
+  EXTERNAL: ["sd-ext", "External"], UNKNOWN: ["sd-unk", "Unknown"],
+};
+function MultiSelect({ Icon, label, value, opts, on, allLabel, status }: {
   Icon: React.ComponentType<{ size?: number }>; label: string; value?: string;
   opts?: string[]; on: (v: string) => void; allLabel?: string;
+  status?: Record<string, string>;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
@@ -2211,7 +2217,11 @@ function MultiSelect({ Icon, label, value, opts, on, allLabel }: {
     if (set.has(o)) set.delete(o); else set.add(o);
     on([...set].join(","));
   };
-  const list = (opts || []).filter((o) => o.toLowerCase().includes(q.toLowerCase()));
+  let list = (opts || []).filter((o) => o.toLowerCase().includes(q.toLowerCase()));
+  if (status) {                                   // active first, then alphabetical
+    const rank = (o: string) => (status[o] === "ACTIVE" ? 0 : status[o] === "RELIEVED" || status[o] === "LEFT" ? 2 : 1);
+    list = [...list].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  }
   const display = !active ? label : selected.length === 1 ? selected[0] : `${label} · ${selected.length}`;
   return (
     <div className={`fpill ms${active ? " on" : ""}`} ref={ref}>
@@ -2225,14 +2235,21 @@ function MultiSelect({ Icon, label, value, opts, on, allLabel }: {
           {(opts || []).length > 8 && (
             <div className="ms-search"><Search size={13} /><input autoFocus placeholder={`Search ${label.toLowerCase()}…`} value={q} onChange={(e) => setQ(e.target.value)} /></div>
           )}
+          {status && (
+            <div className="ms-legend"><span><i className="ms-dot sd-on" />Active</span><span><i className="ms-dot sd-off" />Left</span><span><i className="ms-dot sd-ext" />External</span></div>
+          )}
           <div className="ms-opts">
             <div className={`ms-opt all${active ? "" : " on"}`} onClick={() => { on(""); }}>{allLabel || `All ${label}`}</div>
-            {list.map((o) => (
-              <label className="ms-opt" key={o}>
-                <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
-                <span className="ms-lbl">{o}</span>
-              </label>
-            ))}
+            {list.map((o) => {
+              const sd = status ? STATUS_DOT[status[o] || "UNKNOWN"] : null;
+              return (
+                <label className="ms-opt" key={o}>
+                  <input type="checkbox" checked={selected.includes(o)} onChange={() => toggle(o)} />
+                  <span className="ms-lbl">{o}</span>
+                  {sd && <span className={`ms-dot ${sd[0]}`} title={sd[1]} />}
+                </label>
+              );
+            })}
             {list.length === 0 && <div className="ms-empty">No matches</div>}
           </div>
           {active && <div className="ms-foot"><span>{selected.length} selected</span><button onClick={() => on("")}>Clear</button></div>}

@@ -24,6 +24,7 @@ export interface FilterOptions {
   employees: string[];
   clients: string[];
   client_types: string[];
+  employee_status?: Record<string, string>;
   total_members: number;
   source?: string;
 }
