@@ -2104,9 +2104,25 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
   const n = Math.max(1, labels.length);
   const X = (i: number) => padL + (n === 1 ? 0.5 : i / (n - 1)) * (W - padL - padR);
   const Y = (v: number) => padT + (1 - v / maxY) * (height - padT - padB);
-  const path = (vs: (number | null)[]) =>
-    vs.map((v, i) => v == null ? "" : `${i === 0 || vs[i - 1] == null ? "M" : "L"}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
-  const ticks = [0, 0.5, 1].map((t) => t * maxY);
+  // smooth (Catmull-Rom) path, splitting at null gaps
+  const path = (vs: (number | null)[]) => {
+    const segs: [number, number][][] = []; let cur: [number, number][] = [];
+    vs.forEach((v, i) => { if (v == null) { if (cur.length) segs.push(cur); cur = []; } else cur.push([X(i), Y(v)]); });
+    if (cur.length) segs.push(cur);
+    const T = 0.16;
+    return segs.map((p) => {
+      if (p.length === 1) return `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
+      let d = `M${p[0][0].toFixed(1)},${p[0][1].toFixed(1)}`;
+      for (let i = 0; i < p.length - 1; i++) {
+        const p0 = p[i - 1] || p[i], p1 = p[i], p2 = p[i + 1], p3 = p[i + 2] || p2;
+        const c1x = p1[0] + (p2[0] - p0[0]) * T, c1y = p1[1] + (p2[1] - p0[1]) * T;
+        const c2x = p2[0] - (p3[0] - p1[0]) * T, c2y = p2[1] - (p3[1] - p1[1]) * T;
+        d += ` C${c1x.toFixed(1)},${c1y.toFixed(1)} ${c2x.toFixed(1)},${c2y.toFixed(1)} ${p2[0].toFixed(1)},${p2[1].toFixed(1)}`;
+      }
+      return d;
+    }).join(" ");
+  };
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((t) => t * maxY);
   const step = Math.max(1, Math.ceil(n / 6));
   const onMove = (e: React.MouseEvent) => {
     const rect = ref.current?.getBoundingClientRect(); if (!rect) return;
@@ -2121,13 +2137,19 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
       <svg viewBox={`0 0 ${W} ${height}`} width="100%" preserveAspectRatio="none" style={{ display: "block", overflow: "visible" }}>
         {ticks.map((t, i) => (
           <g key={i}>
-            <line x1={padL} x2={W - padR} y1={Y(t)} y2={Y(t)} stroke="var(--line-2)" strokeWidth="1" />
+            <line x1={padL} x2={W - padR} y1={Y(t)} y2={Y(t)} stroke="var(--line-2)" strokeWidth="1"
+              strokeDasharray={i === 0 ? undefined : "2 4"} vectorEffect="non-scaling-stroke" opacity={i === 0 ? 1 : 0.7} />
             <text x={padL - 6} y={Y(t) + 3} textAnchor="end" fontSize="9.5" fill="var(--muted)">{fy(t)}</text>
           </g>
         ))}
+        {/* each line gets a background halo so overlaps read clearly */}
         {series.map((s) => (
-          <path key={s.name} d={path(s.values)} fill="none" stroke={s.color} strokeWidth="2.2"
-            strokeDasharray={s.dash ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          <g key={s.name}>
+            <path d={path(s.values)} fill="none" stroke="var(--card)" strokeWidth="5.5"
+              strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+            <path d={path(s.values)} fill="none" stroke={s.color} strokeWidth="2.4"
+              strokeDasharray={s.dash ? "5 4" : undefined} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+          </g>
         ))}
         {hi != null && <line x1={X(hi)} x2={X(hi)} y1={padT} y2={height - padB} stroke="var(--muted)" strokeWidth="1" strokeDasharray="3 3" vectorEffect="non-scaling-stroke" />}
         {hi != null && series.map((s) => s.values[hi] != null && (
