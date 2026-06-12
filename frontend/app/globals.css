@@ -687,6 +687,12 @@ select.map-inp { cursor: pointer; }
 .kc2.t-warn { box-shadow: inset 3px 0 0 #e8930c; }
 .kc2.t-bad  { box-shadow: inset 3px 0 0 #ef4444; }
 /* KPI cards — clean (label + big value + circular icon badge + delta pill) */
+/* Keka attendance upload */
+.keka-drop { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; text-align: center; border: 2px dashed var(--line); border-radius: 11px; padding: 26px 16px; cursor: pointer; color: var(--ink-2); transition: border-color .15s, background .15s; }
+.keka-drop:hover { border-color: #2f6fbf; background: var(--chip); }
+.keka-drop.busy { cursor: default; opacity: .8; }
+.keka-drop b { font-size: 14px; color: var(--ink); font-weight: 700; }
+.keka-drop span { font-size: 11.5px; color: var(--muted); }
 /* line chart + hover tooltip */
 .lc-wrap { position: relative; }
 .lc-tip { position: absolute; top: 4px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.12); border-radius: 8px; padding: 7px 10px; font-size: 11px; pointer-events: none; white-space: nowrap; z-index: 5; display: flex; flex-direction: column; gap: 3px; }

@@ -12,6 +12,7 @@ import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
+  getKekaStatus, uploadKeka, type KekaMonth,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -189,6 +190,20 @@ export default function CommandCenter({
   const [roleReady, setRoleReady] = useState(false);
   const [usersModal, setUsersModal] = useState(false);
   const [pwModal, setPwModal] = useState(false);
+  const [kekaModal, setKekaModal] = useState(false);
+  const [kekaStatus, setKekaStatus] = useState<KekaMonth[] | null>(null);
+  const [kekaBusy, setKekaBusy] = useState(false);
+  const [kekaMsg, setKekaMsg] = useState<{ ok?: string; err?: string } | null>(null);
+  async function openKeka() { setKekaModal(true); setKekaMsg(null); setKekaStatus(null); try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); } }
+  async function doKekaUpload(file: File) {
+    setKekaBusy(true); setKekaMsg(null);
+    try {
+      const r = await uploadKeka(file);
+      setKekaMsg({ ok: `Uploaded ${r.rows} rows · ${r.employees} employees · ${r.months.join(", ")}` });
+      setKekaStatus((await getKekaStatus()).months);
+    } catch (e) { setKekaMsg({ err: (e as Error).message }); }
+    finally { setKekaBusy(false); }
+  }
   const [usersData, setUsersData] = useState<{ users: AdminUser[]; smtp: boolean; owner_email: string } | null>(null);
   const [uForm, setUForm] = useState({ email: "", role: "employee", full_name: "", scope_team: "" });
   const [uBusy, setUBusy] = useState(false);
@@ -713,6 +728,7 @@ export default function CommandCenter({
                       {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
                       {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); openMapping(); }}><Users size={16} />Employee mapping</button>}
+                      {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openKeka(); }}><Clock size={16} />Keka attendance</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); setUsersModal(true); }}><ShieldCheck size={16} />Users &amp; access</button>}
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setPwModal(true); }}><Lock size={16} />Change password</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
@@ -1543,6 +1559,41 @@ export default function CommandCenter({
                 )}
               </div>
             )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KEKA ATTENDANCE UPLOAD (owner) */}
+      {kekaModal && (
+        <div className="modal-bg" onClick={() => setKekaModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div><h3><Clock size={15} style={{ verticalAlign: -2 }} /> Keka Attendance</h3><div className="sub">upload the monthly Daily Performance Report (.xlsx)</div></div>
+              <div className="modal-x" onClick={() => setKekaModal(false)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              <label className={`keka-drop${kekaBusy ? " busy" : ""}`}>
+                <input type="file" accept=".xlsx" disabled={kekaBusy} style={{ display: "none" }}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) doKekaUpload(f); e.currentTarget.value = ""; }} />
+                {kekaBusy ? <><span className="spin" /> Uploading & parsing…</>
+                  : <><Download size={20} style={{ transform: "rotate(180deg)" }} /><b>Choose Keka .xlsx file</b><span>Daily Performance Report — re-uploading a month replaces it</span></>}
+              </label>
+              {kekaMsg?.err && <div className="login-err"><ShieldAlert size={13} />{kekaMsg.err}</div>}
+              {kekaMsg?.ok && <div className="email-ok"><Check size={13} />{kekaMsg.ok}</div>}
+              <div className="drawer-sec" style={{ marginTop: 14 }}>Loaded months</div>
+              {!kekaStatus ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
+                : kekaStatus.length === 0 ? <div className="empty-s">No attendance data yet — upload a month above.</div> : (
+                  <table className="hd-table">
+                    <thead><tr><th className="l">Month</th><th>Employees</th><th>Rows</th><th>Effective hrs</th></tr></thead>
+                    <tbody>
+                      {kekaStatus.map((m) => (
+                        <tr key={m.month}><td className="l" style={{ fontWeight: 650 }}>{m.month}</td><td className="num">{m.employees}</td><td className="num" style={{ color: "var(--muted)" }}>{n0(m.rows)}</td><td className="num" style={{ fontWeight: 700 }}>{n0(m.effective_hours)}h</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              <p className="email-help" style={{ marginTop: 12 }}>Once uploaded, this attendance data (effective hours, overtime, short hours, leave) can be matched with Hubstaff tracked time — e.g. to show the &ldquo;present but untracked&rdquo; gap and real utilization.</p>
             </div>
           </div>
         </div>

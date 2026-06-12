@@ -16,7 +16,7 @@ from zlib import crc32
 
 import numpy as np
 import pandas as pd
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -101,6 +101,7 @@ def _auth_startup():
     try:
         _ensure_app_users()
         _ensure_app_settings()
+        _ensure_keka()
         _bootstrap_owner()
         print(f"[auth] ready. owner = {auth.owner_email()}")
     except Exception as e:  # noqa
@@ -480,6 +481,114 @@ def email_settings_save(body: EmailSettingsReq, authorization: Optional[str] = H
     if body.smtp_pass:                                       # only overwrite when provided
         _set_setting("smtp_pass", body.smtp_pass.strip())
     return {"ok": True, "ready": auth.smtp_configured()}
+
+
+def _ensure_keka():
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS keka_attendance (
+            id BIGSERIAL PRIMARY KEY,
+            month TEXT NOT NULL,
+            emp_no TEXT, emp_name TEXT, job_title TEXT, department TEXT, sub_department TEXT,
+            reporting_manager TEXT, work_date DATE, status TEXT, shift TEXT,
+            in_time TEXT, out_time TEXT, late_by_min INT, early_by_min INT,
+            effective_min INT, total_min INT, break_min INT, overtime_min INT, short_eff_min INT,
+            UNIQUE(emp_no, work_date)
+        )""")
+    db.execute("CREATE INDEX IF NOT EXISTS keka_month_idx ON keka_attendance(month)")
+    db.execute("CREATE INDEX IF NOT EXISTS keka_name_idx ON keka_attendance(emp_name)")
+
+
+def _hm_to_min(x):
+    """'8:30' / '08:30' / '-1:15' -> minutes; blanks/'0:00' -> 0."""
+    s = str(x or "").strip()
+    if ":" not in s:
+        return 0
+    neg = s.startswith("-"); s = s.lstrip("-")
+    try:
+        h, m = s.split(":")[:2]
+        v = int(h) * 60 + int(m)
+        return -v if neg else v
+    except Exception:
+        return 0
+
+
+@app.post("/api/keka/upload")
+async def keka_upload(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
+    """Owner uploads the monthly Keka 'Daily Performance Report' xlsx; rows are
+    parsed and upserted into keka_attendance (re-uploading a month replaces it)."""
+    _require(authorization, "owner")
+    if not db.has_write():
+        raise HTTPException(status_code=400, detail="No write DB configured")
+    import pandas as _pd
+    try:
+        data = await file.read()
+        from io import BytesIO
+        raw = _pd.read_excel(BytesIO(data), sheet_name=0, header=2)
+    except Exception as e:  # noqa
+        raise HTTPException(status_code=400, detail=f"Could not read Excel: {str(e)[:160]}")
+    raw = raw.dropna(subset=["Employee Name"])
+    if raw.empty:
+        raise HTTPException(status_code=400, detail="No employee rows found — is this the Keka Daily Performance Report?")
+    col = {c: c for c in raw.columns}
+
+    def gv(r, name):
+        return r[name] if name in col and _pd.notna(r.get(name)) else None
+    rows = []
+    months = set()
+    for _, r in raw.iterrows():
+        try:
+            wd = _pd.to_datetime(gv(r, "Date"), errors="coerce", dayfirst=True)
+        except Exception:
+            wd = None
+        if wd is None or _pd.isna(wd):
+            continue
+        mon = wd.strftime("%Y-%m"); months.add(mon)
+        rows.append({
+            "month": mon, "emp_no": str(gv(r, "Employee Number") or "").strip(),
+            "emp_name": str(gv(r, "Employee Name") or "").strip(),
+            "job_title": str(gv(r, "Job Title") or "").strip() or None,
+            "department": str(gv(r, "Department") or "").strip() or None,
+            "sub_department": str(gv(r, "Sub Department") or "").strip() or None,
+            "reporting_manager": str(gv(r, "Reporting Manager") or "").strip() or None,
+            "work_date": wd.strftime("%Y-%m-%d"), "status": str(gv(r, "Status") or "").strip() or None,
+            "shift": str(gv(r, "Shift") or "").strip() or None,
+            "in_time": str(gv(r, "In Time") or "").strip() or None,
+            "out_time": str(gv(r, "Out Time") or "").strip() or None,
+            "late_by_min": _hm_to_min(gv(r, "Late By")), "early_by_min": _hm_to_min(gv(r, "Early By")),
+            "effective_min": _hm_to_min(gv(r, "Effective Hours")), "total_min": _hm_to_min(gv(r, "Total Hours")),
+            "break_min": _hm_to_min(gv(r, "Break Duration")), "overtime_min": _hm_to_min(gv(r, "Over Time")),
+            "short_eff_min": _hm_to_min(gv(r, "Total Short Hours(Effective)")),
+        })
+    if not rows:
+        raise HTTPException(status_code=400, detail="No dated rows parsed")
+    # replace the affected month(s), then bulk insert
+    for m in months:
+        db.execute("DELETE FROM keka_attendance WHERE month=:m", {"m": m})
+    ins = """INSERT INTO keka_attendance
+        (month,emp_no,emp_name,job_title,department,sub_department,reporting_manager,work_date,status,shift,
+         in_time,out_time,late_by_min,early_by_min,effective_min,total_min,break_min,overtime_min,short_eff_min)
+        VALUES (:month,:emp_no,:emp_name,:job_title,:department,:sub_department,:reporting_manager,:work_date,:status,:shift,
+         :in_time,:out_time,:late_by_min,:early_by_min,:effective_min,:total_min,:break_min,:overtime_min,:short_eff_min)
+        ON CONFLICT (emp_no, work_date) DO NOTHING"""
+    from sqlalchemy import text as _text
+    eng = db._engine_write()
+    with eng.begin() as con:
+        con.execute(_text(ins), rows)
+    return {"ok": True, "rows": len(rows), "months": sorted(months),
+            "employees": len({r["emp_name"] for r in rows})}
+
+
+@app.get("/api/keka/status")
+def keka_status(authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    try:
+        r = db.q_write("""SELECT month, count(*) rows, count(DISTINCT emp_name) employees,
+                          round(sum(effective_min)/60.0) eff_h
+                          FROM keka_attendance GROUP BY month ORDER BY month DESC""")
+    except Exception:
+        return {"months": []}
+    return {"months": [{"month": x["month"], "rows": int(x["rows"]), "employees": int(x["employees"]),
+                        "effective_hours": float(x["eff_h"] or 0)} for _, x in r.iterrows()]}
 
 
 @app.post("/api/settings/email/test")

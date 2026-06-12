@@ -421,6 +421,18 @@ export async function setUserStatus(id: number, active: boolean): Promise<void> 
   const r = await authedFetch(`${API}/api/users/${id}/status?active=${active}`, { method: "POST" });
   if (!r.ok) throw new Error(await asError(r));
 }
+export interface KekaMonth { month: string; rows: number; employees: number; effective_hours: number; }
+export async function getKekaStatus(): Promise<{ months: KekaMonth[] }> {
+  const r = await authedFetch(`${API}/api/keka/status`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
+export async function uploadKeka(file: File): Promise<{ ok: boolean; rows: number; months: string[]; employees: number }> {
+  const fd = new FormData(); fd.append("file", file);
+  const r = await authedFetch(`${API}/api/keka/upload`, { method: "POST", body: fd });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
 export interface EmailSettings {
   smtp_host: string; smtp_port: string; smtp_user: string; smtp_from: string;
   public_app_url: string; password_set: boolean; ready: boolean;
