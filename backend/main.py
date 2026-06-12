@@ -771,6 +771,7 @@ def load_from_db():
                ELSE COALESCE(NULLIF(p.name,''), 'No Project') END AS client_raw,
           (COALESCE(a.billable,0) > 0) AS billable,
           (c.task_id IS NOT NULL) AS clickup_linked,
+          (a.task_id IS NOT NULL) AS has_task,
           SUM(COALESCE(a.tracked,0)) AS tracked,
           SUM(COALESCE(a.overall,0)) AS overall,
           SUM(COALESCE(a.billable,0)) AS billable_sec,
@@ -783,13 +784,14 @@ def load_from_db():
         LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
         LEFT JOIN clickup_tasks c ON c.task_id = ht.remote_id
         WHERE COALESCE(a.tracked,0) > 0
-        GROUP BY 1,2,3,4,5,6
+        GROUP BY 1,2,3,4,5,6,7
     """)
     g["date_s"] = pd.to_datetime(g["date_s"]).dt.strftime("%Y-%m-%d")
     for c in ["tracked", "overall", "billable_sec", "prod_w", "nb_sec"]:
         g[c] = pd.to_numeric(g[c], errors="coerce").fillna(0)
     g["billable"] = g["billable"].astype(bool)
     g["clickup_linked"] = g["clickup_linked"].astype(bool)
+    g["has_task"] = g["has_task"].astype(bool)
     g["tracked_h"] = g["tracked"] / SEC
     g["overall_h"] = g["overall"] / SEC
     g["billable_h"] = g["billable_sec"] / SEC
@@ -1519,45 +1521,21 @@ def command(
 _NB_SQL = r"(^|[^a-z0-9])nb([^a-z0-9]|$)"
 
 
-def _tracked_breakdown(uids, date_from, date_to):
-    """Aggregate tracked hours split two ways: time logged on a task vs only on
-    a project (no task), and billable vs non-billable (NB marker)."""
+def _tracked_breakdown(d):
+    """Task-vs-project split of the ALREADY-FILTERED activity frame `d`, so it
+    matches the dashboard's Total Hours exactly (same per-activity team/client
+    scope). Billable split uses the same billable flag as everywhere else."""
     blank = {"task_h": 0.0, "task_billable_h": 0.0, "task_non_billable_h": 0.0,
              "project_h": 0.0, "project_billable_h": 0.0, "project_non_billable_h": 0.0}
-    if not db.has_db() or not uids:
+    if d is None or d.empty or "has_task" not in d.columns:
         return blank
-    where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)"]
-    params = {"uids": list(uids), "nb": _NB_SQL}
-    if date_from:
-        where.append("a.date >= :df"); params["df"] = date_from
-    if date_to:
-        where.append("a.date <= :dt"); params["dt"] = date_to
-    nb_cond = ("(trim(coalesce(ht.summary,'')) ~* :nb "
-               "OR trim(coalesce(p.name,'')) ~* :nb)")
-    try:
-        df = db.q(f"""
-            SELECT
-              sum(CASE WHEN a.task_id IS NOT NULL THEN a.tracked ELSE 0 END) task_sec,
-              sum(CASE WHEN a.task_id IS NOT NULL AND {nb_cond} THEN a.tracked ELSE 0 END) task_nb,
-              sum(CASE WHEN a.task_id IS NULL THEN a.tracked ELSE 0 END) proj_sec,
-              sum(CASE WHEN a.task_id IS NULL AND {nb_cond} THEN a.tracked ELSE 0 END) proj_nb
-            FROM hubstaff_activities a
-            LEFT JOIN hubstaff_projects p ON p.id = a.project_id
-            LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
-            WHERE {" AND ".join(where)}
-        """, params)
-    except Exception as e:  # noqa
-        print("breakdown failed:", e)
-        return blank
-    r = df.iloc[0]
-    task = float(r["task_sec"] or 0); tnb = float(r["task_nb"] or 0)
-    proj = float(r["proj_sec"] or 0); pnb = float(r["proj_nb"] or 0)
-    return {"task_h": round(task / SEC, 1),
-            "task_billable_h": round(max(0.0, task - tnb) / SEC, 1),
-            "task_non_billable_h": round(tnb / SEC, 1),
-            "project_h": round(proj / SEC, 1),
-            "project_billable_h": round(max(0.0, proj - pnb) / SEC, 1),
-            "project_non_billable_h": round(pnb / SEC, 1)}
+    tk = d[d["has_task"]]; pr = d[~d["has_task"]]
+    return {"task_h": round(float(tk["tracked_h"].sum()), 1),
+            "task_billable_h": round(float(tk["billable_h"].sum()), 1),
+            "task_non_billable_h": round(float(tk["non_billable_h"].sum()), 1),
+            "project_h": round(float(pr["tracked_h"].sum()), 1),
+            "project_billable_h": round(float(pr["billable_h"].sum()), 1),
+            "project_non_billable_h": round(float(pr["non_billable_h"].sum()), 1)}
 
 
 @app.get("/api/breakdown")
@@ -1572,54 +1550,82 @@ def breakdown(
     f = dict(date_from=date_from, date_to=date_to, department=department, atl=atl,
              employee=employee, client=client, client_type=client_type,
              billable=billable, status=status)
-    m, _ = apply_filters(members, g, f)
-    uids = [str(x) for x in m["user_id"].unique().tolist()] if not m.empty else []
-    return clean(_tracked_breakdown(uids, date_from, date_to))
+    _, d = apply_filters(members, g, f)
+    return clean(_tracked_breakdown(d))
 
 
-def _tracked_lists(uids, date_from, date_to, limit=500):
-    """Drill-down lists: tracked hours per task (task-linked time) and per
-    project (project-only time), each split billable / non-billable."""
+def _tracked_lists(uids, f, limit=500):
+    """Drill-down lists: tracked hours per task vs per project, billable split.
+    Computes the SAME per-activity team/client as g and applies the active
+    filters (team/client/dept/type/billable) so the list matches Total Hours."""
     blank = {"by_task": [], "by_project": []}
     if not db.has_db() or not uids:
         return blank
     where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)"]
-    params = {"uids": list(uids), "nb": _NB_SQL}
-    if date_from:
-        where.append("a.date >= :df"); params["df"] = date_from
-    if date_to:
-        where.append("a.date <= :dt"); params["dt"] = date_to
-    nb_expr = ("CASE WHEN trim(coalesce(ht.summary,'')) ~* :nb "
-               "OR trim(coalesce(p.name,'')) ~* :nb THEN a.tracked ELSE 0 END")
-    base = (" FROM hubstaff_activities a "
-            " LEFT JOIN hubstaff_projects p ON p.id = a.project_id "
-            " LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id "
-            " WHERE " + " AND ".join(where))
+    params = {"uids": list(uids)}
+    if f.get("date_from"):
+        where.append("a.date >= :df"); params["df"] = f["date_from"]
+    if f.get("date_to"):
+        where.append("a.date <= :dt"); params["dt"] = f["date_to"]
+    try:
+        df = db.q(f"""
+            SELECT
+              coalesce(nullif(ht.summary,''),'(unnamed task)') AS task_name,
+              coalesce(nullif(p.name,''),'(no project)') AS proj_name,
+              (a.task_id IS NOT NULL) AS has_task,
+              CASE WHEN c.task_id IS NOT NULL AND coalesce(c.space_name,'')<>'' THEN c.space_name
+                   ELSE coalesce(nullif(split_part(p.name,' / ',1),''),'No Project') END AS team_raw,
+              CASE WHEN c.task_id IS NOT NULL AND coalesce(c.folder_name,'')<>'' THEN c.folder_name
+                   WHEN p.name LIKE '%/%' THEN trim(split_part(p.name,' / ',2))
+                   ELSE coalesce(nullif(p.name,''),'No Project') END AS client_raw,
+              (coalesce(a.billable,0) > 0) AS billable,
+              sum(coalesce(a.tracked,0)) AS tracked
+            FROM hubstaff_activities a
+            LEFT JOIN hubstaff_projects p ON p.id = a.project_id
+            LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
+            LEFT JOIN clickup_tasks c ON c.task_id = ht.remote_id
+            WHERE {" AND ".join(where)}
+            GROUP BY 1,2,3,4,5,6
+        """, params)
+    except Exception as e:  # noqa
+        print("list failed:", e); return blank
+    if df.empty:
+        return blank
+    # same per-activity attribution as g, then apply the active scope filters
+    df["atl"] = df["team_raw"].map(norm_team)
+    df["department"] = df["atl"].map(dept_of_team)
+    df["client"] = df["client_raw"].fillna("(no client)").replace("", "(no client)")
+    df["client_type"] = df["client"].map(client_kind)
+    for key, col in [("department", "department"), ("atl", "atl"), ("client", "client"), ("client_type", "client_type")]:
+        vals = _vals(f.get(key))
+        if vals:
+            df = df[df[col].isin(vals)]
+    df["tracked"] = pd.to_numeric(df["tracked"], errors="coerce").fillna(0)
+    df["billable"] = df["billable"].astype(bool)
+    bf = f.get("billable")
+    if bf == "Billable":
+        df = df[df["billable"]]
+    elif bf == "Non-Billable":
+        df = df[~df["billable"]]
+    if df.empty:
+        return blank
 
-    def _q(label_expr, extra, proj_expr=None):
-        sel_proj = f", {proj_expr} pj" if proj_expr else ""
-        group = "GROUP BY 1, 2" if proj_expr else "GROUP BY 1"
-        try:
-            df = db.q(f"SELECT {label_expr} g{sel_proj}, sum(a.tracked) t, sum({nb_expr}) nb "
-                      f"{base} AND {extra} {group} ORDER BY sum(a.tracked) DESC LIMIT {limit}", params)
-        except Exception as e:  # noqa
-            print("list failed:", e); return []
+    def _agg(sub, by, with_project):
         out = []
-        for _, r in df.iterrows():
-            tot = float(r["t"] or 0); nb = float(r["nb"] or 0)
-            row = {"name": r["g"], "total": round(tot / SEC, 1),
-                   "billable": round(max(0.0, tot - nb) / SEC, 1),
-                   "non_billable": round(nb / SEC, 1)}
-            if proj_expr:
-                row["project"] = r["pj"]
+        for keys, grp in sub.groupby(by):
+            keys = keys if isinstance(keys, tuple) else (keys,)
+            tot = float(grp["tracked"].sum())
+            bil = float(grp.loc[grp["billable"], "tracked"].sum())
+            row = {"name": keys[0], "total": round(tot / SEC, 1),
+                   "billable": round(bil / SEC, 1), "non_billable": round((tot - bil) / SEC, 1)}
+            if with_project:
+                row["project"] = keys[1]
             out.append(row)
-        return out
+        out.sort(key=lambda r: -r["total"])
+        return out[:limit]
 
-    # by_task now carries the parent PROJECT for each task, so the drill-down can
-    # show which project a task belongs to.
-    return {"by_task": _q("coalesce(nullif(ht.summary,''),'(unnamed task)')", "a.task_id IS NOT NULL",
-                          "coalesce(nullif(p.name,''),'(no project)')"),
-            "by_project": _q("coalesce(nullif(p.name,''),'(no project)')", "a.task_id IS NULL")}
+    return {"by_task": _agg(df[df["has_task"]], ["task_name", "proj_name"], True),
+            "by_project": _agg(df[~df["has_task"]], ["proj_name"], False)}
 
 
 @app.get("/api/breakdown_list")
@@ -1634,9 +1640,9 @@ def breakdown_list(
     f = dict(date_from=date_from, date_to=date_to, department=department, atl=atl,
              employee=employee, client=client, client_type=client_type,
              billable=billable, status=status)
-    m, _ = apply_filters(members, g, f)
-    uids = [str(x) for x in m["user_id"].unique().tolist()] if not m.empty else []
-    return clean(_tracked_lists(uids, date_from, date_to))
+    _, d = apply_filters(members, g, f)
+    uids = [str(x) for x in d["user_id"].unique().tolist()] if not d.empty else []
+    return clean(_tracked_lists(uids, f))
 
 
 @lru_cache(maxsize=1)
