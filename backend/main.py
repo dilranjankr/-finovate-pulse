@@ -645,6 +645,9 @@ def _is_nb(name: str) -> bool:
 
 # --- Accurate attribution helpers (Fix 1) ---
 _OPS_TEAMS = ["Titans", "Syndicates", "Synergy", "Alliance", "Falcons", "Mavericks", "Bravix"]
+# Minimum tracked hours for someone to count as "having worked" a team/scope in
+# the filter dropdowns — drops sub-minute tracking traces that mis-listed people.
+MIN_MEMBER_H = 1.0
 _INTERNAL_KW = ["emailing", "training", "nb tasks", "admin-operational", "admin operational",
                 "introductory", "operational works", "company maintenance", "master project",
                 "new initiatives", "initiatives", "tracker", "audit & reporting", "employee process",
@@ -1002,11 +1005,6 @@ def load_from_db():
                      "total_tasks": int(info.get("total_tasks", 0)),
                      "task_status": info.get("task_status", "Idle"),
                      "hr_status": hr_status_map.get(uid, "UNKNOWN"),
-                     # clean HR HOME team/dept (single) — used for the cascading
-                     # dropdowns so a team filter lists that team's HR members,
-                     # not everyone who happened to touch a task there.
-                     "hr_team": hr_team_map.get(uid) or prim_team.get(uid) or "Unassigned",
-                     "hr_dept": hr_dept_map.get(uid) or dept_of_team(prim_team.get(uid, "")) or "Unassigned",
                      "client": prim_client.get(uid, "Unassigned"),
                      "dept_set": dept_sets.get(uid, []),
                      "team_set": team_sets.get(uid, []),
@@ -1237,15 +1235,17 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
         teams_scoped = set(scope["atl"].unique())
         clients_scoped = set(scope["client"].unique())
         client_types = srt(set(gp["client_type"].unique()))
-        # EMPLOYEES list by HR HOME team/dept (not activity) so a team filter shows
-        # that team's actual members — limited to the people the caller can see.
-        seen_uids = set(gp["user_id"].astype(str).unique())
-        em = members[members["user_id"].astype(str).isin(seen_uids)] if "hr_team" in members.columns else members
-        if dep_vals and "hr_dept" in em.columns:
-            em = em[em["hr_dept"].isin(dep_vals)]
-        if atl_vals and "hr_team" in em.columns:
-            em = em[em["hr_team"].isin(atl_vals)]
-        employees = sorted({n for n in em["name"].tolist() if isinstance(n, str) and n})
+        # EMPLOYEES who actually worked in the current scope — cross-team aware
+        # (a project can be tracked by several teams, so anyone who really logged
+        # time there appears), but require >= 1h to drop <1h tracking noise that
+        # otherwise listed unrelated people under a team.
+        es = scope[scope["atl"].isin(atl_vals)] if atl_vals else scope
+        if atl_vals or dep_vals:                       # scoped view → drop <1h noise
+            hrs = es.groupby("user_id")["tracked_h"].sum()
+            uids = hrs[hrs >= MIN_MEMBER_H].index
+        else:                                          # company view → list everyone
+            uids = es["user_id"].unique()
+        employees = sorted({name_map.get(u) for u in uids if name_map.get(u)})
         return clean({
             "date_min": g["date_s"].min(), "date_max": g["date_s"].max(),
             "departments": srt(all_depts),
