@@ -737,6 +737,18 @@ def client_kind(client: str) -> str:
     return "Project"
 
 
+_NON_CLIENT = ("(no client)", "Unassigned", "No Project")
+
+
+def real_clients(d):
+    """Activity frame restricted to REAL external clients — excludes internal
+    buckets (NB Tasks, Training, Accounting …). Single source of truth so the
+    Active Clients count and its drill-down list always agree."""
+    if d is None or d.empty:
+        return d
+    return d[(d["client_type"] != "Internal") & (~d["client"].isin(_NON_CLIENT))]
+
+
 def _working_days(start: str, end: str) -> int:
     """Company rule: Mon-Fri working + FIRST Saturday of each month working;
     all other Saturdays + every Sunday = off. Counts working days in [start, end]."""
@@ -1510,12 +1522,7 @@ def command(
     # real external clients only — exclude internal buckets (NB Tasks, Training,
     # Accounting, "(no client)" …) so the count is meaningful and lines up with
     # the budgeted-client list instead of inflating with non-client folders.
-    if not empty:
-        _real = d[(d["client_type"] != "Internal")
-                  & (~d["client"].isin(["(no client)", "Unassigned", "No Project"]))]
-        _n_clients = int(_real["client"].nunique())
-    else:
-        _n_clients = 0
+    _n_clients = int(real_clients(d)["client"].nunique()) if not empty else 0
     summary = {
         "employees": people, "active_days": int(d["date_s"].nunique()) if not empty else 0,
         "departments": int(d["department"].nunique()) if not empty else 0,
@@ -2557,11 +2564,8 @@ def clients_list(date_from: Optional[str] = None, date_to: Optional[str] = None,
          "employee": employee, "client": client, "client_type": client_type,
          "billable": billable, "status": status}
     _, d = apply_filters(members, g, f)
-    if d.empty:
-        return {"clients": [], "count": 0, "total_hours": 0}
-    d = d[(d["client_type"] != "Internal")
-          & (~d["client"].isin(["(no client)", "Unassigned", "No Project"]))]
-    if d.empty:
+    d = real_clients(d)
+    if d is None or d.empty:
         return {"clients": [], "count": 0, "total_hours": 0}
     tasks = _client_period_tasks([str(x) for x in d["user_id"].unique()], date_from, date_to)
     grp = d.groupby("client").agg(hours=("tracked_h", "sum"), billable=("billable_h", "sum"),
