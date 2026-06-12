@@ -908,14 +908,19 @@ export default function CommandCenter({
         const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
         const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
-        // burn-up: cumulative actual vs linear budget accrual
-        let cum = 0; const cumActual = daily.map((d) => (cum += d.hours));
+        // burn-up: cumulative actual ON BUDGETED CLIENTS vs the budget accrual.
+        // hours_trend is ALL tracked hours, so scale it to the budgeted-client
+        // total (budget.total_actual) — otherwise actual dwarfs the budget line.
         const totalBud = budget?.total_budget || 0;
+        const totalAct = budget?.total_actual || 0;
+        const sumDaily = daily.reduce((s, d) => s + d.hours, 0) || 1;
+        const scale = totalAct / sumDaily;
+        let cum = 0; const cumActual = daily.map((d) => { cum += d.hours; return cum * scale; });
         const budgetLine = daily.map((_, i) => totalBud * (i + 1) / daily.length);
         return (
           <div className="row2" style={{ marginBottom: 14 }}>
             <div className="panel">
-              <div className="ph"><h3>Budget Burn-up <span className="hl">cumulative hours vs budget</span></h3></div>
+              <div className="ph"><h3>Budget Burn-up <span className="hl">budgeted clients · actual vs budget pace</span></h3></div>
               {daily.length < 2 || totalBud === 0 ? <div className="empty-s">{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
                 <>
                   <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"} tipDate={tipDate}
