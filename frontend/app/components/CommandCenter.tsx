@@ -1808,39 +1808,26 @@ export default function CommandCenter({
                   <div className="bv-pill"><b>{n0(budget.total_actual)}h</b><span>used</span></div>
                   <div className="bv-pill"><b>{n0(budget.total_budget)}h</b><span>budgeted</span></div>
                 </div>
-                <div className="scrollwrap" style={{ maxHeight: 480 }}>
-                  <table className="hd-table">
-                    <thead><tr><th className="l">Client</th><th className="l">Tasks (done / open)</th><th className="l">Budget used</th><th>Actual</th><th>Variance</th></tr></thead>
-                    <tbody>
-                      {rows.map((r) => {
-                        const tt = (r.tasks_done + r.tasks_open) || 0, donePct = tt ? (r.tasks_done / tt) * 100 : 0;
-                        const pct = r.budget > 0 ? (r.actual / r.budget) * 100 : 0;
-                        return (
-                          <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
-                            <td className="l">
-                              <div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.client}</span><span className="bvc-meta">{r.team} · {r.type}</span></div>
-                            </td>
-                            <td className="l">
-                              {tt ? (
-                                <span className="tk-cell" title={`${r.tasks_done} closed · ${r.tasks_open} open this period`}>
-                                  <span className="tk-nums"><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> / <b style={{ color: "#e8930c" }}>{r.tasks_open}</b></span>
-                                  <span className="tk-bar"><i style={{ width: `${donePct}%` }} /></span>
-                                </span>
-                              ) : <span style={{ color: "var(--faint)" }}>—</span>}
-                            </td>
-                            <td className="l">
-                              <span className="usebar" title={`${n0(r.actual)}h used of ${n0(r.budget)}h budget`}>
-                                <span className="usebar-t"><i style={{ width: `${Math.min(100, pct)}%`, background: r.over ? "#ef4444" : "#16a34a" }} /></span>
-                                <em style={{ color: r.over ? "#ef4444" : "#16a34a" }}>{n0(pct)}%</em>
-                              </span>
-                            </td>
-                            <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h <span style={{ color: "var(--muted)", fontWeight: 500 }}>/ {n0(r.budget)}</span></td>
-                            <td className="num" style={{ fontWeight: 750, color: r.over ? "#ef4444" : "#16a34a" }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+                <div className="bv-grid scrollwrap" style={{ maxHeight: 494 }}>
+                  {rows.map((r) => {
+                    const tt = (r.tasks_done + r.tasks_open) || 0;
+                    const pct = r.budget > 0 ? (r.actual / r.budget) * 100 : 0;
+                    const col = r.over ? "#ef4444" : "#16a34a";
+                    return (
+                      <div key={r.client} className={`bv-card ${r.over ? "over" : "ok"}`} onClick={() => { setBudgetModal(false); openClient(r.client); }}>
+                        <div className="bv-card-top">
+                          <div className="bv-card-nm"><b className="tname">{r.client}</b><span>{r.team} · {r.type}</span></div>
+                          <span className="bv-card-pct" style={{ color: col }}>{n0(pct)}<i>%</i></span>
+                        </div>
+                        <div className="bv-card-bar"><i style={{ width: `${Math.min(100, pct)}%`, background: col }} /></div>
+                        <div className="bv-card-foot">
+                          <span className="bv-card-hrs"><b>{n0(r.actual)}h</b> <i>/ {n0(r.budget)}h budget</i></span>
+                          <span style={{ color: col, fontWeight: 750 }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</span>
+                        </div>
+                        {tt > 0 && <div className="bv-card-tasks"><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</div>}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>
