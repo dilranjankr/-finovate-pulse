@@ -88,7 +88,10 @@ def build_invite_link(token: str) -> str:
 
 # ---- invitation email ------------------------------------------------------
 def smtp_configured() -> bool:
-    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_FROM"))
+    # Require a password too — Gmail (and most providers) reject unauthenticated
+    # SMTP, so without it we stay in copy-link mode rather than silently failing.
+    return bool(os.environ.get("SMTP_HOST") and os.environ.get("SMTP_FROM")
+                and os.environ.get("SMTP_PASS"))
 
 
 def _invite_html(name: str, owner: str, link: str) -> str:
