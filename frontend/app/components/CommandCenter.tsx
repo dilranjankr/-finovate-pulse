@@ -871,6 +871,24 @@ export default function CommandCenter({
             </div>
           );
         })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No tasks due this period</div></div>}
+        {(() => {
+          const kd = data.kpi_daily || [];
+          const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+          const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
+          const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
+          return (
+            <div className="dcard">
+              <div className="dcard-h"><h3>Utilization Trend</h3><span className="dcard-sub">daily, tracked ÷ office hours</span></div>
+              {kd.length < 2 ? <div className="empty-s" style={{ padding: 40 }}>Not enough data</div> : (
+                <div style={{ marginTop: "auto" }}>
+                  <LineChart height={158} labels={kd.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "%"} tipDate={tipDate}
+                    series={[{ name: "Utilization", color: "#7b3fc0", values: kd.map((d) => d.utilization) }]} />
+                  <div className="lc-leg"><span><i style={{ background: "#7b3fc0" }} />Utilization %</span></div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* BY DEPARTMENT + BY TEAM — horizontal bar charts, one row */}
@@ -917,11 +935,10 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* BUDGET BURN-UP + UTILIZATION TREND */}
+      {/* BUDGET BURN-UP */}
       {(() => {
         const daily = data.hours_trend || [];
-        const kd = data.kpi_daily || [];
-        if (daily.length < 2 && kd.length < 2) return null;
+        if (daily.length < 2) return null;
         const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
         const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
@@ -935,27 +952,15 @@ export default function CommandCenter({
         let cum = 0; const cumActual = daily.map((d) => { cum += d.hours; return cum * scale; });
         const budgetLine = daily.map((_, i) => totalBud * (i + 1) / daily.length);
         return (
-          <div className="row2" style={{ marginBottom: 14 }}>
-            <div className="panel">
-              <div className="ph"><h3>Budget Burn-up <span className="hl">budgeted clients · actual vs budget pace</span></h3></div>
-              {daily.length < 2 || totalBud === 0 ? <div className="empty-s">{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
-                <>
-                  <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"} tipDate={tipDate}
-                    series={[{ name: "Actual", color: "#2f6fbf", values: cumActual }, { name: "Budget", color: "#94a3b8", values: budgetLine, dash: true }]} />
-                  <div className="lc-leg"><span><i style={{ background: "#2f6fbf" }} />Actual (cumulative)</span><span><i style={{ background: "#94a3b8" }} />Budget (pace)</span></div>
-                </>
-              )}
-            </div>
-            <div className="panel">
-              <div className="ph"><h3>Utilization Trend <span className="hl">daily, target 80%</span></h3></div>
-              {kd.length < 2 ? <div className="empty-s">Not enough data</div> : (
-                <>
-                  <LineChart height={170} labels={kd.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "%"} tipDate={tipDate}
-                    series={[{ name: "Utilization", color: "#7b3fc0", values: kd.map((d) => d.utilization) }]} />
-                  <div className="lc-leg"><span><i style={{ background: "#7b3fc0" }} />Utilization %</span></div>
-                </>
-              )}
-            </div>
+          <div className="panel" style={{ marginBottom: 14 }}>
+            <div className="ph"><h3>Budget Burn-up <span className="hl">budgeted clients · actual vs budget pace</span></h3></div>
+            {daily.length < 2 || totalBud === 0 ? <div className="empty-s">{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
+              <>
+                <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"} tipDate={tipDate}
+                  series={[{ name: "Actual", color: "#2f6fbf", values: cumActual }, { name: "Budget", color: "#94a3b8", values: budgetLine, dash: true }]} />
+                <div className="lc-leg"><span><i style={{ background: "#2f6fbf" }} />Actual (cumulative)</span><span><i style={{ background: "#94a3b8" }} />Budget (pace)</span></div>
+              </>
+            )}
           </div>
         );
       })()}
