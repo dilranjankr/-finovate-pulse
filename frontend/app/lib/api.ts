@@ -348,8 +348,8 @@ export interface TeamProfile {
 }
 export async function getTeam(name: string, f: Filters): Promise<TeamProfile> {
   const qs = new URLSearchParams({ name });
-  if (f.date_from) qs.set("date_from", f.date_from);
-  if (f.date_to) qs.set("date_to", f.date_to);
+  (["date_from", "date_to", "employee", "atl", "department", "client", "client_type", "billable", "status"] as const)
+    .forEach((k) => { if (f[k]) qs.set(k, f[k] as string); });
   const r = await authedFetch(`${API}/api/team?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("team failed");
   return r.json();

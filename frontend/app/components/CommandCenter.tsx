@@ -966,32 +966,16 @@ export default function CommandCenter({
             </div>
           );
         };
-        // Drill behaviour for By Team / By Department, by what's already filtered:
-        //  • a TEAM/DEPT filter is on → bars are grouped by the contributor's HOME
-        //    team/dept (rows carry member names); clicking shows THAT group's
-        //    contribution within the filter (employee = those members).
-        //  • only an EMPLOYEE filter is on → bars are that person's teams; clicking
-        //    keeps the employee and scopes to the clicked team, so it shows just what
-        //    THAT person did in THAT team (not the whole team's people).
-        //  • nothing filtered → open the team profile.
-        const teamFiltered = !!(draft.atl || draft.department);
-        const empFiltered = !!draft.employee;
-        const membersOf = (rows: TeamRow[], name: string) => (rows.find((r) => r.team === name)?.members) || [];
-        const drillTeam = (name: string) => {
-          const mem = teamFiltered ? membersOf(data.teams || [], name) : [];
-          if (mem.length) { const next = { ...draft, employee: mem.join(",") }; setDraft(next); apply(next); }
-          else if (empFiltered) { const next = { ...draft, atl: name }; setDraft(next); apply(next); }
-          else openTeam(name);
-        };
-        const drillDept = (name: string) => {
-          const mem = teamFiltered ? membersOf(data.departments || [], name) : [];
-          if (mem.length) { const next = { ...draft, employee: mem.join(",") }; setDraft(next); apply(next); }
-          else { const next = { ...draft, department: name }; setDraft(next); apply(next); }
-        };
+        // Clicking a By Team bar opens that team's scorecard MODAL, scoped to the
+        // current filter (the modal endpoint applies the active filters), so it shows
+        // e.g. just the filtered employee's work in that team, or — when a team is
+        // filtered — the contributors behind that bar. By Department drills by setting
+        // the department filter, as before.
+        const drillDept = (name: string) => { const next = { ...draft, department: name }; setDraft(next); apply(next); };
         return (
           <div className="row2" style={{ marginBottom: 14 }}>
             {hpanel("By Department", data.departments || [], true, drillDept)}
-            {hpanel("By Team", data.teams || [], false, drillTeam)}
+            {hpanel("By Team", data.teams || [], false, openTeam)}
           </div>
         );
       })()}

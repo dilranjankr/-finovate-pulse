@@ -2570,14 +2570,30 @@ def client_profile(name: str, date_from: Optional[str] = None, date_to: Optional
 
 
 @app.get("/api/team")
-def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None):
-    """Per-team drill-down: capacity/utilization, members, top clients, trend."""
+def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[str] = None,
+                 employee: Optional[str] = None, atl: Optional[str] = None,
+                 department: Optional[str] = None, client: Optional[str] = None,
+                 client_type: Optional[str] = None, billable: Optional[str] = None,
+                 status: Optional[str] = None):
+    """Per-team drill-down: capacity/utilization, members, top clients, trend.
+    Scoped to the active filter — so clicking a team bar shows the team within the
+    current view: the filtered employee's work in it, or (when a team/department is
+    filtered, where bars are grouped by the contributor's HOME team) just that
+    group's contribution — instead of the team's company-wide totals."""
     members, g = load()
-    d = _scope_df(g[g["atl"] == name])
-    if date_from:
-        d = d[d["date_s"] >= date_from]
-    if date_to:
-        d = d[d["date_s"] <= date_to]
+    f = {"date_from": date_from, "date_to": date_to, "employee": employee, "atl": atl,
+         "department": department, "client": client, "client_type": client_type,
+         "billable": billable, "status": status}
+    _, d = apply_filters(members, g, f)
+    if not d.empty:
+        if _vals(atl) or _vals(department):
+            # Filtered bars are grouped by the contributor's HOME team — `name` is a
+            # home team, so scope to people whose home team is `name`.
+            _ht, _ = _hr_team_dept_maps()
+            d = d[d["user_id"].astype(str).map(_ht).fillna(d["atl"]) == name]
+        else:
+            # Company / employee view — `name` is the activity team (ClickUp space).
+            d = d[d["atl"] == name]
     if d.empty:
         return {"found": False}
     tracked = float(d["tracked_h"].sum()); bill = float(d["billable_h"].sum()); nb = tracked - bill
