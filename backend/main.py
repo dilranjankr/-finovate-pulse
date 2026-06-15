@@ -41,6 +41,10 @@ app.add_middleware(
     allow_origins=_origins,
     allow_methods=["*"], allow_headers=["*"],
 )
+# Compress JSON responses — big win over the network on the hosted link (the
+# command/budget payloads are large). No behaviour change.
+from fastapi.middleware.gzip import GZipMiddleware
+app.add_middleware(GZipMiddleware, minimum_size=600)
 
 # ===========================================================================
 # AUTH — single owner, owner-invited users, bcrypt + JWT session, scope gate.
@@ -108,6 +112,17 @@ def _auth_startup():
         print(f"[auth] ready. owner = {auth.owner_email()}")
     except Exception as e:  # noqa
         print(f"[auth] setup failed ({str(e)[:120]}) — API running OPEN.")
+    # Warm the heavy data cache in the background so the FIRST dashboard request
+    # after a (re)deploy is fast instead of waiting ~30-50s for the aggregation.
+    import threading
+
+    def _warm():
+        try:
+            load()
+            print("[warm] data cache ready")
+        except Exception as e:  # noqa
+            print(f"[warm] skipped: {str(e)[:120]}")
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 # Per-request data scope (set of allowed hubstaff_user_ids; None = all). Set by
@@ -2396,12 +2411,45 @@ def unassigned():
             reason, suggestion = "Likely a spelling difference in ClickUp", cu_low[near[0]]
         else:
             reason, suggestion = "Not assigned to any ClickUp task", ""
-        rows.append({"name": name, "hours": round(float(r["hours"]), 1),
+        rows.append({"uid": str(r["user_id"]), "name": name, "hours": round(float(r["hours"]), 1),
                      "days": int(r["days"]), "reason": reason, "suggestion": suggestion})
     rows.sort(key=lambda x: -x["hours"])
     return clean({"rows": rows, "count": len(rows),
                   "total_hours": round(float(un["hours"].sum()), 1) if not un.empty else 0.0,
                   "total_members": int(len(members))})
+
+
+@app.post("/api/unassigned/assign")
+def unassigned_assign(payload: dict):
+    """Map an Unassigned employee to a department/team straight from the modal —
+    upserts employee_mapping (update by hubstaff_user_id, insert if not present)."""
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
+    p = payload or {}
+    uid = str(p.get("uid") or "").strip()
+    name = str(p.get("name") or "").strip()
+    dept = str(p.get("department") or "").strip()
+    team = str(p.get("team") or "").strip()
+    if not uid or not (dept or team):
+        return {"ok": False, "reason": "missing", "detail": "need uid + department/team"}
+    try:
+        ex = db.q_write("SELECT hubstaff_name FROM employee_mapping WHERE hubstaff_user_id = :u", {"u": uid})
+        if not ex.empty:
+            db.execute("UPDATE employee_mapping SET department=:d, team=:t, "
+                       "status=CASE WHEN coalesce(status,'')='' OR status='UNKNOWN' THEN 'ACTIVE' ELSE status END, "
+                       "updated_at=now() WHERE hubstaff_user_id=:u",
+                       {"d": dept or None, "t": team or None, "u": uid})
+        else:
+            db.execute("INSERT INTO employee_mapping (hubstaff_name, hubstaff_user_id, hr_full_name, "
+                       "status, department, team) VALUES (:n,:u,:n,'ACTIVE',:d,:t) "
+                       "ON CONFLICT (hubstaff_name) DO UPDATE SET department=:d, team=:t, updated_at=now()",
+                       {"n": name or uid, "u": uid, "d": dept or None, "t": team or None})
+        load.cache_clear()
+        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
+        _clear_resp_cache()
+        return {"ok": True}
+    except Exception as e:  # noqa
+        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
 
 
 @app.get("/api/raw")

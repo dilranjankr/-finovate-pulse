@@ -106,7 +106,7 @@ export interface RawData {
   shown: number;
 }
 export interface UnassignedData {
-  rows: { name: string; hours: number; days: number; reason: string; suggestion: string }[];
+  rows: { uid: string; name: string; hours: number; days: number; reason: string; suggestion: string }[];
   count: number;
   total_hours: number;
   total_members: number;
@@ -114,6 +114,12 @@ export interface UnassignedData {
 export async function getUnassigned(): Promise<UnassignedData> {
   const r = await authedFetch(`${API}/api/unassigned`, { cache: "no-store" });
   if (!r.ok) throw new Error("unassigned failed");
+  return r.json();
+}
+export async function assignUnassigned(body: { uid: string; name: string; department?: string; team?: string }): Promise<{ ok: boolean; detail?: string; reason?: string }> {
+  const r = await authedFetch(`${API}/api/unassigned/assign`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
   return r.json();
 }
 

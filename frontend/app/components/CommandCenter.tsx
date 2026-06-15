@@ -521,7 +521,19 @@ export default function CommandCenter({
   function goDept() { const n = { ...draft, atl: undefined, employee: undefined }; setDraft(n); apply(n); }
   function goTeam() { const n = { ...draft, employee: undefined }; setDraft(n); apply(n); }
   function openRaw() { setRawModal(true); setRawData(null); getRaw(draft).then(setRawData).catch(() => setRawData({ rows: [], total: 0, shown: 0 })); }
-  function openUnassigned() { setUnaModal(true); setUnaData(null); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
+  function openUnassigned() { setUnaModal(true); setUnaData(null); setUnaPick({}); getUnassigned().then(setUnaData).catch(() => setUnaData({ rows: [], count: 0, total_hours: 0, total_members: 0 })); }
+  const [unaPick, setUnaPick] = useState<Record<string, { dept?: string; team?: string }>>({});
+  const [unaBusy, setUnaBusy] = useState("");
+  async function assignUna(r: { uid: string; name: string }) {
+    const sel = unaPick[r.uid] || {};
+    if (!sel.dept && !sel.team) { alert("Pick a team or department first"); return; }
+    setUnaBusy(r.uid);
+    const api = await import("../lib/api");
+    const res = await api.assignUnassigned({ uid: r.uid, name: r.name, department: sel.dept, team: sel.team });
+    setUnaBusy("");
+    if (res.ok) { setUnaData((d) => d ? { ...d, rows: d.rows.filter((x) => x.uid !== r.uid), count: d.count - 1 } : d); }
+    else alert("Assign failed: " + (res.detail || res.reason));
+  }
   function openHours(mode?: "Billable" | "Non-Billable") {
     setHoursModal(true); setHoursData(null); setHoursSearch("");
     const f: Filters = mode ? { ...draft, billable: mode } : draft;
@@ -1899,7 +1911,7 @@ export default function CommandCenter({
       {/* UNASSIGNED EMPLOYEES — who & why, exportable */}
       {unaModal && (
         <div className="modal-bg" onClick={() => setUnaModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
             <div className="modal-h">
               <div>
                 <h3><ShieldAlert size={15} style={{ verticalAlign: -2, color: "#e8930c" }} /> Unassigned Employees</h3>
@@ -1915,7 +1927,7 @@ export default function CommandCenter({
                 : unaData.rows.length === 0 ? <div className="empty-s">Everyone is mapped — no unassigned employees 🎉</div> : (
                   <div className="scrollwrap" style={{ maxHeight: 480 }}>
                     <table className="ec-table">
-                      <thead><tr><th className="l">Employee</th><th>Tracked</th><th>Days</th><th className="l">Reason</th><th className="l">Suggestion</th></tr></thead>
+                      <thead><tr><th className="l">Employee</th><th>Tracked</th><th>Days</th><th className="l">Reason</th><th className="l">Assign to (department · team)</th></tr></thead>
                       <tbody>
                         {unaData.rows.map((r, i) => (
                           <tr key={r.name + i}>
@@ -1923,7 +1935,20 @@ export default function CommandCenter({
                             <td className="num">{n0(r.hours)}h</td>
                             <td className="num">{r.days}</td>
                             <td className="l"><span className="una-reason">{r.reason}</span></td>
-                            <td className="l" style={{ color: "var(--muted)" }}>{r.suggestion}</td>
+                            <td className="l">
+                              <div className="una-assign">
+                                <select className="map-inp" value={unaPick[r.uid]?.dept || ""} onChange={(e) => setUnaPick((p) => ({ ...p, [r.uid]: { ...p[r.uid], dept: e.target.value } }))}>
+                                  <option value="">Dept…</option>
+                                  {(opts?.departments || []).filter((d) => d && d !== "Unassigned").map((d) => <option key={d} value={d}>{d}</option>)}
+                                </select>
+                                <select className="map-inp" value={unaPick[r.uid]?.team || ""} onChange={(e) => setUnaPick((p) => ({ ...p, [r.uid]: { ...p[r.uid], team: e.target.value } }))}>
+                                  <option value="">Team…</option>
+                                  {(opts?.atls || []).filter((t) => t && t !== "Unassigned").map((t) => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                                <button className="bgt-go" disabled={unaBusy === r.uid} onClick={() => assignUna(r)}>{unaBusy === r.uid ? "…" : "Assign"}</button>
+                              </div>
+                              {r.suggestion && <span className="una-reason" style={{ marginLeft: 2, color: "var(--faint)" }}>ClickUp: {r.suggestion}</span>}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
