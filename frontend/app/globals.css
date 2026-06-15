@@ -705,7 +705,7 @@ select.map-inp { cursor: pointer; }
 .lc-leg span { display: inline-flex; align-items: center; gap: 6px; }
 .lc-leg i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 /* workforce tiles + funnel */
-.wf-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.wf-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .wf-tile { background: var(--chip); border-radius: 9px; padding: 12px 10px; text-align: center; display: flex; flex-direction: column; gap: 2px; }
 .wf-tile b { font-size: 22px; font-weight: 850; color: var(--ink); line-height: 1; }
 .wf-tile span { font-size: 10.5px; color: var(--ink-2); font-weight: 600; }
@@ -718,8 +718,7 @@ select.map-inp { cursor: pointer; }
 .fn-v { font-size: 13px; font-weight: 800; color: var(--ink); min-width: 56px; text-align: right; }
 .fn-p { font-size: 11px; font-weight: 700; color: var(--muted); min-width: 38px; text-align: right; }
 /* performers — top & bottom split in one panel */
-.perf-split { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 26px; }
-@media (max-width: 760px) { .perf-split { grid-template-columns: 1fr; } }
+.perf-split { display: grid; grid-template-columns: 1fr; gap: 4px 26px; }
 .perf-col-h { font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .03em; padding: 2px 0 6px; border-bottom: 1px solid var(--line); margin-bottom: 2px; }
 .perf-col-h.top { color: #15803d; } .perf-col-h.bot { color: #b91c1c; }
 /* top / bottom performers */

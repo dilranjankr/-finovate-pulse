@@ -947,35 +947,6 @@ export default function CommandCenter({
         );
       })()}
 
-      {/* BUDGET BURN-UP */}
-      {(() => {
-        const daily = data.hours_trend || [];
-        if (daily.length < 2) return null;
-        const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
-        const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
-        // burn-up: cumulative actual ON BUDGETED CLIENTS vs the budget accrual.
-        // hours_trend is ALL tracked hours, so scale it to the budgeted-client
-        // total (budget.total_actual) — otherwise actual dwarfs the budget line.
-        const totalBud = budget?.total_budget || 0;
-        const totalAct = budget?.total_actual || 0;
-        const sumDaily = daily.reduce((s, d) => s + d.hours, 0) || 1;
-        const scale = totalAct / sumDaily;
-        let cum = 0; const cumActual = daily.map((d) => { cum += d.hours; return cum * scale; });
-        const budgetLine = daily.map((_, i) => totalBud * (i + 1) / daily.length);
-        return (
-          <div className="panel" style={{ marginBottom: 14 }}>
-            <div className="ph"><h3>Budget Burn-up <span className="hl">budgeted clients · actual vs budget pace</span></h3></div>
-            {daily.length < 2 || totalBud === 0 ? <div className="empty-s">{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
-              <>
-                <LineChart height={170} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"} tipDate={tipDate}
-                  series={[{ name: "Actual", color: "#2f6fbf", values: cumActual }, { name: "Budget", color: "#94a3b8", values: budgetLine, dash: true }]} />
-                <div className="lc-leg"><span><i style={{ background: "#2f6fbf" }} />Actual (cumulative)</span><span><i style={{ background: "#94a3b8" }} />Budget (pace)</span></div>
-              </>
-            )}
-          </div>
-        );
-      })()}
 
       {/* WORKFORCE + OFFICE→TRACKED→BILLABLE FUNNEL */}
       {workforce && (workforce.has_keka || workforce.total_tracked_h > 0) && (
@@ -986,7 +957,6 @@ export default function CommandCenter({
               <div className="wf-tile"><b className="num">{workforce.has_keka ? n0(workforce.attendance_pct) + "%" : "—"}</b><span>Attendance</span></div>
               <div className="wf-tile"><b className="num" style={{ color: "#e8930c" }}>{workforce.has_keka ? n0(workforce.overtime_h) + "h" : "—"}</b><span>Overtime</span></div>
               <div className="wf-tile"><b className="num" style={{ color: "#ef4444" }}>{workforce.has_keka ? n0(workforce.short_h) + "h" : "—"}</b><span>Short hours</span></div>
-              <div className="wf-tile"><b className="num" style={{ color: "#7b3fc0" }}>{n0(workforce.cross_team_pct)}%</b><span>Cross-team work</span></div>
             </div>
             {workforce.has_keka && <div className="wf-note">{n0(workforce.present_days)} present · {n0(workforce.off_days)} leave/absent days · {n0(workforce.late_days)} late arrivals</div>}
           </div>
@@ -1012,9 +982,32 @@ export default function CommandCenter({
         </div>
       )}
 
-      {/* PERFORMERS — top & bottom in one panel */}
-      {((data.top3 && data.top3.length > 0) || (data.bottom3 && data.bottom3.length > 0)) && (
-        <div className="panel" style={{ marginBottom: 14 }}>
+      {/* BUDGET BURN-UP + PERFORMERS — one row, half / half */}
+      <div className="row2" style={{ marginBottom: 14 }}>
+        {(() => {
+          const daily = data.hours_trend || [];
+          const fmtX = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]}/${p[1]}` : s; };
+          const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+          const tipDate = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${MM[+p[1] - 1]} ${+p[2]}` : s; };
+          const totalBud = budget?.total_budget || 0, totalAct = budget?.total_actual || 0;
+          const sumDaily = daily.reduce((s, d) => s + d.hours, 0) || 1;
+          const scale = totalAct / sumDaily;
+          let cum = 0; const cumActual = daily.map((d) => { cum += d.hours; return cum * scale; });
+          const budgetLine = daily.map((_, i) => totalBud * (i + 1) / daily.length);
+          return (
+            <div className="panel">
+              <div className="ph"><h3>Budget Burn-up <span className="hl">budgeted clients · actual vs budget pace</span></h3></div>
+              {daily.length < 2 || totalBud === 0 ? <div className="empty-s" style={{ padding: 40 }}>{totalBud === 0 ? "No budget for this scope" : "Not enough data"}</div> : (
+                <>
+                  <LineChart height={188} labels={daily.map((d) => d.date)} fmtX={fmtX} fmtY={(v) => n0(v) + "h"} tipDate={tipDate}
+                    series={[{ name: "Actual", color: "#2f6fbf", values: cumActual }, { name: "Budget", color: "#94a3b8", values: budgetLine, dash: true }]} />
+                  <div className="lc-leg"><span><i style={{ background: "#2f6fbf" }} />Actual (cumulative)</span><span><i style={{ background: "#94a3b8" }} />Budget (pace)</span></div>
+                </>
+              )}
+            </div>
+          );
+        })()}
+        <div className="panel">
           <div className="ph"><h3>Performers <span className="hl">top &amp; bottom by grade · utilization</span></h3></div>
           <div className="perf-split">
             {([["Top Performers", data.top3 || [], "top"], ["Needs Support", data.bottom3 || [], "bot"]] as const).map(([title, list, kind]) => (
@@ -1036,7 +1029,7 @@ export default function CommandCenter({
             ))}
           </div>
         </div>
-      )}
+      </div>
 
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
       {compare && (() => {

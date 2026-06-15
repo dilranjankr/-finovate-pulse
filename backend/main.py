@@ -1577,17 +1577,18 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
         teams_scoped = set(scope["atl"].unique())
         clients_scoped = set(scope["client"].unique())
         client_types = srt(set(gp["client_type"].unique()))
-        # EMPLOYEES who actually worked in the current scope — cross-team aware
-        # (a project can be tracked by several teams, so anyone who really logged
-        # time there appears), but require >= 1h to drop <1h tracking noise that
-        # otherwise listed unrelated people under a team.
-        es = scope[scope["atl"].isin(atl_vals)] if atl_vals else scope
-        if atl_vals or dep_vals:                       # scoped view → drop <1h noise
-            hrs = es.groupby("user_id")["tracked_h"].sum()
-            uids = hrs[hrs >= MIN_MEMBER_H].index
-        else:                                          # company view → list everyone
-            uids = es["user_id"].unique()
-        employees = sorted({name_map.get(u) for u in uids if name_map.get(u)})
+        # EMPLOYEES = genuine HR HOME-team members of the selected dept/team who have
+        # activity in the period. Cross-team workers are NOT listed here — their work
+        # still shows in the By Department / By Team graphs (per-activity attribution).
+        home_map, hdept_map = _hr_team_dept_maps()
+        seen = {str(u) for u in gp["user_id"].unique()}          # active in the period (scope)
+        if atl_vals or dep_vals:
+            emp_uids = [u for u in seen
+                        if (not atl_vals or home_map.get(u) in atl_vals)
+                        and (not dep_vals or hdept_map.get(u) in dep_vals)]
+        else:
+            emp_uids = list(seen)
+        employees = sorted({name_map.get(u) for u in emp_uids if name_map.get(u)})
         return clean({
             "date_min": g["date_s"].min(), "date_max": g["date_s"].max(),
             "departments": srt(all_depts),
