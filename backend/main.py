@@ -1516,17 +1516,36 @@ def _emp_clickup_map():
 
 
 def build_tasks_db(uid):
-    # An employee's tasks: when we know their ClickUp id (employee_mapping.
-    # clickup_user_id), read ClickUp directly — reliable identity, full coverage.
-    # Otherwise fall back to Hubstaff assignment (hubstaff_tasks.assignee_ids, which
-    # holds Hubstaff user ids), enriched from ClickUp via the task-id link.
+    # An employee's tasks come from HUBSTAFF first: hubstaff_tasks.assignee_ids holds
+    # Hubstaff user ids, so we match on the employee's hubstaff_user_id (no name
+    # matching). Only LIVE tasks (status active/completed — archived/deleted excluded)
+    # count as "in Hubstaff". ClickUp is joined only to enrich estimate / client.
+    # When the person has NO live Hubstaff tasks, we fall back to ClickUp via the
+    # stable identity map (employee_mapping.clickup_user_id).
     try:
         import json
         uid_i = int(float(str(uid)))
     except (TypeError, ValueError):
         return []
-    cid = _emp_clickup_map().get(str(uid_i))
     try:
+        t = db.q("""
+            SELECT COALESCE(NULLIF(ct.subtask_name,''), ct.parent_task_name, ht.summary) AS task,
+                   COALESCE(ct.list_name, ct.space_name, hp.name, '—') AS client,
+                   COALESCE(ct.time_estimate_hrs,0) AS estimated,
+                   COALESCE(ct.time_tracked_hrs,0) AS tracked,
+                   COALESCE(NULLIF(ct.status,''), ht.status, '') AS status,
+                   to_char(COALESCE(ct.due_date, ht.due_at), 'YYYY-MM-DD') AS due
+            FROM hubstaff_tasks ht
+            LEFT JOIN clickup_tasks ct
+                   ON ct.task_id = ht.remote_id AND COALESCE(ct.is_deleted,false)=false
+            LEFT JOIN hubstaff_projects hp ON hp.id = ht.project_id
+            WHERE ht.assignee_ids @> :u AND ht.status IN ('active','completed')
+            ORDER BY COALESCE(ct.due_date, ht.due_at) DESC NULLS LAST LIMIT 60
+        """, {"u": json.dumps([uid_i])})
+        if t is not None and not t.empty:
+            return t.fillna("").to_dict("records")
+        # Fallback: ClickUp by mapped id (only when no live Hubstaff tasks).
+        cid = _emp_clickup_map().get(str(uid_i))
         if cid:
             t = db.q("""
                 SELECT COALESCE(NULLIF(subtask_name,''), parent_task_name, '—') AS task,
@@ -1541,37 +1560,36 @@ def build_tasks_db(uid):
                             THEN assignees::jsonb ELSE '[]'::jsonb END) @> :one
                 ORDER BY due_date DESC NULLS LAST LIMIT 60
             """, {"one": json.dumps([{"id": int(cid)}])})
-        else:
-            t = db.q("""
-                SELECT COALESCE(NULLIF(ct.subtask_name,''), ct.parent_task_name, ht.summary) AS task,
-                       COALESCE(ct.list_name, ct.space_name, hp.name, '—') AS client,
-                       COALESCE(ct.time_estimate_hrs,0) AS estimated,
-                       COALESCE(ct.time_tracked_hrs,0) AS tracked,
-                       COALESCE(NULLIF(ct.status,''), ht.status, '') AS status,
-                       to_char(COALESCE(ct.due_date, ht.due_at), 'YYYY-MM-DD') AS due
-                FROM hubstaff_tasks ht
-                LEFT JOIN clickup_tasks ct
-                       ON ct.task_id = ht.remote_id AND COALESCE(ct.is_deleted,false)=false
-                LEFT JOIN hubstaff_projects hp ON hp.id = ht.project_id
-                WHERE ht.assignee_ids @> :u
-                ORDER BY COALESCE(ct.due_date, ht.due_at) DESC NULLS LAST LIMIT 60
-            """, {"u": json.dumps([uid_i])})
-        return t.fillna("").to_dict("records")
+            return t.fillna("").to_dict("records")
+        return []
     except Exception:
         return []
 
 
 @lru_cache(maxsize=1)
 def _emp_task_counts():
-    """Per-employee ClickUp task counts {uid: (total, active)} using the stable
-    identity map: counted by ClickUp id when known (reliable, full coverage), else
-    by Hubstaff assignment. Same universe (non-deleted, non-archived) and
-    CLOSED_STATUS semantics as clickup_intel — never a namesake's tasks."""
+    """Per-employee task counts {uid: (total, active)}, HUBSTAFF-first:
+    total/active come from hubstaff_tasks assigned to the person's Hubstaff id
+    (live tasks: total = active+completed, active = status 'active'). Only when the
+    person has NO live Hubstaff tasks do we fall back to their ClickUp id (via the
+    stable identity map) and count ClickUp tasks (active = status not closed)."""
     if not db.has_db():
         return {}
     out = {}
     try:
-        # per-ClickUp-user totals (open vs closed)
+        # PRIMARY: Hubstaff assignment, live tasks only.
+        hb = db.q("""
+            SELECT e.val AS uid,
+                   COUNT(*) FILTER (WHERE ht.status IN ('active','completed')) AS total,
+                   COUNT(*) FILTER (WHERE ht.status = 'active') AS active
+            FROM hubstaff_tasks ht
+            CROSS JOIN LATERAL jsonb_array_elements_text(ht.assignee_ids) AS e(val)
+            WHERE jsonb_typeof(ht.assignee_ids)='array'
+            GROUP BY e.val
+        """)
+        for _, r in hb.iterrows():
+            out[str(r["uid"])] = (int(r["total"]), int(r["active"]))
+        # FALLBACK: ClickUp by mapped id, ONLY for people with no live Hubstaff tasks.
         byck = db.q("""
             SELECT (a->>'id') cid,
                    COUNT(*) total,
@@ -1586,24 +1604,9 @@ def _emp_task_counts():
         """, {"closed": list(CLOSED_STATUS)})
         ck = {str(r["cid"]): (int(r["total"]), int(r["active"])) for _, r in byck.iterrows()}
         for hub, cid in _emp_clickup_map().items():
-            out[str(hub)] = ck.get(str(cid), (0, 0))
-        # Hubstaff-assignment fallback for employees with no ClickUp id mapped yet.
-        h = db.q("""
-            SELECT e.val AS uid,
-                   COUNT(DISTINCT ct.task_id) AS total,
-                   COUNT(DISTINCT ct.task_id) FILTER (
-                     WHERE lower(coalesce(ct.status,'')) <> ALL(:closed)) AS active
-            FROM hubstaff_tasks ht
-            JOIN clickup_tasks ct ON ct.task_id = ht.remote_id
-             AND coalesce(ct.is_deleted,false)=false AND coalesce(ct.archived,false)=false
-            CROSS JOIN LATERAL jsonb_array_elements_text(ht.assignee_ids) AS e(val)
-            WHERE jsonb_typeof(ht.assignee_ids)='array'
-            GROUP BY e.val
-        """, {"closed": list(CLOSED_STATUS)})
-        for _, r in h.iterrows():
-            u = str(r["uid"])
-            if u not in out:
-                out[u] = (int(r["total"]), int(r["active"]))
+            cur = out.get(str(hub))
+            if (cur is None or cur[0] == 0) and str(cid) in ck:
+                out[str(hub)] = ck[str(cid)]
         return out
     except Exception:
         return {}
@@ -2934,12 +2937,14 @@ def _client_period_tasks(uids, date_from, date_to):
     if not db.has_db() or not uids:
         return out
     where = ["coalesce(a.tracked,0) > 0", "a.user_id::text = ANY(:uids)", "a.task_id IS NOT NULL"]
-    params = {"uids": list(uids), "cl": list(CLOSED_STATUS)}
+    params = {"uids": list(uids)}
     if date_from:
         where.append("a.date >= :df"); params["df"] = date_from
     if date_to:
         where.append("a.date <= :dt"); params["dt"] = date_to
-    closed = "lower(coalesce(c.status,'')) = ANY(:cl)"
+    # done/open from HUBSTAFF completion (ht.completed_at), not ClickUp status — the
+    # ClickUp join only supplies the folder (= client) for grouping.
+    closed = "ht.completed_at IS NOT NULL"
     try:
         df = db.q(f"""
             SELECT coalesce(c.folder_name,'') fo,
