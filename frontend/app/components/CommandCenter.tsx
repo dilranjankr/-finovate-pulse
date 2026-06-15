@@ -1493,12 +1493,13 @@ export default function CommandCenter({
                 : tdList.rows.length === 0 ? <div className="empty-s" style={{ padding: 24 }}>No tasks in this bucket</div> : (
                   <div className="scrollwrap" style={{ maxHeight: 460 }}>
                     <table className="hd-table">
-                      <thead><tr><th className="l">Task</th><th className="l">Client</th><th>Due</th><th>Completed</th><th className="l">Status</th></tr></thead>
+                      <thead><tr><th className="l">Task</th><th className="l">Client</th><th className="l">Assignees</th><th>Due</th><th>Completed</th><th className="l">Status</th></tr></thead>
                       <tbody>
                         {tdList.rows.map((r, i) => (
                           <tr key={i}>
                             <td className="l tname" title={r.task}>{r.task}</td>
                             <td className="l">{r.client}</td>
+                            <td className="l" style={{ fontSize: 11.5, color: "var(--ink-2)", maxWidth: 220 }} title={r.assignees || ""}>{r.assignees || "—"}</td>
                             <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.due || "—"}</td>
                             <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.completed || "—"}</td>
                             <td className="l"><span className="grade gBb">{r.status || "—"}</span></td>

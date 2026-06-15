@@ -3118,14 +3118,42 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
              COALESCE(c.folder_name, c.list_name, '—') AS client,
              to_char(h.due_at, 'YYYY-MM-DD') AS due,
              to_char(h.completed_at, 'YYYY-MM-DD') AS completed,
-             COALESCE(NULLIF(c.status,''), h.status, '') AS status
+             COALESCE(NULLIF(c.status,''), h.status, '') AS status,
+             h.assignee_ids AS asg_hb, c.assignees AS asg_ck
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
       LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
       WHERE ({cond})
       ORDER BY h.due_at DESC NULLS LAST LIMIT 300
     """
     try:
+        import json as _json
         rows = db.q(sql, p).fillna("").to_dict("records")
+        # uid -> name (Hubstaff assignee ids), built once
+        try:
+            nm = db.q_write("SELECT hubstaff_user_id uid, COALESCE(NULLIF(hr_full_name,''), hubstaff_name) nm "
+                            "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>''")
+            uid2name = {str(x["uid"]): str(x["nm"]) for _, x in nm.iterrows() if x["nm"]}
+        except Exception:
+            uid2name = {}
+        for r in rows:
+            names = []
+            hb = r.pop("asg_hb", None)
+            try:
+                ids = hb if isinstance(hb, list) else (_json.loads(hb) if hb else [])
+                names = [uid2name.get(str(int(i))) for i in ids]
+                names = [n for n in names if n]
+            except Exception:
+                names = []
+            if not names:  # fall back to ClickUp usernames
+                ck = r.pop("asg_ck", None)
+                try:
+                    arr = ck if isinstance(ck, list) else (_json.loads(ck) if ck and str(ck).strip().startswith("[") else [])
+                    names = [a.get("username") for a in arr if a.get("username")]
+                except Exception:
+                    names = []
+            else:
+                r.pop("asg_ck", None)
+            r["assignees"] = ", ".join(dict.fromkeys(names)) if names else "—"
         return {"bucket": bucket, "rows": rows, "count": len(rows)}
     except Exception as e:  # noqa
         return {"bucket": bucket, "rows": [], "count": 0, "error": str(e)[:150]}
