@@ -1490,19 +1490,32 @@ def group_metrics(d, by):
     return grp
 
 
-def build_tasks_db(name):
+def build_tasks_db(uid):
+    # Assignment is read from Hubstaff (hubstaff_tasks.assignee_ids holds Hubstaff
+    # user ids), keyed on the employee's hubstaff_user_id — reliable, no name
+    # matching. ClickUp is joined only to enrich estimate / client / status, via
+    # the task-id link (ct.task_id = ht.remote_id), never by name.
+    try:
+        import json
+        uid_i = int(float(str(uid)))
+    except (TypeError, ValueError):
+        return []
     try:
         t = db.q("""
-            SELECT COALESCE(NULLIF(subtask_name,''), parent_task_name) AS task,
-                   COALESCE(list_name, space_name, '—') AS client,
-                   COALESCE(time_estimate_hrs,0) AS estimated,
-                   COALESCE(time_tracked_hrs,0) AS tracked,
-                   COALESCE(status,'') AS status,
-                   to_char(due_date,'YYYY-MM-DD') AS due
-            FROM clickup_tasks
-            WHERE COALESCE(is_deleted,false)=false AND assignees ILIKE :nm
-            ORDER BY due_date NULLS LAST LIMIT 40
-        """, {"nm": f"%{name}%"})
+            SELECT COALESCE(NULLIF(ct.subtask_name,''), ct.parent_task_name, ht.summary) AS task,
+                   COALESCE(ct.list_name, ct.space_name, hp.name, '—') AS client,
+                   COALESCE(ct.time_estimate_hrs,0) AS estimated,
+                   COALESCE(ct.time_tracked_hrs,0) AS tracked,
+                   COALESCE(NULLIF(ct.status,''), ht.status, '') AS status,
+                   to_char(COALESCE(ct.due_date, ht.due_at), 'YYYY-MM-DD') AS due
+            FROM hubstaff_tasks ht
+            LEFT JOIN clickup_tasks ct
+                   ON ct.task_id = ht.remote_id AND COALESCE(ct.is_deleted,false)=false
+            LEFT JOIN hubstaff_projects hp ON hp.id = ht.project_id
+            WHERE ht.assignee_ids @> :u
+            ORDER BY COALESCE(ct.due_date, ht.due_at) DESC NULLS LAST
+            LIMIT 60
+        """, {"u": json.dumps([uid_i])})
         return t.fillna("").to_dict("records")
     except Exception:
         return []
@@ -2352,7 +2365,7 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
                    "non_billable": round(r.tracked_h - r.billable_h, 2),
                    "activity": round(r.overall_h / r.tracked_h * 100, 0) if r.tracked_h else 0,
                    "productivity": round(r.billable_h / r.tracked_h * 100, 0) if r.tracked_h else 0} for r in daily.itertuples()]
-    tasks = build_tasks_db(name) if db.has_db() else build_tasks_sample(uid, name, client)
+    tasks = build_tasks_db(uid) if db.has_db() else build_tasks_sample(uid, name, client)
 
     return clean({
         "found": True,
@@ -2501,7 +2514,7 @@ def _table(f, d, emp, members, d_prev=None):
     if f.get("employee"):
         row = members[members["name"] == f["employee"]]
         uid = row.iloc[0]["user_id"] if not row.empty else None
-        rows = build_tasks_db(f["employee"]) if db.has_db() else \
+        rows = build_tasks_db(uid) if db.has_db() else \
             build_tasks_sample(uid, f["employee"], "")
         return ["task", "client", "estimated", "tracked", "status", "due"], rows, "employee", "Tasks"
     if f.get("atl"):
