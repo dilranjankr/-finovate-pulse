@@ -915,7 +915,7 @@ export default function CommandCenter({
           const latePct = Math.round((d.late / tot) * 100);
           return (
             <div className="dcard">
-              <div className="dcard-h"><h3>Task Delivery</h3><span className="dcard-sub">{d.due} tasks due this period · click to list</span></div>
+              <div className="dcard-h"><h3>Task Delivery</h3><span className="dcard-sub">{d.due} tasks worked this period · click to list</span></div>
               <div className="dcard-gauge"><SemiGauge center={n1(onTimePct) + "%"} sub="on-time"
                 segs={[{ value: d.on_time, color: "#16a34a" }, { value: d.late, color: "#e8930c" }, { value: d.open, color: "#ef4444" }]} /></div>
               <div className="dcard-leg">
@@ -925,7 +925,7 @@ export default function CommandCenter({
               </div>
             </div>
           );
-        })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No tasks due this period</div></div>}
+        })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No tasks worked this period</div></div>}
         {(() => {
           const kd = data.kpi_daily || [];
           const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1485,7 +1485,7 @@ export default function CommandCenter({
         <div className="modal-bg" onClick={() => setTdList(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-h">
-              <div><h3><span className="kdot" style={{ background: tdList.color }} />{tdList.label} tasks</h3><div className="sub">due this period · {tdList.rows ? tdList.rows.length : "…"} tasks</div></div>
+              <div><h3><span className="kdot" style={{ background: tdList.color }} />{tdList.label} tasks</h3><div className="sub">worked this period · {tdList.rows ? tdList.rows.length : "…"} tasks</div></div>
               <div className="modal-x" onClick={() => setTdList(null)}><X size={16} /></div>
             </div>
             <div className="modal-b">

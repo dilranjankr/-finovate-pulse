@@ -3037,38 +3037,25 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
                   employee: Optional[str] = None, client: Optional[str] = None,
                   client_type: Optional[str] = None, billable: Optional[str] = None,
                   status: Optional[str] = None):
-    """On-time delivery from Hubstaff tasks (= ClickUp-synced). For tasks DUE in the
-    period, status AS-OF the period end. When a department/team/employee/client filter
-    is applied, scopes to the tasks those people actually worked on."""
-    where = ["h.due_at IS NOT NULL"]
-    p = {}
-    if date_from:
-        where.append("h.due_at::date >= :df"); p["df"] = date_from
-    if date_to:
-        where.append("h.due_at::date <= :dt"); p["dt"] = date_to
-    # scope to in-filter employees (skip when company-wide, for speed)
-    if any([department, atl, employee, client]):
-        try:
-            members, g = load()
-            f = {"department": department, "atl": atl, "employee": employee, "client": client,
-                 "client_type": client_type, "billable": billable, "status": status}
-            m, _ = apply_filters(members, g, f)
-            uids = [str(u) for u in m["user_id"].unique()]
-            if not uids:
-                return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0}
-            where.append("h.id IN (SELECT DISTINCT a.task_id FROM hubstaff_activities a "
-                         "WHERE a.task_id IS NOT NULL AND a.user_id::text = ANY(:uids))")
-            p["uids"] = uids
-        except Exception:  # noqa
-            pass
+    """On-time delivery for the tasks WORKED (tracked) in the period — so a task
+    tracked this month shows even if its due date is a later month. Completion is
+    judged as-of the period end vs the task's own due date. When a
+    department/team/employee/client filter is applied, scopes to those people."""
+    act, p = _td_worked_scope(date_from, date_to, department, atl, employee, client,
+                              client_type, billable, status)
+    if act is None:
+        return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0}
     asof = "h.completed_at::date <= :dt" if date_to else "true"
     sql = f"""
+      WITH worked AS (SELECT DISTINCT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)})
       SELECT
         count(*) due,
-        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date <= h.due_at::date) on_time,
-        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date >  h.due_at::date) late,
+        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof}
+                         AND (h.due_at IS NULL OR h.completed_at::date <= h.due_at::date)) on_time,
+        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof}
+                         AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date) late,
         count(*) FILTER (WHERE h.completed_at IS NULL OR NOT ({asof})) open
-      FROM hubstaff_tasks h WHERE {' AND '.join(where)}
+      FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
     """
     try:
         r = db.q(sql, p).iloc[0]
@@ -3080,20 +3067,17 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
         return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0, "error": str(e)[:150]}
 
 
-@app.get("/api/task_delivery_list")
-def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Optional[str] = None,
-                       department: Optional[str] = None, atl: Optional[str] = None,
-                       employee: Optional[str] = None, client: Optional[str] = None,
-                       client_type: Optional[str] = None, billable: Optional[str] = None,
-                       status: Optional[str] = None):
-    """The actual tasks behind a Task Delivery bucket (on_time / late / open), same
-    scope as /api/task_delivery — for the click-through modal."""
-    where = ["h.due_at IS NOT NULL"]
+def _td_worked_scope(date_from, date_to, department, atl, employee, client,
+                     client_type, billable, status):
+    """Shared scope for Task Delivery: the activity-WHERE clauses selecting tasks
+    TRACKED in the period (optionally by the filtered people). Returns (clauses, params),
+    or (None, _) when a filter resolves to nobody."""
     p = {}
+    act = ["a.task_id IS NOT NULL"]
     if date_from:
-        where.append("h.due_at::date >= :df"); p["df"] = date_from
+        act.append("a.date >= :df"); p["df"] = date_from
     if date_to:
-        where.append("h.due_at::date <= :dt"); p["dt"] = date_to
+        act.append("a.date <= :dt"); p["dt"] = date_to
     if any([department, atl, employee, client]):
         try:
             members, g = load()
@@ -3102,28 +3086,42 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
             m, _ = apply_filters(members, g, f)
             uids = [str(u) for u in m["user_id"].unique()]
             if not uids:
-                return {"bucket": bucket, "rows": [], "count": 0}
-            where.append("h.id IN (SELECT DISTINCT a.task_id FROM hubstaff_activities a "
-                         "WHERE a.task_id IS NOT NULL AND a.user_id::text = ANY(:uids))")
-            p["uids"] = uids
+                return None, p
+            act.append("a.user_id::text = ANY(:uids)"); p["uids"] = uids
         except Exception:  # noqa
             pass
+    return act, p
+
+
+@app.get("/api/task_delivery_list")
+def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Optional[str] = None,
+                       department: Optional[str] = None, atl: Optional[str] = None,
+                       employee: Optional[str] = None, client: Optional[str] = None,
+                       client_type: Optional[str] = None, billable: Optional[str] = None,
+                       status: Optional[str] = None):
+    """The actual tasks behind a Task Delivery bucket (on_time / late / open), same
+    scope as /api/task_delivery — tasks WORKED in the period — for the click modal."""
+    act, p = _td_worked_scope(date_from, date_to, department, atl, employee, client,
+                              client_type, billable, status)
+    if act is None:
+        return {"bucket": bucket, "rows": [], "count": 0}
     asof = "h.completed_at::date <= :dt" if date_to else "true"
     conds = {
-        "on_time": f"h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date <= h.due_at::date",
-        "late": f"h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date > h.due_at::date",
+        "on_time": f"h.completed_at IS NOT NULL AND {asof} AND (h.due_at IS NULL OR h.completed_at::date <= h.due_at::date)",
+        "late": f"h.completed_at IS NOT NULL AND {asof} AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date",
         "open": f"h.completed_at IS NULL OR NOT ({asof})",
     }
     cond = conds.get(bucket, "true")
     sql = f"""
+      WITH worked AS (SELECT DISTINCT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)})
       SELECT COALESCE(NULLIF(c.parent_task_name,''), h.summary, '—') AS task,
              COALESCE(c.folder_name, c.list_name, '—') AS client,
              to_char(h.due_at, 'YYYY-MM-DD') AS due,
              to_char(h.completed_at, 'YYYY-MM-DD') AS completed,
              COALESCE(NULLIF(c.status,''), h.status, '') AS status
-      FROM hubstaff_tasks h
+      FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
       LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
-      WHERE {' AND '.join(where)} AND ({cond})
+      WHERE ({cond})
       ORDER BY h.due_at DESC NULLS LAST LIMIT 300
     """
     try:
