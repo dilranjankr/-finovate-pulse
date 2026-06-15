@@ -2659,12 +2659,30 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
 
 
 def _period_months(date_from, date_to):
+    """Period length in 'months' for budget scaling — calendar-aware.
+    Each calendar month is divided by ITS OWN day count, so a full month
+    (28/30/31 days) = exactly 1.0 -> the monthly budget shows flat. A partial
+    range pro-rates by days within its month(s); a multi-month span sums >1."""
     from datetime import date as _date
+    from calendar import monthrange
+    if not (date_from and date_to):
+        return 1.0
     try:
-        days = (_date.fromisoformat(date_to) - _date.fromisoformat(date_from)).days + 1 if (date_from and date_to) else 30
+        d0 = _date.fromisoformat(date_from); d1 = _date.fromisoformat(date_to)
     except Exception:
-        days = 30
-    return max(days / 30.0, 0.1)
+        return 1.0
+    if d1 < d0:
+        d0, d1 = d1, d0
+    total = 0.0
+    y, m = d0.year, d0.month
+    while (y, m) <= (d1.year, d1.month):
+        dim = monthrange(y, m)[1]
+        mstart = _date(y, m, 1); mend = _date(y, m, dim)
+        s = d0 if d0 > mstart else mstart
+        e = d1 if d1 < mend else mend
+        total += ((e - s).days + 1) / dim
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return max(total, 0.01)
 
 
 @app.get("/api/client")
@@ -3534,12 +3552,7 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
     empty = {"clients": [], "total_budget": 0, "total_actual": 0, "on_budget": 0, "over": 0, "count": 0}
     if d.empty or not bud:
         return empty
-    from datetime import date as _date
-    try:
-        days = (_date.fromisoformat(date_to) - _date.fromisoformat(date_from)).days + 1 if (date_from and date_to) else 30
-    except Exception:
-        days = 30
-    months = max(days / 30.0, 0.1)
+    months = _period_months(date_from, date_to)
 
     def _n(c):
         return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
