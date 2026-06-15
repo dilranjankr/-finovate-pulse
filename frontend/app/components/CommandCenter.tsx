@@ -176,6 +176,14 @@ export default function CommandCenter({
     try { setTdList({ bucket, label, color, rows: (await getTaskDeliveryList(bucket, draft)).rows }); }
     catch { setTdList({ bucket, label, color, rows: [] }); }
   }
+  // All tasks for one client in scope (opened from the Budget modal's Tasks cell).
+  async function openClientTasks(client: string) {
+    setBudgetModal(false);
+    const label = client; const color = "#2f6fbf";
+    setTdList({ bucket: "all", label, color, rows: null });
+    try { setTdList({ bucket: "all", label, color, rows: (await getTaskDeliveryList("all", { ...draft, client })).rows }); }
+    catch { setTdList({ bucket: "all", label, color, rows: [] }); }
+  }
   async function openClient(name: string) {
     setClientProf({ name, data: null });
     try { setClientProf({ name, data: await getClient(name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
@@ -2180,9 +2188,9 @@ export default function CommandCenter({
                           <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
                             <td className="l"><div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.client}</span><span className="bvc-meta">{r.team} · {r.type}</span></div></td>
                             <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
-                            <td className="num" style={{ color: "var(--ink-2)" }}>{noBudget ? "—" : n0(r.budget) + "h"}</td>
-                            <td className="num" style={{ fontWeight: 750, color: col }}>{noBudget ? "—" : ((r.variance ?? 0) > 0 ? "+" : "") + n0(r.variance ?? 0) + "h"}</td>
-                            <td className="l">{tt > 0 ? <span><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</span> : <span style={{ color: "var(--faint)" }}>—</span>}</td>
+                            <td className="num" style={{ color: "var(--ink-2)" }}>{n0(r.budget)}h</td>
+                            <td className="num" style={{ fontWeight: 750, color: col }}>{noBudget ? "0h" : ((r.variance ?? 0) > 0 ? "+" : "") + n0(r.variance ?? 0) + "h"}</td>
+                            <td className="l td-link" title="See this client's tasks" onClick={(e) => { e.stopPropagation(); openClientTasks(r.client); }}>{tt > 0 ? <span><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</span> : <span style={{ color: "var(--accent)" }}>view tasks →</span>}</td>
                             <td className="num"><span className="bv-badge" style={{ color: col, background: noBudget ? "var(--chip)" : (r.over ? "#fef2f2" : "#f0fdf4") }}>{noBudget ? "No budget" : (r.over ? "Over" : "Within")}</span></td>
                           </tr>
                         );

@@ -3112,7 +3112,13 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
         "late": "h.completed_at IS NOT NULL AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date",
         "open": "h.completed_at IS NULL",
     }
-    cond = conds.get(bucket, "true")
+    cond = conds.get(bucket, "true")   # bucket="all" (or unknown) -> all worked tasks
+    # When a client is given, narrow to that client's ClickUp folder (so clicking a
+    # client's Tasks shows that client's tasks, not every task its people touched).
+    client_clause = ""
+    if client:
+        client_clause = " AND COALESCE(c.folder_name, c.list_name) = :clientf"
+        p["clientf"] = client
     sql = f"""
       WITH worked AS (SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs
                       FROM hubstaff_activities a WHERE {' AND '.join(act)} GROUP BY a.task_id)
@@ -3125,7 +3131,7 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
              h.assignee_ids AS asg_hb, c.assignees AS asg_ck
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
       LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
-      WHERE ({cond})
+      WHERE ({cond}){client_clause}
       ORDER BY w.hrs DESC NULLS LAST LIMIT 300
     """
     try:
