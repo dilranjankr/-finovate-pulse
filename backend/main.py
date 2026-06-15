@@ -3113,9 +3113,11 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
     }
     cond = conds.get(bucket, "true")
     sql = f"""
-      WITH worked AS (SELECT DISTINCT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)})
+      WITH worked AS (SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs
+                      FROM hubstaff_activities a WHERE {' AND '.join(act)} GROUP BY a.task_id)
       SELECT COALESCE(NULLIF(c.parent_task_name,''), h.summary, '—') AS task,
              COALESCE(c.folder_name, c.list_name, '—') AS client,
+             round(w.hrs::numeric, 1) AS tracked_h,
              to_char(h.due_at, 'YYYY-MM-DD') AS due,
              to_char(h.completed_at, 'YYYY-MM-DD') AS completed,
              COALESCE(NULLIF(c.status,''), h.status, '') AS status,
@@ -3123,7 +3125,7 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
       LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
       WHERE ({cond})
-      ORDER BY h.due_at DESC NULLS LAST LIMIT 300
+      ORDER BY w.hrs DESC NULLS LAST LIMIT 300
     """
     try:
         import json as _json
