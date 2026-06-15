@@ -2124,9 +2124,10 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
     setHi(Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))));
   };
   const fy = fmtY || ((v: number) => String(Math.round(v)));
-  // Pin the tooltip to the corner AWAY from the cursor so it never sits on the
-  // lines: hovering the left half -> tooltip top-right, right half -> top-left.
-  const tipRight = hi != null && hi <= (n - 1) / 2;
+  // Tooltip follows the hovered point (solid white, so lines don't bleed through).
+  // Flip to the left of the point near the right edge so it never clips out.
+  const leftPct = hi != null ? (X(hi) / W) * 100 : 0;
+  const flip = leftPct > 58;
   return (
     <div ref={ref} className="lc-wrap" onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
       <svg viewBox={`0 0 ${W} ${height}`} width="100%" preserveAspectRatio="none" style={{ display: "block", overflow: "visible" }}>
@@ -2155,7 +2156,7 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
         ) : null)}
       </svg>
       {hi != null && (
-        <div className="lc-tip" style={tipRight ? { right: 8 } : { left: 8 }}>
+        <div className="lc-tip" style={{ left: `${leftPct}%`, transform: `translateX(${flip ? "-100%" : "0"})`, marginLeft: flip ? -10 : 10 }}>
           <b>{tipDate ? tipDate(labels[hi]) : labels[hi]}</b>
           {series.map((s) => (
             <span key={s.name}><i style={{ background: s.color }} />{s.name}: <em>{s.values[hi] != null ? fy(s.values[hi] as number) : "—"}</em></span>
