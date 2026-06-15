@@ -3045,16 +3045,18 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
                               client_type, billable, status)
     if act is None:
         return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0}
-    asof = "h.completed_at::date <= :dt" if date_to else "true"
+    # Open = still NOT completed as of today (completed_at IS NULL). A task completed
+    # later — even after the selected period — is NOT "open"; it's classified on-time
+    # /late by its own due date vs when it was actually completed.
     sql = f"""
       WITH worked AS (SELECT DISTINCT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)})
       SELECT
         count(*) due,
-        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof}
+        count(*) FILTER (WHERE h.completed_at IS NOT NULL
                          AND (h.due_at IS NULL OR h.completed_at::date <= h.due_at::date)) on_time,
-        count(*) FILTER (WHERE h.completed_at IS NOT NULL AND {asof}
+        count(*) FILTER (WHERE h.completed_at IS NOT NULL
                          AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date) late,
-        count(*) FILTER (WHERE h.completed_at IS NULL OR NOT ({asof})) open
+        count(*) FILTER (WHERE h.completed_at IS NULL) open
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
     """
     try:
@@ -3105,11 +3107,10 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
                               client_type, billable, status)
     if act is None:
         return {"bucket": bucket, "rows": [], "count": 0}
-    asof = "h.completed_at::date <= :dt" if date_to else "true"
     conds = {
-        "on_time": f"h.completed_at IS NOT NULL AND {asof} AND (h.due_at IS NULL OR h.completed_at::date <= h.due_at::date)",
-        "late": f"h.completed_at IS NOT NULL AND {asof} AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date",
-        "open": f"h.completed_at IS NULL OR NOT ({asof})",
+        "on_time": "h.completed_at IS NOT NULL AND (h.due_at IS NULL OR h.completed_at::date <= h.due_at::date)",
+        "late": "h.completed_at IS NOT NULL AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date",
+        "open": "h.completed_at IS NULL",
     }
     cond = conds.get(bucket, "true")
     sql = f"""
