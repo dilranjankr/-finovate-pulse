@@ -1930,6 +1930,16 @@ def command(
         _dh["department"] = _uid.map(_hd).fillna(_dh["department"])
         teams = _grouprows("atl", _dh)
         departments = _grouprows("department", _dh)
+        # Attach the member names behind each home-team / home-dept bar so clicking
+        # it drills into THAT group's contribution WITHIN the current filter (sets
+        # the employee filter to these people), not the group's company-wide total.
+        _nmap = dict(zip(members["user_id"], members["name"]))
+        for _row in teams:
+            _us = _dh[_dh["atl"] == _row["team"]]["user_id"].unique()
+            _row["members"] = sorted({_nmap.get(u) for u in _us if _nmap.get(u)})
+        for _row in departments:
+            _us = _dh[_dh["department"] == _row["team"]]["user_id"].unique()
+            _row["members"] = sorted({_nmap.get(u) for u in _us if _nmap.get(u)})
     else:
         teams = _grouprows("atl")
         departments = _grouprows("department")

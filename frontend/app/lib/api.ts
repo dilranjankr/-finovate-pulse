@@ -39,7 +39,7 @@ export interface KpiVal {
 export interface TeamRow {
   team: string; team_size: number; billable: number; non_billable: number;
   total: number; utilization: number; activity?: number; productivity: number; grade: string;
-  revenue: number; budget: number; variance: number; status: string;
+  revenue: number; budget: number; variance: number; status: string; members?: string[];
 }
 export interface EmployeeRow {
   name: string; team: string; billable: number; non_billable: number;

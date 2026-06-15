@@ -936,7 +936,7 @@ export default function CommandCenter({
         const colors = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4"];
         const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
         const hpanel = (title: string, rows: TeamRow[], vertical = false, onPick?: (n: string) => void) => {
-          const sorted = [...rows].filter((r) => r.total > 0).sort((a, b) => b.total - a.total).slice(0, 8);
+          const sorted = [...rows].filter((r) => Math.round(r.total) >= 1).sort((a, b) => b.total - a.total).slice(0, 8);
           const max = Math.max(1, ...sorted.map((r) => r.total));
           return (
             <div className="panel">
@@ -966,11 +966,26 @@ export default function CommandCenter({
             </div>
           );
         };
-        const drillDept = (name: string) => { const next = { ...draft, department: name }; setDraft(next); apply(next); };
+        // When a team/department is filtered, By Team/By Department are grouped by the
+        // contributor's HOME team/dept (rows carry their member names). Clicking a bar
+        // then drills into THAT group's contribution within the current filter — by
+        // setting the employee filter to those members — instead of the group's overall.
+        const filtered = !!(draft.atl || draft.department);
+        const membersOf = (rows: TeamRow[], name: string) => (rows.find((r) => r.team === name)?.members) || [];
+        const drillTeam = (name: string) => {
+          const mem = filtered ? membersOf(data.teams || [], name) : [];
+          if (mem.length) { const next = { ...draft, employee: mem.join(",") }; setDraft(next); apply(next); }
+          else openTeam(name);
+        };
+        const drillDept = (name: string) => {
+          const mem = filtered ? membersOf(data.departments || [], name) : [];
+          if (mem.length) { const next = { ...draft, employee: mem.join(",") }; setDraft(next); apply(next); }
+          else { const next = { ...draft, department: name }; setDraft(next); apply(next); }
+        };
         return (
           <div className="row2" style={{ marginBottom: 14 }}>
             {hpanel("By Department", data.departments || [], true, drillDept)}
-            {hpanel("By Team", data.teams || [], false, openTeam)}
+            {hpanel("By Team", data.teams || [], false, drillTeam)}
           </div>
         );
       })()}
