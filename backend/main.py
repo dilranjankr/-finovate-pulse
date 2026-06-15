@@ -115,9 +115,42 @@ _scope_ctx: contextvars.ContextVar = contextvars.ContextVar("scope_uids", defaul
 
 
 @lru_cache(maxsize=1)
-def _hr_team_dept_maps():
+def _team_history():
+    """{uid: [(effective_from 'YYYY-MM-DD', team, dept), ...] sorted asc} from the
+    team_history table. Sparse — only employees who transferred have rows. An
+    interval applies from its effective_from until the next row's (last = current)."""
+    out = {}
+    try:
+        t = db.q_write("SELECT hubstaff_user_id uid, team, department dept, "
+                       "to_char(effective_from,'YYYY-MM-DD') ef FROM team_history "
+                       "WHERE coalesce(hubstaff_user_id,'')<>'' AND effective_from IS NOT NULL "
+                       "ORDER BY hubstaff_user_id, effective_from")
+        for _, r in t.iterrows():
+            out.setdefault(str(r["uid"]), []).append(
+                (str(r["ef"]), str(r["team"] or "").strip(), str(r["dept"] or "").strip()))
+    except Exception:  # noqa  (table may not exist yet)
+        pass
+    return out
+
+
+def _home_asof(ivals, date_s):
+    """(team, dept) for the interval covering date_s (last effective_from <= date_s),
+    else None when date_s precedes every interval."""
+    chosen = None
+    for ef, tm, dp in ivals:
+        if ef <= date_s:
+            chosen = (tm, dp)
+        else:
+            break
+    return chosen
+
+
+@lru_cache(maxsize=64)
+def _hr_team_dept_maps(as_of=None):
     """uid -> hr_team / hr_dept, replicating load()'s HR override (EXTERNAL ->
-    US Team) so drill-downs can roll non-OPS work to the home team like g does."""
+    US Team) so drill-downs can roll non-OPS work to the home team like g does.
+    With as_of (a 'YYYY-MM-DD' date), a transferred employee's team/dept is resolved
+    as-of that date from team_history; otherwise the current employee_mapping value."""
     tmap, dmap = {}, {}
     try:
         hm = db.q_write("SELECT hubstaff_user_id uid, department, team, status "
@@ -134,6 +167,14 @@ def _hr_team_dept_maps():
             dmap[uid] = "US"; tmap[uid] = "US Team"
         elif dp:
             dmap[uid] = dp; tmap[uid] = tm or dp
+    if as_of:
+        for uid, ivals in _team_history().items():
+            r = _home_asof(ivals, as_of)
+            if r:
+                if r[0]:
+                    tmap[uid] = r[0]
+                if r[1]:
+                    dmap[uid] = r[1]
     return tmap, dmap
 
 
@@ -696,8 +737,8 @@ def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
     if d.empty:
         return blank
     tracked_h = float(d["tracked_h"].sum()); billable_h = float(d["billable_h"].sum())
-    # cross-team: activity team (atl) != employee's HR home team
-    home, _dep = _hr_team_dept_maps()
+    # cross-team: activity team (atl) != employee's HR home team (as-of the period)
+    home, _dep = _hr_team_dept_maps(date_to or date_from)
     dd = d.copy(); dd["home"] = dd["user_id"].astype(str).map(home)
     cross_mask = dd["home"].notna() & (dd["home"] != "") & (dd["atl"] != dd["home"])
     cross_h = float(dd.loc[cross_mask, "tracked_h"].sum())
@@ -1239,10 +1280,23 @@ def load_from_db():
                 hr_team_map[uid] = tm if tm else dp
         if hr_team_map:
             ao = g["atl"]  # per-activity team (Titans, Bravix, Archived Projects, …)
-            g["atl"] = [a if a in OPS else (hr_team_map.get(u) or "Unassigned")
-                        for u, a in zip(g["user_id"], ao)]
-            g["department"] = ["Operations" if a in OPS else (hr_dept_map.get(u) or "Unassigned")
-                               for u, a in zip(g["user_id"], ao)]
+            # DATE-AWARE home team: an employee who transferred teams has rows in
+            # team_history; their activity is attributed to the team they were in ON
+            # that activity's date. Everyone else uses the static current home team.
+            hist = _team_history()
+
+            def _home(u, ds):  # -> (team, dept) for this row's user + date
+                if u in hist:
+                    r = _home_asof(hist[u], ds)
+                    if r:
+                        return (r[0] or hr_team_map.get(u) or "Unassigned",
+                                r[1] or hr_dept_map.get(u) or "Unassigned")
+                return (hr_team_map.get(u) or "Unassigned", hr_dept_map.get(u) or "Unassigned")
+
+            resolved = [(a, None) if a in OPS else (None, _home(u, ds))
+                        for u, a, ds in zip(g["user_id"], ao, g["date_s"])]
+            g["atl"] = [a if a is not None else hd[0] for a, hd in resolved]
+            g["department"] = ["Operations" if a is not None else hd[1] for a, hd in resolved]
     except Exception as _e:  # noqa
         print("HR mapping override skipped:", str(_e)[:120])
 
@@ -1362,7 +1416,7 @@ def apply_filters(members, g, f, scope="home"):
         # person's work is still attributed per-activity, so By Team shows where the
         # home members also worked. The Over Budget view calls with scope="activity"
         # to instead count everyone who worked on the team's clients.
-        home, hdept = _hr_team_dept_maps()
+        home, hdept = _hr_team_dept_maps(f.get("date_to") or f.get("date_from"))
         m = m[m["user_id"].apply(
             lambda u: (not atl_vals or home.get(str(u)) in atl_vals)
             and (not dep_vals or hdept.get(str(u)) in dep_vals))]
@@ -1718,7 +1772,7 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
         # EMPLOYEES = genuine HR HOME-team members of the selected dept/team who have
         # activity in the period. Cross-team workers are NOT listed here — their work
         # still shows in the By Department / By Team graphs (per-activity attribution).
-        home_map, hdept_map = _hr_team_dept_maps()
+        home_map, hdept_map = _hr_team_dept_maps(date_to or date_from)
         seen = {str(u) for u in gp["user_id"].unique()}          # active in the period (scope)
         if atl_vals or dep_vals:
             # Unmapped users (not in employee_mapping) have no home team/dept; their
@@ -2392,7 +2446,7 @@ def hours_detail(
         return {"rows": [], "count": 0}
     # EXACT same per-activity attribution as g: norm_team, then roll non-OPS work
     # up to the HR home team (so totals match the Total Hours card precisely).
-    OPS = set(_OPS_TEAMS); tmap, dmap = _hr_team_dept_maps()
+    OPS = set(_OPS_TEAMS); tmap, dmap = _hr_team_dept_maps(f.get("date_to") or f.get("date_from"))
     raw = df["team_raw"].map(norm_team)
     df["atl"] = [a if a in OPS else (tmap.get(str(u)) or "Unassigned") for u, a in zip(df["uid"], raw)]
     df["department"] = ["Operations" if a in OPS else (dmap.get(str(u)) or "Unassigned") for u, a in zip(df["uid"], raw)]
@@ -2813,6 +2867,17 @@ CREATE TABLE employee_mapping (
 )
 """
 
+_TEAMHIST_DDL = """
+CREATE TABLE IF NOT EXISTS team_history (
+  id serial PRIMARY KEY,
+  hubstaff_user_id text,
+  team text,
+  department text,
+  effective_from date,
+  created_at timestamptz DEFAULT now()
+)
+"""
+
 
 @app.get("/api/mapping")
 def mapping_get():
@@ -2820,6 +2885,17 @@ def mapping_get():
         df = db.q_write("SELECT * FROM employee_mapping ORDER BY total_hours DESC NULLS LAST")
     except Exception:
         return {"exists": False, "write": db.has_write(), "count": 0, "rows": []}
+    # per-employee transfer history (sparse) for the dropdown + display
+    hist = {}
+    try:
+        h = db.q_write("SELECT hubstaff_user_id uid, team, department dept, "
+                       "to_char(effective_from,'YYYY-MM-DD') ef FROM team_history "
+                       "ORDER BY hubstaff_user_id, effective_from")
+        for _, r in h.iterrows():
+            hist.setdefault(str(r["uid"]), []).append(
+                {"team": r["team"], "department": r["dept"], "effective_from": r["ef"]})
+    except Exception:  # noqa
+        pass
     rows = []
     for _, r in df.iterrows():
         d = {}
@@ -2834,8 +2910,13 @@ def mapping_get():
                 d[k] = v
             else:                                   # Decimal / numpy
                 d[k] = float(v) if k == "total_hours" else str(v)
+        d["history"] = hist.get(str(d.get("hubstaff_user_id") or ""), [])
         rows.append(d)
-    return {"exists": True, "write": db.has_write(), "count": len(rows), "rows": rows}
+    # dropdown source lists
+    teams = sorted({str(r.get("team")).strip() for r in rows if r.get("team") and str(r.get("team")).strip()})
+    depts = sorted({str(r.get("department")).strip() for r in rows if r.get("department") and str(r.get("department")).strip()})
+    return {"exists": True, "write": db.has_write(), "count": len(rows), "rows": rows,
+            "teams": teams, "departments": depts}
 
 
 @app.post("/api/mapping/save")
@@ -2861,6 +2942,55 @@ def mapping_save(payload: dict):
         load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
         _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
         _emp_clickup_map.cache_clear(); _emp_task_counts.cache_clear()  # ClickUp identity link
+        return {"ok": True}
+    except Exception as e:  # noqa
+        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
+
+
+@app.post("/api/mapping/transfer")
+def mapping_transfer(payload: dict):
+    """Record a team transfer with an effective date. Activity before the date keeps
+    the OLD team, after it the NEW team (date-aware attribution via team_history).
+    payload: {hubstaff_name, new_team, new_department?, effective_from 'YYYY-MM-DD'}."""
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
+    p = payload or {}
+    name = (p.get("hubstaff_name") or "").strip()
+    new_team = (p.get("new_team") or "").strip()
+    eff = (p.get("effective_from") or "").strip()
+    if not name or not new_team or not eff:
+        return {"ok": False, "reason": "missing", "detail": "need hubstaff_name, new_team, effective_from"}
+    try:
+        row = db.q_write("SELECT hubstaff_user_id uid, team, department FROM employee_mapping "
+                         "WHERE hubstaff_name = :n", {"n": name})
+        if row.empty or not str(row.iloc[0]["uid"] or "").strip():
+            return {"ok": False, "reason": "no_uid", "detail": "employee has no hubstaff_user_id"}
+        uid = str(row.iloc[0]["uid"]).strip()
+        cur_team = str(row.iloc[0]["team"] or "").strip()
+        cur_dept = str(row.iloc[0]["department"] or "").strip()
+        new_dept = (p.get("new_department") or cur_dept or "").strip()
+        db.execute(_TEAMHIST_DDL)
+        # Baseline: if no history yet, anchor the CURRENT team from an early date so all
+        # pre-transfer activity keeps it. Use the employee's earliest activity date.
+        existing = db.q_write("SELECT count(*) c FROM team_history WHERE hubstaff_user_id = :u", {"u": uid})
+        if int(existing["c"][0]) == 0 and cur_team:
+            base = db.q("SELECT to_char(min(date),'YYYY-MM-DD') d FROM hubstaff_activities WHERE user_id::text = :u", {"u": uid})
+            base_from = (base["d"][0] if not base.empty and base["d"][0] else "2000-01-01")
+            db.execute("INSERT INTO team_history (hubstaff_user_id, team, department, effective_from) "
+                       "VALUES (:u,:t,:d,:f)", {"u": uid, "t": cur_team, "d": cur_dept, "f": base_from})
+        # The transfer itself.
+        db.execute("INSERT INTO team_history (hubstaff_user_id, team, department, effective_from) "
+                   "VALUES (:u,:t,:d,:f)", {"u": uid, "t": new_team, "d": new_dept, "f": eff})
+        # Current team/dept on employee_mapping = the latest (new) values.
+        db.execute("UPDATE employee_mapping SET team=:t, department=:d, updated_at=now() "
+                   "WHERE hubstaff_name=:n", {"t": new_team, "d": new_dept, "n": name})
+        try:
+            db.execute("GRANT SELECT ON team_history TO finovate_viewer")
+        except Exception:
+            pass
+        load.cache_clear()
+        _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
+        _team_history.cache_clear()
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}

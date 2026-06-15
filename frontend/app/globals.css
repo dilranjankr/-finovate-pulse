@@ -647,6 +647,8 @@ select.map-inp { cursor: pointer; }
 .bgt-cell.num { text-align: right; font-weight: 650; }
 .bgt-del { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 6px; padding: 3px 6px; cursor: pointer; display: inline-flex; }
 .bgt-del:hover { border-color: #ef4444; color: #ef4444; }
+.xfer-chip { display: inline-block; margin-left: 6px; font-size: 10px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 1px 5px; cursor: help; vertical-align: middle; }
+.xfer-lbl { display: flex; flex-direction: column; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); margin-bottom: 10px; }
 .usr-add { flex: 0 0 auto; background: #0f2742; color: #fff; border: 0; border-radius: 8px; padding: 9px 20px; font-weight: 700; font-size: 13px; cursor: pointer; min-width: 84px; display: inline-flex; justify-content: center; align-items: center; }
 .usr-add:disabled { opacity: .5; cursor: default; }
 .usr-invite { margin-top: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }

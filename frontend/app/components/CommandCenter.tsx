@@ -350,6 +350,21 @@ export default function CommandCenter({
     setMapBusy("");
     if (!r.ok) alert("Save failed: " + (r.detail || r.reason));
   }
+  // pick a value from a <select> of existing options, with a "+ Add new…" escape hatch
+  function pickOrNew(val: string, field: "team" | "department", row: import("../lib/api").MappingRow) {
+    if (val === "__new__") { const v = (prompt(`New ${field} name`) || "").trim(); if (v) mapSave(row, { [field]: v }); }
+    else mapSave(row, { [field]: val });
+  }
+  const [xfer, setXfer] = useState<{ name: string; team: string; dept: string; from: string } | null>(null);
+  async function doTransfer() {
+    if (!xfer || !xfer.team.trim() || !xfer.from) { alert("Pick a new team and effective date"); return; }
+    const api = await import("../lib/api");
+    setMapBusy(xfer.name);
+    const r = await api.transferTeam({ hubstaff_name: xfer.name, new_team: xfer.team.trim(), new_department: xfer.dept.trim() || undefined, effective_from: xfer.from });
+    setMapBusy("");
+    if (r.ok) { setXfer(null); setMapData(await api.getMapping()); }
+    else alert("Transfer failed: " + (r.detail || r.reason));
+  }
   useEffect(() => {
     const sp = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
     const emp = sp(draft.employee), team = sp(draft.atl), dept = sp(draft.department);
@@ -1943,7 +1958,7 @@ export default function CommandCenter({
                         <thead><tr>
                           <th className="l">Hubstaff name</th><th className="l">HR name</th><th className="l">Emp #</th>
                           <th className="l">Status</th><th className="l">Dept</th><th className="l">Team</th>
-                          <th>Hrs</th><th>OK</th>
+                          <th className="l">Transfer</th><th>Hrs</th><th>OK</th>
                         </tr></thead>
                         <tbody>
                           {mapData.rows.filter((r) => !mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "")).toLowerCase().includes(mapSearch.toLowerCase())).slice(0, 60).map((r) => (
@@ -1956,8 +1971,27 @@ export default function CommandCenter({
                                   {["ACTIVE", "RELIEVED", "EXTERNAL", "UNKNOWN"].map((s) => <option key={s} value={s}>{s}</option>)}
                                 </select>
                               </td>
-                              <td className="l"><input className="map-inp" style={{ width: 100 }} defaultValue={r.department || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.department || "")) mapSave(r, { department: e.target.value }); }} /></td>
-                              <td className="l"><input className="map-inp" style={{ width: 100 }} defaultValue={r.team || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.team || "")) mapSave(r, { team: e.target.value }); }} /></td>
+                              <td className="l">
+                                <select className="map-inp" style={{ width: 110 }} value={r.department || ""} disabled={!mapData.write} onChange={(e) => pickOrNew(e.target.value, "department", r)}>
+                                  {!(mapData.departments || []).includes(r.department || "") && <option value={r.department || ""}>{r.department || "—"}</option>}
+                                  {(mapData.departments || []).map((dp) => <option key={dp} value={dp}>{dp}</option>)}
+                                  <option value="__new__">+ Add new…</option>
+                                </select>
+                              </td>
+                              <td className="l">
+                                <select className="map-inp" style={{ width: 120 }} value={r.team || ""} disabled={!mapData.write} onChange={(e) => pickOrNew(e.target.value, "team", r)}>
+                                  {!(mapData.teams || []).includes(r.team || "") && <option value={r.team || ""}>{r.team || "—"}</option>}
+                                  {(mapData.teams || []).map((tm) => <option key={tm} value={tm}>{tm}</option>)}
+                                  <option value="__new__">+ Add new…</option>
+                                </select>
+                                {(r.history && r.history.length > 0) && (
+                                  <span className="xfer-chip" title={r.history.map((h) => `${h.team} from ${h.effective_from}`).join("  →  ")}>⟳ {r.history.length}</span>
+                                )}
+                              </td>
+                              <td className="l">
+                                <button className="bgt-del" disabled={!mapData.write || !r.hubstaff_user_id} title="Transfer to another team on a date"
+                                  onClick={() => setXfer({ name: r.hubstaff_name, team: "", dept: r.department || "", from: "" })}>⇄ Transfer</button>
+                              </td>
                               <td className="num">{n0(r.total_hours || 0)}</td>
                               <td className="num"><input type="checkbox" checked={!!r.reviewed} disabled={!mapData.write} onChange={(e) => mapSave(r, { reviewed: e.target.checked })} /></td>
                             </tr>
@@ -1967,6 +2001,40 @@ export default function CommandCenter({
                     </div>
                   </>
                 )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TEAM TRANSFER — record a dated team change (history-aware attribution) */}
+      {xfer && (
+        <div className="modal-bg" onClick={() => setXfer(null)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div><h3><Users size={15} style={{ verticalAlign: -2 }} /> Transfer team</h3><div className="sub">{xfer.name} — work before the date keeps the old team, after moves to the new one</div></div>
+              <div className="modal-x" onClick={() => setXfer(null)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              <label className="xfer-lbl">New team
+                <select className="usr-in" value={xfer.team} onChange={(e) => { const v = e.target.value; if (v === "__new__") { const n = (prompt("New team name") || "").trim(); if (n) setXfer({ ...xfer, team: n }); } else setXfer({ ...xfer, team: v }); }}>
+                  <option value="">— select —</option>
+                  {(mapData?.teams || []).map((tm) => <option key={tm} value={tm}>{tm}</option>)}
+                  {xfer.team && !(mapData?.teams || []).includes(xfer.team) && <option value={xfer.team}>{xfer.team}</option>}
+                  <option value="__new__">+ Add new…</option>
+                </select>
+              </label>
+              <label className="xfer-lbl">New department
+                <select className="usr-in" value={xfer.dept} onChange={(e) => { const v = e.target.value; if (v === "__new__") { const n = (prompt("New department name") || "").trim(); if (n) setXfer({ ...xfer, dept: n }); } else setXfer({ ...xfer, dept: v }); }}>
+                  <option value="">— same —</option>
+                  {(mapData?.departments || []).map((dp) => <option key={dp} value={dp}>{dp}</option>)}
+                  {xfer.dept && !(mapData?.departments || []).includes(xfer.dept) && <option value={xfer.dept}>{xfer.dept}</option>}
+                  <option value="__new__">+ Add new…</option>
+                </select>
+              </label>
+              <label className="xfer-lbl">Effective from
+                <input type="date" className="usr-in" value={xfer.from} onChange={(e) => setXfer({ ...xfer, from: e.target.value })} />
+              </label>
+              <button className="bgt-go" style={{ marginTop: 12 }} disabled={mapBusy === xfer.name} onClick={doTransfer}>{mapBusy === xfer.name ? "Saving…" : "Record transfer"}</button>
             </div>
           </div>
         </div>

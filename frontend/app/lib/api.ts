@@ -237,15 +237,23 @@ export async function getBreakdownList(f: Filters): Promise<BreakdownListData> {
   return r.json();
 }
 
+export interface TeamHistoryRow { team: string; department?: string; effective_from: string; }
 export interface MappingRow {
   hubstaff_name: string; hubstaff_user_id?: string; hr_employee_no?: string; hr_full_name?: string;
   status?: string; department?: string; team?: string; job_title?: string; reporting_to?: string;
   exit_date?: string; confidence?: string; total_hours?: number; last_worked?: string; reviewed?: boolean;
+  history?: TeamHistoryRow[];
 }
-export interface MappingData { exists: boolean; write: boolean; count: number; rows: MappingRow[]; }
+export interface MappingData { exists: boolean; write: boolean; count: number; rows: MappingRow[]; teams?: string[]; departments?: string[]; }
 export async function getMapping(): Promise<MappingData> {
   const r = await authedFetch(`${API}/api/mapping`, { cache: "no-store" });
   if (!r.ok) throw new Error("mapping failed");
+  return r.json();
+}
+export async function transferTeam(body: { hubstaff_name: string; new_team: string; new_department?: string; effective_from: string }): Promise<{ ok: boolean; detail?: string; reason?: string }> {
+  const r = await authedFetch(`${API}/api/mapping/transfer`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+  });
   return r.json();
 }
 export async function saveMapping(row: Partial<MappingRow> & { hubstaff_name: string }): Promise<{ ok: boolean; detail?: string; reason?: string }> {
