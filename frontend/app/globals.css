@@ -3,6 +3,7 @@
 :root {
   --bg: #f6f7f9;
   --panel: #ffffff;
+  --card: #ffffff;
   --ink: #111726;
   --ink-2: #475067;
   --muted: #828b9c;
@@ -695,7 +696,7 @@ select.map-inp { cursor: pointer; }
 .keka-drop span { font-size: 11.5px; color: var(--muted); }
 /* line chart + hover tooltip */
 .lc-wrap { position: relative; }
-.lc-tip { position: absolute; top: 4px; background: var(--card); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0,0,0,.12); border-radius: 8px; padding: 7px 10px; font-size: 11px; pointer-events: none; white-space: nowrap; z-index: 5; display: flex; flex-direction: column; gap: 3px; }
+.lc-tip { position: absolute; top: 4px; background: #fff; border: 1px solid var(--line); box-shadow: 0 1px 4px rgba(17,23,38,.07); border-radius: 7px; padding: 6px 9px; font-size: 11px; pointer-events: none; white-space: nowrap; z-index: 5; display: flex; flex-direction: column; gap: 2px; }
 .lc-tip b { font-size: 11.5px; font-weight: 750; color: var(--ink); margin-bottom: 1px; }
 .lc-tip span { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-2); }
 .lc-tip i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
