@@ -1337,7 +1337,7 @@ def _vals(x):
     return [v.strip() for v in str(x).split(",") if v.strip()]
 
 
-def apply_filters(members, g, f):
+def apply_filters(members, g, f, scope="home"):
     has_sets = "team_set" in members.columns
     m = members
     # ROLE SCOPE (security): restrict to the signed-in user's permitted people
@@ -1349,26 +1349,40 @@ def apply_filters(members, g, f):
         vals = _vals(f.get(key))
         if vals:
             m = m[m[col].isin(vals)]
-    # Team / Department / Client filter PER ACTIVITY: pick everyone who tracked time
-    # on the selected team/dept/client (membership sets), then keep only the matching
-    # activity rows. So filtering a team shows ALL work done ON that team in the
-    # period — including people whose HR home team is different (cross-team
-    # contributors, e.g. an Alliance person's hours on Mavericks) — and each person's
-    # work is attributed to the team they actually did it on.
-    # (The employee dropdown in /api/filters stays HR-home-only by design.)
-    if has_sets:
-        for key, setcol in [("department", "dept_set"), ("atl", "team_set"), ("client", "client_set")]:
+    dep_vals = _vals(f.get("department")); atl_vals = _vals(f.get("atl"))
+    if scope == "home" and (dep_vals or atl_vals):
+        # HOME-team model (default): a team/department selects its GENUINE HR HOME
+        # members and keeps ALL their activity — so the metrics show that team's own
+        # people (a cross-team helper from another home team is NOT pulled in). Each
+        # person's work is still attributed per-activity, so By Team shows where the
+        # home members also worked. The Over Budget view calls with scope="activity"
+        # to instead count everyone who worked on the team's clients.
+        home, hdept = _hr_team_dept_maps()
+        m = m[m["user_id"].apply(
+            lambda u: (not atl_vals or home.get(str(u)) in atl_vals)
+            and (not dep_vals or hdept.get(str(u)) in dep_vals))]
+        ids = set(m["user_id"])
+        d = g[g["user_id"].isin(ids)]
+        for key, col in [("client", "client"), ("client_type", "client_type")]:
             vals = _vals(f.get(key))
             if vals:
-                sv = set(vals)
-                m = m[m[setcol].apply(lambda s: bool(sv & set(s or [])))]
-    ids = set(m["user_id"])
-    d = g[g["user_id"].isin(ids)]
-    for key, col in [("department", "department"), ("atl", "atl"),
-                     ("client", "client"), ("client_type", "client_type")]:
-        vals = _vals(f.get(key))
-        if vals:
-            d = d[d[col].isin(vals)]
+                d = d[d[col].isin(vals)]
+    else:
+        # PER-ACTIVITY model (Over Budget, or no team/dept filter): everyone who
+        # tracked time on the selected team/dept/client, restricted to that activity.
+        if has_sets:
+            for key, setcol in [("department", "dept_set"), ("atl", "team_set"), ("client", "client_set")]:
+                vals = _vals(f.get(key))
+                if vals:
+                    sv = set(vals)
+                    m = m[m[setcol].apply(lambda s: bool(sv & set(s or [])))]
+        ids = set(m["user_id"])
+        d = g[g["user_id"].isin(ids)]
+        for key, col in [("department", "department"), ("atl", "atl"),
+                         ("client", "client"), ("client_type", "client_type")]:
+            vals = _vals(f.get(key))
+            if vals:
+                d = d[d[col].isin(vals)]
     bf = f.get("billable")
     if bf in ("Billable", "Non-Billable") and not d.empty:
         # Scale every row to just its billable (or non-billable) portion, using the
@@ -1916,33 +1930,11 @@ def command(
                         "variance": round(r["variance"], 0), "status": "Active"})
         return out
 
-    # By Team / By Department. The company-wide view groups per ACTIVITY (the ClickUp
-    # space the work was done in). When a team or department is filtered, regroup by
-    # the CONTRIBUTOR'S HR HOME team/dept, so cross-team helpers surface as their own
-    # bars — e.g. filtering Alliance shows Alliance + Audit & CFOs + Taxes &
-    # Compliances (the home teams of people who pitched in on Alliance's work). Hours
-    # are unchanged (same rows, just regrouped), so the totals still tie out.
-    if not empty and (_vals(f.get("atl")) or _vals(f.get("department"))):
-        _ht, _hd = _hr_team_dept_maps()
-        _dh = d.copy()
-        _uid = _dh["user_id"].astype(str)
-        _dh["atl"] = _uid.map(_ht).fillna(_dh["atl"])
-        _dh["department"] = _uid.map(_hd).fillna(_dh["department"])
-        teams = _grouprows("atl", _dh)
-        departments = _grouprows("department", _dh)
-        # Attach the member names behind each home-team / home-dept bar so clicking
-        # it drills into THAT group's contribution WITHIN the current filter (sets
-        # the employee filter to these people), not the group's company-wide total.
-        _nmap = dict(zip(members["user_id"], members["name"]))
-        for _row in teams:
-            _us = _dh[_dh["atl"] == _row["team"]]["user_id"].unique()
-            _row["members"] = sorted({_nmap.get(u) for u in _us if _nmap.get(u)})
-        for _row in departments:
-            _us = _dh[_dh["department"] == _row["team"]]["user_id"].unique()
-            _row["members"] = sorted({_nmap.get(u) for u in _us if _nmap.get(u)})
-    else:
-        teams = _grouprows("atl")
-        departments = _grouprows("department")
+    # By Team / By Department — grouped per ACTIVITY (the ClickUp space worked in).
+    # With the home-team filter model, a team filter already restricts to that team's
+    # own people, so these bars show where those people worked (their spread).
+    teams = _grouprows("atl")
+    departments = _grouprows("department")
 
     employees_tbl = []
     if not emp.empty:
@@ -2577,23 +2569,15 @@ def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[s
                  status: Optional[str] = None):
     """Per-team drill-down: capacity/utilization, members, top clients, trend.
     Scoped to the active filter — so clicking a team bar shows the team within the
-    current view: the filtered employee's work in it, or (when a team/department is
-    filtered, where bars are grouped by the contributor's HOME team) just that
-    group's contribution — instead of the team's company-wide totals."""
+    current view (e.g. just the filtered employee's work in that team) instead of the
+    team's company-wide totals."""
     members, g = load()
     f = {"date_from": date_from, "date_to": date_to, "employee": employee, "atl": atl,
          "department": department, "client": client, "client_type": client_type,
          "billable": billable, "status": status}
     _, d = apply_filters(members, g, f)
     if not d.empty:
-        if _vals(atl) or _vals(department):
-            # Filtered bars are grouped by the contributor's HOME team — `name` is a
-            # home team, so scope to people whose home team is `name`.
-            _ht, _ = _hr_team_dept_maps()
-            d = d[d["user_id"].astype(str).map(_ht).fillna(d["atl"]) == name]
-        else:
-            # Company / employee view — `name` is the activity team (ClickUp space).
-            d = d[d["atl"] == name]
+        d = d[d["atl"] == name]      # `name` is the ClickUp space (per-activity team)
     if d.empty:
         return {"found": False}
     tracked = float(d["tracked_h"].sum()); bill = float(d["billable_h"].sum()); nb = tracked - bill
@@ -3254,7 +3238,9 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
     f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
          "employee": employee, "client": client, "client_type": client_type,
          "billable": billable, "status": status}
-    _, d = apply_filters(members, g, f)
+    # Over Budget is PER-ACTIVITY on purpose: a client's budget is consumed by anyone
+    # who works it, so count cross-team helpers too (unlike the home-team metrics).
+    _, d = apply_filters(members, g, f, scope="activity")
     bud = client_budgets()
     empty = {"clients": [], "total_budget": 0, "total_actual": 0, "on_budget": 0, "over": 0, "count": 0}
     if d.empty or not bud:
