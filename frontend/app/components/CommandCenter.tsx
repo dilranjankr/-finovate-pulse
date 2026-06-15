@@ -966,19 +966,25 @@ export default function CommandCenter({
             </div>
           );
         };
-        // When a team/department is filtered, By Team/By Department are grouped by the
-        // contributor's HOME team/dept (rows carry their member names). Clicking a bar
-        // then drills into THAT group's contribution within the current filter — by
-        // setting the employee filter to those members — instead of the group's overall.
-        const filtered = !!(draft.atl || draft.department);
+        // Drill behaviour for By Team / By Department, by what's already filtered:
+        //  • a TEAM/DEPT filter is on → bars are grouped by the contributor's HOME
+        //    team/dept (rows carry member names); clicking shows THAT group's
+        //    contribution within the filter (employee = those members).
+        //  • only an EMPLOYEE filter is on → bars are that person's teams; clicking
+        //    keeps the employee and scopes to the clicked team, so it shows just what
+        //    THAT person did in THAT team (not the whole team's people).
+        //  • nothing filtered → open the team profile.
+        const teamFiltered = !!(draft.atl || draft.department);
+        const empFiltered = !!draft.employee;
         const membersOf = (rows: TeamRow[], name: string) => (rows.find((r) => r.team === name)?.members) || [];
         const drillTeam = (name: string) => {
-          const mem = filtered ? membersOf(data.teams || [], name) : [];
+          const mem = teamFiltered ? membersOf(data.teams || [], name) : [];
           if (mem.length) { const next = { ...draft, employee: mem.join(",") }; setDraft(next); apply(next); }
+          else if (empFiltered) { const next = { ...draft, atl: name }; setDraft(next); apply(next); }
           else openTeam(name);
         };
         const drillDept = (name: string) => {
-          const mem = filtered ? membersOf(data.departments || [], name) : [];
+          const mem = teamFiltered ? membersOf(data.departments || [], name) : [];
           if (mem.length) { const next = { ...draft, employee: mem.join(",") }; setDraft(next); apply(next); }
           else { const next = { ...draft, department: name }; setDraft(next); apply(next); }
         };
