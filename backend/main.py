@@ -3186,12 +3186,13 @@ def client_budgets():
     # 1) DB table (preferred — editable from the UI).
     if db.has_db():
         try:
-            t = db.q("SELECT client, team, type, monthly_budget FROM client_budgets "
-                     "WHERE coalesce(monthly_budget,0) > 0")
+            # Include 0-budget rows too: every client we've seen is in the table so
+            # the Budget vs Actual view lists them all (0 = "no budget set yet").
+            t = db.q("SELECT client, team, type, monthly_budget FROM client_budgets")
             for _, r in t.iterrows():
                 cn = (r["client"] or "").strip()
                 if cn:
-                    out[_budget_norm(cn)] = {"budget": float(r["monthly_budget"]),
+                    out[_budget_norm(cn)] = {"budget": float(r["monthly_budget"] or 0),
                                              "type": (r["type"] or "").strip(),
                                              "team": (r["team"] or "").strip(), "client": cn}
             if out:
@@ -3428,29 +3429,34 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
         if not b:
             continue
         pb = b["budget"] * months
-        act = float(act); over = act > pb
+        has_b = pb > 0                 # a real budget is set (0 = not set yet)
+        act = float(act); over = has_b and act > pb
         # task completion for this client in the period (closed vs open)
         ci = tasks.get(cn, {})
         tdone = int(ci.get("done", 0)); topen = int(ci.get("open", 0))
         ttot = tdone + topen
         # Client Health Score: budget adherence (50%) + task completion (30%)
-        # + billable share (20%) -> A–F grade.
+        # + billable share (20%) -> A–F grade. No budget set -> adherence neutral.
         bilpct = (float(bil_by.get(cn, 0)) / act * 100) if act else 0.0
-        budget_score = 100.0 if not over else max(0.0, 100.0 - ((act - pb) / pb * 100 if pb else 100))
+        budget_score = 100.0 if (not has_b or not over) else max(0.0, 100.0 - ((act - pb) / pb * 100))
         task_score = (tdone / ttot * 100) if ttot else 70.0
         hscore = 0.5 * budget_score + 0.3 * task_score + 0.2 * bilpct
         rows.append({"client": cn, "type": b["type"], "team": b["team"],
                      "budget": round(pb, 1), "actual": round(act, 1),
-                     "variance": round(act - pb, 1), "over": over,
-                     "pct": round(act / pb * 100, 0) if pb else 0,
+                     "variance": round(act - pb, 1) if has_b else None, "over": over,
+                     "pct": round(act / pb * 100, 0) if has_b else None,
                      "tasks_total": ttot, "tasks_open": topen, "tasks_done": tdone,
                      "billable_pct": round(bilpct, 0),
                      "health": grade_letter(hscore), "health_score": round(hscore)})
     rows.sort(key=lambda x: -x["actual"])
-    tb = sum(r["budget"] for r in rows); ta = sum(r["actual"] for r in rows)
+    # Totals (used vs budget) only over clients with a REAL budget set, so the
+    # headline stays comparable; the rows list still shows every client.
+    budgeted = [r for r in rows if r["budget"] > 0]
+    tb = sum(r["budget"] for r in budgeted); ta = sum(r["actual"] for r in budgeted)
     over = sum(1 for r in rows if r["over"])
     return {"clients": rows, "total_budget": round(tb, 0), "total_actual": round(ta, 0),
-            "on_budget": len(rows) - over, "over": over, "count": len(rows)}
+            "budgeted": len(budgeted), "on_budget": len(budgeted) - over,
+            "over": over, "count": len(rows)}
 
 
 @app.get("/")

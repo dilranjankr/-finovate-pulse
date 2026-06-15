@@ -2143,7 +2143,7 @@ export default function CommandCenter({
       {/* BUDGET vs ACTUAL — per-client monthly budget (Resource sheet) vs tracked hours */}
       {budgetModal && budget && (() => {
         const rows = [...budget.clients].sort((a, b) =>
-          budgetSort === "over" ? b.variance - a.variance : b.actual - a.actual);
+          budgetSort === "over" ? (b.variance ?? -1e9) - (a.variance ?? -1e9) : b.actual - a.actual);
         const usedPct = budget.total_budget > 0 ? Math.round((budget.total_actual / budget.total_budget) * 100) : 0;
         return (
           <div className="modal-bg" onClick={() => setBudgetModal(false)}>
@@ -2151,7 +2151,7 @@ export default function CommandCenter({
               <div className="modal-h">
                 <div>
                   <h3>Budget vs Actual</h3>
-                  <div className="sub">{budget.count} clients matched · {n0(budget.total_actual)}h tracked vs {n0(budget.total_budget)}h budgeted ({usedPct}%) · {data.context.label}</div>
+                  <div className="sub">{budget.count} clients · {budget.budgeted ?? 0} with a budget · {n0(budget.total_actual)}h vs {n0(budget.total_budget)}h budgeted ({usedPct}%) · {data.context.label}</div>
                 </div>
                 <div className="modal-h-r">
                   <div className="seg-toggle">
@@ -2174,15 +2174,16 @@ export default function CommandCenter({
                     <tbody>
                       {rows.map((r) => {
                         const tt = (r.tasks_done + r.tasks_open) || 0;
-                        const col = r.over ? "#ef4444" : "#16a34a";
+                        const noBudget = !(r.budget > 0);
+                        const col = noBudget ? "var(--muted)" : (r.over ? "#ef4444" : "#16a34a");
                         return (
                           <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
                             <td className="l"><div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.client}</span><span className="bvc-meta">{r.team} · {r.type}</span></div></td>
                             <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
-                            <td className="num" style={{ color: "var(--ink-2)" }}>{n0(r.budget)}h</td>
-                            <td className="num" style={{ fontWeight: 750, color: col }}>{r.variance > 0 ? "+" : ""}{n0(r.variance)}h</td>
+                            <td className="num" style={{ color: "var(--ink-2)" }}>{noBudget ? "—" : n0(r.budget) + "h"}</td>
+                            <td className="num" style={{ fontWeight: 750, color: col }}>{noBudget ? "—" : ((r.variance ?? 0) > 0 ? "+" : "") + n0(r.variance ?? 0) + "h"}</td>
                             <td className="l">{tt > 0 ? <span><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</span> : <span style={{ color: "var(--faint)" }}>—</span>}</td>
-                            <td className="num"><span className="bv-badge" style={{ color: col, background: r.over ? "#fef2f2" : "#f0fdf4" }}>{r.over ? "Over" : "Within"}</span></td>
+                            <td className="num"><span className="bv-badge" style={{ color: col, background: noBudget ? "var(--chip)" : (r.over ? "#fef2f2" : "#f0fdf4") }}>{noBudget ? "No budget" : (r.over ? "Over" : "Within")}</span></td>
                           </tr>
                         );
                       })}

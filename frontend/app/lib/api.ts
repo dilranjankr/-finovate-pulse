@@ -293,13 +293,13 @@ export async function initBudgets(): Promise<{ ok: boolean; rows?: number; detai
 
 export interface BudgetClient {
   client: string; type: string; team: string;
-  budget: number; actual: number; variance: number; over: boolean; pct: number;
+  budget: number; actual: number; variance: number | null; over: boolean; pct: number | null;
   tasks_total: number; tasks_open: number; tasks_done: number;
   billable_pct: number; health: string; health_score: number;
 }
 export interface BudgetData {
   clients: BudgetClient[]; total_budget: number; total_actual: number;
-  on_budget: number; over: number; count: number;
+  on_budget: number; over: number; count: number; budgeted?: number;
 }
 export interface ClientListRow {
   client: string; type: string; hours: number; billable_pct: number;
