@@ -2961,6 +2961,59 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
         return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0, "error": str(e)[:150]}
 
 
+@app.get("/api/task_delivery_list")
+def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Optional[str] = None,
+                       department: Optional[str] = None, atl: Optional[str] = None,
+                       employee: Optional[str] = None, client: Optional[str] = None,
+                       client_type: Optional[str] = None, billable: Optional[str] = None,
+                       status: Optional[str] = None):
+    """The actual tasks behind a Task Delivery bucket (on_time / late / open), same
+    scope as /api/task_delivery — for the click-through modal."""
+    where = ["h.due_at IS NOT NULL"]
+    p = {}
+    if date_from:
+        where.append("h.due_at::date >= :df"); p["df"] = date_from
+    if date_to:
+        where.append("h.due_at::date <= :dt"); p["dt"] = date_to
+    if any([department, atl, employee, client]):
+        try:
+            members, g = load()
+            f = {"department": department, "atl": atl, "employee": employee, "client": client,
+                 "client_type": client_type, "billable": billable, "status": status}
+            m, _ = apply_filters(members, g, f)
+            uids = [str(u) for u in m["user_id"].unique()]
+            if not uids:
+                return {"bucket": bucket, "rows": [], "count": 0}
+            where.append("h.id IN (SELECT DISTINCT a.task_id FROM hubstaff_activities a "
+                         "WHERE a.task_id IS NOT NULL AND a.user_id::text = ANY(:uids))")
+            p["uids"] = uids
+        except Exception:  # noqa
+            pass
+    asof = "h.completed_at::date <= :dt" if date_to else "true"
+    conds = {
+        "on_time": f"h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date <= h.due_at::date",
+        "late": f"h.completed_at IS NOT NULL AND {asof} AND h.completed_at::date > h.due_at::date",
+        "open": f"h.completed_at IS NULL OR NOT ({asof})",
+    }
+    cond = conds.get(bucket, "true")
+    sql = f"""
+      SELECT COALESCE(NULLIF(c.parent_task_name,''), h.summary, '—') AS task,
+             COALESCE(c.folder_name, c.list_name, '—') AS client,
+             to_char(h.due_at, 'YYYY-MM-DD') AS due,
+             to_char(h.completed_at, 'YYYY-MM-DD') AS completed,
+             COALESCE(NULLIF(c.status,''), h.status, '') AS status
+      FROM hubstaff_tasks h
+      LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
+      WHERE {' AND '.join(where)} AND ({cond})
+      ORDER BY h.due_at DESC NULLS LAST LIMIT 300
+    """
+    try:
+        rows = db.q(sql, p).fillna("").to_dict("records")
+        return {"bucket": bucket, "rows": rows, "count": len(rows)}
+    except Exception as e:  # noqa
+        return {"bucket": bucket, "rows": [], "count": 0, "error": str(e)[:150]}
+
+
 def _budget_norm(c):
     return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
 

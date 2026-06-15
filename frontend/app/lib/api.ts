@@ -356,6 +356,14 @@ export async function getTeam(name: string, f: Filters): Promise<TeamProfile> {
 }
 
 export interface TaskDelivery { due: number; on_time: number; late: number; open: number; on_time_pct: number; }
+export interface TaskDeliveryItem { task: string; client: string; due: string; completed: string; status: string; }
+export async function getTaskDeliveryList(bucket: "on_time" | "late" | "open", f: Filters): Promise<{ bucket: string; rows: TaskDeliveryItem[]; count: number }> {
+  const qs = new URLSearchParams({ bucket });
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v as string); });
+  const r = await authedFetch(`${API}/api/task_delivery_list?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("task list failed");
+  return r.json();
+}
 export async function getTaskDelivery(f: Filters): Promise<TaskDelivery> {
   const qs = new URLSearchParams();
   Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });

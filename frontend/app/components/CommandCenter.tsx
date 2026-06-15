@@ -14,6 +14,7 @@ import {
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
   getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData,
   getBudgets, saveBudget, deleteBudget, type ClientBudgetRow,
+  getTaskDeliveryList, type TaskDeliveryItem,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -169,6 +170,12 @@ export default function CommandCenter({
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
   const [clientProf, setClientProf] = useState<{ name: string; data: import("../lib/api").ClientProfile | null } | null>(null);
   const [teamProf, setTeamProf] = useState<{ name: string; data: import("../lib/api").TeamProfile | null } | null>(null);
+  const [tdList, setTdList] = useState<{ bucket: string; label: string; color: string; rows: TaskDeliveryItem[] | null } | null>(null);
+  async function openTaskList(bucket: "on_time" | "late" | "open", label: string, color: string) {
+    setTdList({ bucket, label, color, rows: null });
+    try { setTdList({ bucket, label, color, rows: (await getTaskDeliveryList(bucket, draft)).rows }); }
+    catch { setTdList({ bucket, label, color, rows: [] }); }
+  }
   async function openClient(name: string) {
     setClientProf({ name, data: null });
     try { setClientProf({ name, data: await getClient(name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
@@ -868,7 +875,8 @@ export default function CommandCenter({
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ tracked hours × 100 — the share of tracked time that is billable.", (e) => e.productivity, (v) => n1(v) + "%", "productivity"), undefined, "billable share")}
-        {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined, undefined, undefined, `of ${peopleN} tracked`)}
+        {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined,
+          openMetric("Active Staff", "#2f6fbf", "Employees who tracked time in this period, by total hours.", (e) => e.billable + e.non_billable, (v) => n1(v) + "h"), undefined, `of ${peopleN} tracked`)}
         {kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, openClients, undefined, "worked this period")}
         {kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
         {budget && budget.count > 0
@@ -892,13 +900,13 @@ export default function CommandCenter({
           const latePct = Math.round((d.late / tot) * 100);
           return (
             <div className="dcard">
-              <div className="dcard-h"><h3>Task Delivery</h3><span className="dcard-sub">{d.due} tasks due this period</span></div>
+              <div className="dcard-h"><h3>Task Delivery</h3><span className="dcard-sub">{d.due} tasks due this period · click to list</span></div>
               <div className="dcard-gauge"><SemiGauge center={n1(onTimePct) + "%"} sub="on-time"
                 segs={[{ value: d.on_time, color: "#16a34a" }, { value: d.late, color: "#e8930c" }, { value: d.open, color: "#ef4444" }]} /></div>
               <div className="dcard-leg">
-                <div className="dleg"><span className="d" style={{ background: "#16a34a" }} /><span className="nm">On-time</span><b className="v num">{n0(d.on_time)}</b><span className="p">{Math.round(d.on_time / tot * 100)}%</span></div>
-                <div className="dleg"><span className="d" style={{ background: "#e8930c" }} /><span className="nm">Late</span><b className="v num">{n0(d.late)}</b><span className="p">{latePct}%</span></div>
-                <div className="dleg"><span className="d" style={{ background: "#ef4444" }} /><span className="nm">Overdue / open</span><b className="v num">{n0(d.open)}</b><span className="p">{overduePct}%</span></div>
+                <div className="dleg clk" onClick={() => openTaskList("on_time", "On-time", "#16a34a")}><span className="d" style={{ background: "#16a34a" }} /><span className="nm">On-time</span><b className="v num">{n0(d.on_time)}</b><span className="p">{Math.round(d.on_time / tot * 100)}%</span></div>
+                <div className="dleg clk" onClick={() => openTaskList("late", "Late", "#e8930c")}><span className="d" style={{ background: "#e8930c" }} /><span className="nm">Late</span><b className="v num">{n0(d.late)}</b><span className="p">{latePct}%</span></div>
+                <div className="dleg clk" onClick={() => openTaskList("open", "Overdue / open", "#ef4444")}><span className="d" style={{ background: "#ef4444" }} /><span className="nm">Overdue / open</span><b className="v num">{n0(d.open)}</b><span className="p">{overduePct}%</span></div>
               </div>
             </div>
           );
@@ -1457,6 +1465,39 @@ export default function CommandCenter({
       )}
 
       {/* TEAM PROFILE — drill-down: capacity, members, top clients, trend */}
+      {/* TASK DELIVERY drill — list the tasks behind a bucket */}
+      {tdList && (
+        <div className="modal-bg" onClick={() => setTdList(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div><h3><span className="kdot" style={{ background: tdList.color }} />{tdList.label} tasks</h3><div className="sub">due this period · {tdList.rows ? tdList.rows.length : "…"} tasks</div></div>
+              <div className="modal-x" onClick={() => setTdList(null)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              {!tdList.rows ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
+                : tdList.rows.length === 0 ? <div className="empty-s" style={{ padding: 24 }}>No tasks in this bucket</div> : (
+                  <div className="scrollwrap" style={{ maxHeight: 460 }}>
+                    <table className="hd-table">
+                      <thead><tr><th className="l">Task</th><th className="l">Client</th><th>Due</th><th>Completed</th><th className="l">Status</th></tr></thead>
+                      <tbody>
+                        {tdList.rows.map((r, i) => (
+                          <tr key={i}>
+                            <td className="l tname" title={r.task}>{r.task}</td>
+                            <td className="l">{r.client}</td>
+                            <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.due || "—"}</td>
+                            <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.completed || "—"}</td>
+                            <td className="l"><span className="grade gBb">{r.status || "—"}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {teamProf && (
         <div className="drawer-bg" onClick={() => setTeamProf(null)}>
           <div className="drawer" onClick={(e) => e.stopPropagation()}>
