@@ -735,6 +735,39 @@ def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
     return clean(out)
 
 
+@app.get("/api/team_spread")
+def team_spread(date_from: Optional[str] = None, date_to: Optional[str] = None,
+                department: Optional[str] = None, atl: Optional[str] = None):
+    """Where a team's (or department's) GENUINE HR members worked in the period —
+    their tracked hours split by team. Lets you see cross-team work WITHOUT
+    changing the team's own (per-activity) totals."""
+    members, g = load()
+    atl_vals = _vals(atl); dep_vals = _vals(department)
+    blank = {"rows": [], "members": 0, "total_h": 0, "scope": None}
+    if not atl_vals and not dep_vals:
+        return blank
+    home, hdept = _hr_team_dept_maps()
+    sel = {u for u in set(home) | set(hdept)
+           if (not atl_vals or home.get(u) in atl_vals)
+           and (not dep_vals or hdept.get(u) in dep_vals)}
+    if not sel:
+        return blank
+    gm = _scope_df(g[g["user_id"].astype(str).isin(sel)])
+    if date_from:
+        gm = gm[gm["date_s"] >= date_from]
+    if date_to:
+        gm = gm[gm["date_s"] <= date_to]
+    if gm is None or gm.empty:
+        return {"rows": [], "members": 0, "total_h": 0, "scope": atl_vals or dep_vals}
+    grp = (gm.groupby("atl").agg(hours=("tracked_h", "sum"), billable=("billable_h", "sum"),
+           people=("user_id", "nunique")).reset_index().sort_values("hours", ascending=False))
+    rows = [{"team": r.atl, "hours": round(float(r.hours), 1),
+             "billable": round(float(r.billable), 1), "people": int(r.people)}
+            for r in grp.itertuples() if r.hours > 0]
+    return clean({"rows": rows, "members": int(gm["user_id"].nunique()),
+                  "total_h": round(float(gm["tracked_h"].sum()), 1), "scope": atl_vals or dep_vals})
+
+
 @app.get("/api/keka/status")
 def keka_status(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")
@@ -1340,19 +1373,20 @@ def apply_filters(members, g, f):
         vals = _vals(f.get(key))
         if vals:
             m = m[m[col].isin(vals)]
-    # Team / Department select the team's GENUINE HR HOME members; ALL their activity
-    # is kept, so the By Team / By Department graphs show where they ALSO worked
-    # (cross-team) — just like filtering a single employee already does.
-    dep_vals = _vals(f.get("department")); atl_vals = _vals(f.get("atl"))
-    if dep_vals or atl_vals:
-        home, hdept = _hr_team_dept_maps()
-        m = m[m["user_id"].apply(
-            lambda u: (not atl_vals or home.get(str(u)) in atl_vals)
-            and (not dep_vals or hdept.get(str(u)) in dep_vals))]
+    # Department / Team / Client by MEMBERSHIP — an employee can belong to many,
+    # so selecting any team/dept/client surfaces everyone who works in it.
+    if has_sets:
+        for key, setcol in [("department", "dept_set"), ("atl", "team_set"), ("client", "client_set")]:
+            vals = _vals(f.get(key))
+            if vals:
+                sv = set(vals)
+                m = m[m[setcol].apply(lambda s: bool(sv & set(s or [])))]
     ids = set(m["user_id"])
     d = g[g["user_id"].isin(ids)]
-    # Client / type still filter the activity directly (per-activity concepts).
-    for key, col in [("client", "client"), ("client_type", "client_type")]:
+    # Fix 1: g carries the REAL per-activity team/dept/client — filter the rows
+    # DIRECTLY on those columns so a team's total is the work done ON its tasks.
+    for key, col in [("department", "department"), ("atl", "atl"),
+                     ("client", "client"), ("client_type", "client_type")]:
         vals = _vals(f.get(key))
         if vals:
             d = d[d[col].isin(vals)]

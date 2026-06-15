@@ -431,6 +431,15 @@ export interface AttendanceData {
   summary: { employees: number; matched: number; effective_h: number; tracked_h: number; gap_h: number; real_util: number; overtime_h: number; short_h: number };
   rows: AttendanceRow[];
 }
+export interface TeamSpreadRow { team: string; hours: number; billable: number; people: number; }
+export interface TeamSpreadData { rows: TeamSpreadRow[]; members: number; total_h: number; scope: string[] | null; }
+export async function getTeamSpread(f: Filters): Promise<TeamSpreadData> {
+  const qs = new URLSearchParams();
+  (["date_from", "date_to", "department", "atl"] as const).forEach((k) => { if (f[k]) qs.set(k, f[k] as string); });
+  const r = await authedFetch(`${API}/api/team_spread?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("team_spread failed");
+  return r.json();
+}
 export interface WorkforceData {
   has_keka: boolean; attendance_pct: number; present_days: number; off_days: number;
   overtime_h: number; short_h: number; late_days: number;

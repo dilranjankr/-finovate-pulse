@@ -801,6 +801,8 @@ select.map-inp { cursor: pointer; }
 .hbar-track { height: 14px; border-radius: 7px; background: #eef1f6; overflow: hidden; }
 .hbar-fill { display: block; height: 100%; border-radius: 7px; transition: width .4s ease; }
 .hbar-v { font-size: 13px; font-weight: 800; color: var(--ink); white-space: nowrap; min-width: 56px; text-align: right; }
+.hbar-row.click { cursor: pointer; border-radius: 7px; padding: 2px 4px; margin: -2px -4px; }
+.hbar-row.click:hover { background: var(--chip); }
 /* vertical column chart — By Department */
 .vbar-chart { display: flex; align-items: flex-end; justify-content: space-around; gap: 8px; height: 210px; padding: 8px 2px 0; }
 .vbar-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; min-width: 0; }
