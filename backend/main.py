@@ -3093,6 +3093,9 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
     # Open = still NOT completed as of today (completed_at IS NULL). A task completed
     # later — even after the selected period — is NOT "open"; it's classified on-time
     # /late by its own due date vs when it was actually completed.
+    # Due-floor: drop tasks due BEFORE the period (old carry-over work) — keep this
+    # period's and future due dates (and tasks with no due date).
+    due_cond = "(h.due_at IS NULL OR h.due_at::date >= :df)" if date_from else "true"
     sql = f"""
       WITH worked AS (SELECT DISTINCT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)})
       SELECT
@@ -3103,6 +3106,7 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
                          AND h.due_at IS NOT NULL AND h.completed_at::date > h.due_at::date) late,
         count(*) FILTER (WHERE h.completed_at IS NULL) open
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
+      WHERE {due_cond}
     """
     try:
         r = db.q(sql, p).iloc[0]
@@ -3165,6 +3169,8 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
     if client:
         client_clause = " AND COALESCE(c.folder_name, c.list_name) = :clientf"
         p["clientf"] = client
+    # Due-floor: same as /api/task_delivery — exclude tasks due before the period.
+    due_cond = "(h.due_at IS NULL OR h.due_at::date >= :df)" if date_from else "true"
     sql = f"""
       WITH worked AS (SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs
                       FROM hubstaff_activities a WHERE {' AND '.join(act)} GROUP BY a.task_id)
@@ -3177,7 +3183,7 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
              h.assignee_ids AS asg_hb, c.assignees AS asg_ck
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
       LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
-      WHERE ({cond}){client_clause}
+      WHERE ({cond}){client_clause} AND ({due_cond})
       ORDER BY w.hrs DESC NULLS LAST LIMIT 300
     """
     try:
