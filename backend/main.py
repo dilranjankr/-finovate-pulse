@@ -1290,6 +1290,8 @@ def load_from_db():
     prim_client = (g.groupby(["user_id", "client"])["tracked_h"].sum().reset_index()
                    .sort_values("tracked_h", ascending=False).drop_duplicates("user_id")
                    .set_index("user_id")["client"].to_dict())
+    # Reliable per-employee task counts via the stable ClickUp identity map.
+    rel_counts = _emp_task_counts()
     rows = []
     for uid in g["user_id"].unique():
         gap = (gmax_d - pd.to_datetime(last.get(uid))).days
@@ -1298,13 +1300,19 @@ def load_from_db():
         if pd.isna(rate) or not rate:
             rate = 40.0
         info = omap.get(uid) or {}
+        # Task counts come straight from the reliable Hubstaff-id assignment (same
+        # source as the Assigned Tasks list), 0 when the person has none — we do NOT
+        # fall back to ClickUp username matching, which lands a namesake's tasks on
+        # the wrong person (e.g. two people share a first name).
+        _tot, _act = rel_counts.get(str(uid), (0, 0))
+        _tstat = "Active" if _act > 0 else "Idle"
         rows.append({"user_id": uid, "name": hr_name_map.get(uid) or name_map.get(uid) or f"User {uid}",
                      "role": role_map.get(uid, ""), "status": status,
                      "task_completion": comp, "rate": float(rate),
                      "email": email_map.get(uid, ""),
-                     "active_tasks": int(info.get("active_tasks", 0)),
-                     "total_tasks": int(info.get("total_tasks", 0)),
-                     "task_status": info.get("task_status", "Idle"),
+                     "active_tasks": int(_act),
+                     "total_tasks": int(_tot),
+                     "task_status": _tstat,
                      "hr_status": hr_status_map.get(uid, "UNKNOWN"),
                      "client": prim_client.get(uid, "Unassigned"),
                      "dept_set": dept_sets.get(uid, []),
@@ -1490,35 +1498,115 @@ def group_metrics(d, by):
     return grp
 
 
+@lru_cache(maxsize=1)
+def _emp_clickup_map():
+    """{hubstaff_user_id(str) -> clickup_user_id(str)} from employee_mapping.
+    Built by link_clickup.py (co-occurrence of tasks linked in both systems, then
+    unambiguous name match) and owner-editable in the mapping admin. This is the
+    stable identity bridge between Hubstaff and ClickUp — replaces fragile
+    assignee-name matching, so a person's tasks never land on a namesake."""
+    if not db.has_db():
+        return {}
+    try:
+        t = db.q("SELECT hubstaff_user_id::text uid, clickup_user_id::text cid "
+                 "FROM employee_mapping WHERE coalesce(clickup_user_id,'')<>''")
+        return {str(r["uid"]): str(r["cid"]) for _, r in t.iterrows()}
+    except Exception:
+        return {}
+
+
 def build_tasks_db(uid):
-    # Assignment is read from Hubstaff (hubstaff_tasks.assignee_ids holds Hubstaff
-    # user ids), keyed on the employee's hubstaff_user_id — reliable, no name
-    # matching. ClickUp is joined only to enrich estimate / client / status, via
-    # the task-id link (ct.task_id = ht.remote_id), never by name.
+    # An employee's tasks: when we know their ClickUp id (employee_mapping.
+    # clickup_user_id), read ClickUp directly — reliable identity, full coverage.
+    # Otherwise fall back to Hubstaff assignment (hubstaff_tasks.assignee_ids, which
+    # holds Hubstaff user ids), enriched from ClickUp via the task-id link.
     try:
         import json
         uid_i = int(float(str(uid)))
     except (TypeError, ValueError):
         return []
+    cid = _emp_clickup_map().get(str(uid_i))
     try:
-        t = db.q("""
-            SELECT COALESCE(NULLIF(ct.subtask_name,''), ct.parent_task_name, ht.summary) AS task,
-                   COALESCE(ct.list_name, ct.space_name, hp.name, '—') AS client,
-                   COALESCE(ct.time_estimate_hrs,0) AS estimated,
-                   COALESCE(ct.time_tracked_hrs,0) AS tracked,
-                   COALESCE(NULLIF(ct.status,''), ht.status, '') AS status,
-                   to_char(COALESCE(ct.due_date, ht.due_at), 'YYYY-MM-DD') AS due
-            FROM hubstaff_tasks ht
-            LEFT JOIN clickup_tasks ct
-                   ON ct.task_id = ht.remote_id AND COALESCE(ct.is_deleted,false)=false
-            LEFT JOIN hubstaff_projects hp ON hp.id = ht.project_id
-            WHERE ht.assignee_ids @> :u
-            ORDER BY COALESCE(ct.due_date, ht.due_at) DESC NULLS LAST
-            LIMIT 60
-        """, {"u": json.dumps([uid_i])})
+        if cid:
+            t = db.q("""
+                SELECT COALESCE(NULLIF(subtask_name,''), parent_task_name, '—') AS task,
+                       COALESCE(list_name, space_name, '—') AS client,
+                       COALESCE(time_estimate_hrs,0) AS estimated,
+                       COALESCE(time_tracked_hrs,0) AS tracked,
+                       COALESCE(status,'') AS status,
+                       to_char(due_date,'YYYY-MM-DD') AS due
+                FROM clickup_tasks
+                WHERE coalesce(is_deleted,false)=false AND coalesce(archived,false)=false
+                  AND (CASE WHEN coalesce(assignees,'') ~ '^\\s*\\['
+                            THEN assignees::jsonb ELSE '[]'::jsonb END) @> :one
+                ORDER BY due_date DESC NULLS LAST LIMIT 60
+            """, {"one": json.dumps([{"id": int(cid)}])})
+        else:
+            t = db.q("""
+                SELECT COALESCE(NULLIF(ct.subtask_name,''), ct.parent_task_name, ht.summary) AS task,
+                       COALESCE(ct.list_name, ct.space_name, hp.name, '—') AS client,
+                       COALESCE(ct.time_estimate_hrs,0) AS estimated,
+                       COALESCE(ct.time_tracked_hrs,0) AS tracked,
+                       COALESCE(NULLIF(ct.status,''), ht.status, '') AS status,
+                       to_char(COALESCE(ct.due_date, ht.due_at), 'YYYY-MM-DD') AS due
+                FROM hubstaff_tasks ht
+                LEFT JOIN clickup_tasks ct
+                       ON ct.task_id = ht.remote_id AND COALESCE(ct.is_deleted,false)=false
+                LEFT JOIN hubstaff_projects hp ON hp.id = ht.project_id
+                WHERE ht.assignee_ids @> :u
+                ORDER BY COALESCE(ct.due_date, ht.due_at) DESC NULLS LAST LIMIT 60
+            """, {"u": json.dumps([uid_i])})
         return t.fillna("").to_dict("records")
     except Exception:
         return []
+
+
+@lru_cache(maxsize=1)
+def _emp_task_counts():
+    """Per-employee ClickUp task counts {uid: (total, active)} using the stable
+    identity map: counted by ClickUp id when known (reliable, full coverage), else
+    by Hubstaff assignment. Same universe (non-deleted, non-archived) and
+    CLOSED_STATUS semantics as clickup_intel — never a namesake's tasks."""
+    if not db.has_db():
+        return {}
+    out = {}
+    try:
+        # per-ClickUp-user totals (open vs closed)
+        byck = db.q("""
+            SELECT (a->>'id') cid,
+                   COUNT(*) total,
+                   COUNT(*) FILTER (WHERE lower(coalesce(status,'')) <> ALL(:closed)) active
+            FROM clickup_tasks,
+                 LATERAL jsonb_array_elements(
+                   CASE WHEN coalesce(assignees,'') ~ '^\\s*\\['
+                        THEN assignees::jsonb ELSE '[]'::jsonb END) a
+            WHERE coalesce(is_deleted,false)=false AND coalesce(archived,false)=false
+              AND coalesce(a->>'id','')<>''
+            GROUP BY a->>'id'
+        """, {"closed": list(CLOSED_STATUS)})
+        ck = {str(r["cid"]): (int(r["total"]), int(r["active"])) for _, r in byck.iterrows()}
+        for hub, cid in _emp_clickup_map().items():
+            out[str(hub)] = ck.get(str(cid), (0, 0))
+        # Hubstaff-assignment fallback for employees with no ClickUp id mapped yet.
+        h = db.q("""
+            SELECT e.val AS uid,
+                   COUNT(DISTINCT ct.task_id) AS total,
+                   COUNT(DISTINCT ct.task_id) FILTER (
+                     WHERE lower(coalesce(ct.status,'')) <> ALL(:closed)) AS active
+            FROM hubstaff_tasks ht
+            JOIN clickup_tasks ct ON ct.task_id = ht.remote_id
+             AND coalesce(ct.is_deleted,false)=false AND coalesce(ct.archived,false)=false
+            CROSS JOIN LATERAL jsonb_array_elements_text(ht.assignee_ids) AS e(val)
+            WHERE jsonb_typeof(ht.assignee_ids)='array'
+            GROUP BY e.val
+        """, {"closed": list(CLOSED_STATUS)})
+        for _, r in h.iterrows():
+            u = str(r["uid"])
+            if u not in out:
+                out[u] = (int(r["total"]), int(r["active"]))
+        return out
+    except Exception:
+        return {}
 
 
 def build_tasks_sample(uid, name, client):
@@ -2666,6 +2754,8 @@ CREATE TABLE employee_mapping (
   total_hours       numeric,
   last_worked       date,
   reviewed          boolean DEFAULT false,
+  clickup_user_id   text,
+  clickup_link_source text,
   updated_at        timestamptz DEFAULT now()
 )
 """
@@ -2703,7 +2793,7 @@ def mapping_save(payload: dict):
     if not name:
         return {"ok": False, "reason": "no_name"}
     editable = ["hr_employee_no", "hr_full_name", "status", "department", "team",
-                "job_title", "reporting_to", "exit_date", "reviewed"]
+                "job_title", "reporting_to", "exit_date", "reviewed", "clickup_user_id"]
     sets, params = [], {"k_name": name}
     for k in editable:
         if k in payload:
@@ -2717,6 +2807,7 @@ def mapping_save(payload: dict):
         db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
         load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
         _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
+        _emp_clickup_map.cache_clear(); _emp_task_counts.cache_clear()  # ClickUp identity link
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
