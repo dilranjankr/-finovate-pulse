@@ -10,6 +10,8 @@ import os
 import re
 import contextvars
 import difflib
+import functools
+import inspect
 from functools import lru_cache
 from typing import Optional
 from zlib import crc32
@@ -112,6 +114,42 @@ def _auth_startup():
 # the auth middleware, read by apply_filters and the drill-down endpoints so a
 # signed-in user only ever sees the people their role permits.
 _scope_ctx: contextvars.ContextVar = contextvars.ContextVar("scope_uids", default=None)
+
+# ---- Response cache -------------------------------------------------------
+# The dashboard data is static between loads (load() is cached ~1h), so the same
+# (endpoint, filter, role-scope) always yields the same response. Memoize the
+# heavy read endpoints so re-applying / toggling filters is instant. Cleared
+# whenever the underlying data is refreshed (see every load.cache_clear() site).
+_RESP_CACHE: dict = {}
+
+
+def _scope_key():
+    s = _scope_ctx.get()
+    return None if s is None else tuple(sorted(str(x) for x in s))
+
+
+def _memo(fn):
+    """Cache a read endpoint's result by its keyword args + the caller's role scope.
+    Preserves the original signature so FastAPI still injects query params."""
+    @functools.wraps(fn)
+    def wrap(*args, **kwargs):
+        if args:                       # positional internal call -> don't cache
+            return fn(*args, **kwargs)
+        key = (fn.__name__, _scope_key(),
+               tuple(sorted((k, v) for k, v in kwargs.items() if v not in (None, ""))))
+        if key in _RESP_CACHE:
+            return _RESP_CACHE[key]
+        r = fn(**kwargs)
+        if len(_RESP_CACHE) > 3000:    # safety cap over long uptime
+            _RESP_CACHE.clear()
+        _RESP_CACHE[key] = r
+        return r
+    wrap.__signature__ = inspect.signature(fn)
+    return wrap
+
+
+def _clear_resp_cache():
+    _RESP_CACHE.clear()
 
 
 @lru_cache(maxsize=1)
@@ -616,6 +654,7 @@ async def keka_upload(file: UploadFile = File(...), authorization: Optional[str]
     with eng.begin() as con:
         con.execute(_text(ins), rows)
     keka_effective_hours.cache_clear()        # new attendance changes the capacity
+    load.cache_clear(); _clear_resp_cache()
     return {"ok": True, "rows": len(rows), "months": sorted(months),
             "employees": len({r["emp_name"] for r in rows})}
 
@@ -718,6 +757,7 @@ def attendance_trend(authorization: Optional[str] = Header(None)):
 
 
 @app.get("/api/workforce")
+@_memo
 def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
               department: Optional[str] = None, atl: Optional[str] = None,
               employee: Optional[str] = None, client: Optional[str] = None,
@@ -1816,6 +1856,7 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
 
 
 @app.get("/api/command")
+@_memo
 def command(
     date_from: Optional[str] = None, date_to: Optional[str] = None,
     department: Optional[str] = None, atl: Optional[str] = None,
@@ -2941,6 +2982,7 @@ def mapping_save(payload: dict):
         db.execute(f"UPDATE employee_mapping SET {', '.join(sets)} WHERE hubstaff_name = :k_name", params)
         load.cache_clear()  # dashboard re-reads dept/team/status from the updated mapping
         _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
+        _clear_resp_cache()
         _emp_clickup_map.cache_clear(); _emp_task_counts.cache_clear()  # ClickUp identity link
         return {"ok": True}
     except Exception as e:  # noqa
@@ -2990,6 +3032,7 @@ def mapping_transfer(payload: dict):
             pass
         load.cache_clear()
         _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
+        _clear_resp_cache()
         _team_history.cache_clear()
         return {"ok": True}
     except Exception as e:  # noqa
@@ -3026,12 +3069,14 @@ def mapping_init():
             pass
         load.cache_clear()  # dashboard re-reads with the fresh mapping
         _hr_hierarchy.cache_clear(); _hr_team_dept_maps.cache_clear(); keka_effective_hours.cache_clear()
+        _clear_resp_cache()
         return {"ok": True, "rows": n}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:300]}
 
 
 @app.get("/api/task_delivery")
+@_memo
 def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None,
                   department: Optional[str] = None, atl: Optional[str] = None,
                   employee: Optional[str] = None, client: Optional[str] = None,
@@ -3096,6 +3141,7 @@ def _td_worked_scope(date_from, date_to, department, atl, employee, client,
 
 
 @app.get("/api/task_delivery_list")
+@_memo
 def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Optional[str] = None,
                        department: Optional[str] = None, atl: Optional[str] = None,
                        employee: Optional[str] = None, client: Optional[str] = None,
@@ -3269,7 +3315,7 @@ def budgets_save(payload: dict, authorization: Optional[str] = Header(None)):
             db.execute("GRANT SELECT ON client_budgets TO finovate_viewer")
         except Exception:
             pass
-        client_budgets.cache_clear()
+        client_budgets.cache_clear(); _clear_resp_cache()
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
@@ -3286,7 +3332,7 @@ def budgets_delete(payload: dict, authorization: Optional[str] = Header(None)):
         return {"ok": False, "reason": "no_client"}
     try:
         db.execute("DELETE FROM client_budgets WHERE client = :c", {"c": client})
-        client_budgets.cache_clear()
+        client_budgets.cache_clear(); _clear_resp_cache()
         return {"ok": True}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
@@ -3325,7 +3371,7 @@ def budgets_init(authorization: Optional[str] = Header(None)):
             db.execute("GRANT SELECT ON client_budgets TO finovate_viewer")
         except Exception:
             pass
-        client_budgets.cache_clear()
+        client_budgets.cache_clear(); _clear_resp_cache()
         return {"ok": True, "rows": n}
     except Exception as e:  # noqa
         return {"ok": False, "reason": "db", "detail": str(e)[:300]}
@@ -3367,6 +3413,7 @@ def _client_period_tasks(uids, date_from, date_to):
 
 
 @app.get("/api/clients")
+@_memo
 def clients_list(date_from: Optional[str] = None, date_to: Optional[str] = None,
                  department: Optional[str] = None, atl: Optional[str] = None,
                  employee: Optional[str] = None, client: Optional[str] = None,
@@ -3398,6 +3445,7 @@ def clients_list(date_from: Optional[str] = None, date_to: Optional[str] = None,
 
 
 @app.get("/api/budget")
+@_memo
 def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
            department: Optional[str] = None, atl: Optional[str] = None,
            employee: Optional[str] = None, client: Optional[str] = None,
