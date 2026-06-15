@@ -1340,20 +1340,19 @@ def apply_filters(members, g, f):
         vals = _vals(f.get(key))
         if vals:
             m = m[m[col].isin(vals)]
-    # Department / Team / Client by MEMBERSHIP — an employee can belong to many,
-    # so selecting any team/dept/client surfaces everyone who works in it.
-    if has_sets:
-        for key, setcol in [("department", "dept_set"), ("atl", "team_set"), ("client", "client_set")]:
-            vals = _vals(f.get(key))
-            if vals:
-                sv = set(vals)
-                m = m[m[setcol].apply(lambda s: bool(sv & set(s or [])))]
+    # Team / Department select the team's GENUINE HR HOME members; ALL their activity
+    # is kept, so the By Team / By Department graphs show where they ALSO worked
+    # (cross-team) — just like filtering a single employee already does.
+    dep_vals = _vals(f.get("department")); atl_vals = _vals(f.get("atl"))
+    if dep_vals or atl_vals:
+        home, hdept = _hr_team_dept_maps()
+        m = m[m["user_id"].apply(
+            lambda u: (not atl_vals or home.get(str(u)) in atl_vals)
+            and (not dep_vals or hdept.get(str(u)) in dep_vals))]
     ids = set(m["user_id"])
     d = g[g["user_id"].isin(ids)]
-    # Fix 1: g now carries the REAL per-activity team/dept/client, so filter the
-    # rows DIRECTLY on those columns (no membership re-tag / no double-counting).
-    for key, col in [("department", "department"), ("atl", "atl"),
-                     ("client", "client"), ("client_type", "client_type")]:
+    # Client / type still filter the activity directly (per-activity concepts).
+    for key, col in [("client", "client"), ("client_type", "client_type")]:
         vals = _vals(f.get(key))
         if vals:
             d = d[d[col].isin(vals)]
