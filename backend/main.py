@@ -599,7 +599,8 @@ def attendance(month: Optional[str] = None, authorization: Optional[str] = Heade
     try:
         kr = db.q_write("""
             SELECT emp_name, max(department) department,
-                   sum(effective_min) eff, sum(overtime_min) ot, sum(short_eff_min) sh,
+                   sum(effective_min) eff, sum(overtime_min) ot,
+                   sum(short_eff_min) FILTER (WHERE effective_min>0) sh,
                    count(*) FILTER (WHERE effective_min>0) present_days,
                    count(*) FILTER (WHERE late_by_min>0) late_days,
                    count(*) FILTER (WHERE effective_min=0 AND upper(coalesce(status,'')) NOT LIKE 'WO%') off_days
@@ -714,7 +715,7 @@ def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
         if names:
             kr = db.q_write("""
                 SELECT round(sum(effective_min)/60.0) eff, round(sum(overtime_min)/60.0) ot,
-                       round(sum(short_eff_min)/60.0) sh,
+                       round(sum(short_eff_min) FILTER (WHERE effective_min>0)/60.0) sh,
                        count(*) FILTER (WHERE effective_min>0) present,
                        count(*) FILTER (WHERE late_by_min>0) late,
                        count(*) FILTER (WHERE effective_min=0 AND upper(coalesce(status,'')) NOT LIKE 'WO%') off
