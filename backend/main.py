@@ -3119,7 +3119,7 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
 
 
 def _td_worked_scope(date_from, date_to, department, atl, employee, client,
-                     client_type, billable, status):
+                     client_type, billable, status, scope="home"):
     """Shared scope for Task Delivery: the activity-WHERE clauses selecting tasks
     TRACKED in the period (optionally by the filtered people). Returns (clauses, params),
     or (None, _) when a filter resolves to nobody."""
@@ -3134,7 +3134,7 @@ def _td_worked_scope(date_from, date_to, department, atl, employee, client,
             members, g = load()
             f = {"department": department, "atl": atl, "employee": employee, "client": client,
                  "client_type": client_type, "billable": billable, "status": status}
-            m, _ = apply_filters(members, g, f)
+            m, _ = apply_filters(members, g, f, scope=scope)
             uids = [str(u) for u in m["user_id"].unique()]
             if not uids:
                 return None, p
@@ -3153,8 +3153,11 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
                        status: Optional[str] = None):
     """The actual tasks behind a Task Delivery bucket (on_time / late / open), same
     scope as /api/task_delivery — tasks WORKED in the period — for the click modal."""
+    # A client drill-down (from Budget vs Actual) uses per-activity scope so it
+    # accounts for the client's full "Used" hours (everyone who worked it).
     act, p = _td_worked_scope(date_from, date_to, department, atl, employee, client,
-                              client_type, billable, status)
+                              client_type, billable, status,
+                              scope=("activity" if client else "home"))
     if act is None:
         return {"bucket": bucket, "rows": [], "count": 0}
     conds = {
