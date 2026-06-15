@@ -3169,8 +3169,10 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
     if client:
         client_clause = " AND COALESCE(c.folder_name, c.list_name) = :clientf"
         p["clientf"] = client
-    # Due-floor: same as /api/task_delivery — exclude tasks due before the period.
-    due_cond = "(h.due_at IS NULL OR h.due_at::date >= :df)" if date_from else "true"
+    # Due-floor (drop past-due) for the Task Delivery card. NOT for the per-client
+    # drill-down (opened from Budget vs Actual) — that should list every task worked
+    # so it accounts for the client's "Used" hours.
+    due_cond = "(h.due_at IS NULL OR h.due_at::date >= :df)" if (date_from and not client) else "true"
     sql = f"""
       WITH worked AS (SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs
                       FROM hubstaff_activities a WHERE {' AND '.join(act)} GROUP BY a.task_id)
@@ -3393,10 +3395,11 @@ def _client_period_tasks(uids, date_from, date_to):
     params = {"uids": list(uids)}
     if date_from:
         where.append("a.date >= :df"); params["df"] = date_from
-        # Due-floor: same as Task Delivery — drop tasks due BEFORE the period.
-        where.append("(ht.due_at IS NULL OR ht.due_at::date >= :df)")
     if date_to:
         where.append("a.date <= :dt"); params["dt"] = date_to
+    # NOTE: no due-floor here — Budget vs Actual is about HOURS CONSUMED on the client,
+    # so its task counts cover every task worked in the period (matching "Used" hours),
+    # unlike the Task Delivery card which is deadline-focused and drops past-due tasks.
     # done/open from HUBSTAFF completion (ht.completed_at), not ClickUp status — the
     # ClickUp join only supplies the folder (= client) for grouping.
     closed = "ht.completed_at IS NOT NULL"
