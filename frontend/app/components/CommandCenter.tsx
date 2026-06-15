@@ -12,7 +12,7 @@ import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
-  getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData, getTeamSpread, type TeamSpreadData,
+  getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -287,7 +287,6 @@ export default function CommandCenter({
   const [taskDel, setTaskDel] = useState<import("../lib/api").TaskDelivery | null>(null);
   const [budget, setBudget] = useState<import("../lib/api").BudgetData | null>(null);
   const [workforce, setWorkforce] = useState<WorkforceData | null>(null);
-  const [spread, setSpread] = useState<TeamSpreadData | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
   const [clientsModal, setClientsModal] = useState(false);
   const [clientsData, setClientsData] = useState<import("../lib/api").ClientsListData | null>(null);
@@ -399,7 +398,6 @@ export default function CommandCenter({
     if (r0) getTaskDelivery(r0).then(setTaskDel).catch(() => setTaskDel(null));
     if (r0) getBudget(r0).then(setBudget).catch(() => setBudget(null));
     if (r0) getWorkforce(r0).then(setWorkforce).catch(() => setWorkforce(null));
-    if (r0) getTeamSpread(r0).then(setSpread).catch(() => setSpread(null));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpts]);
 
@@ -416,7 +414,6 @@ export default function CommandCenter({
         getTaskDelivery(r).then((td) => { if (!cancelled) setTaskDel(td); }).catch(() => {});
         getBudget(r).then((bg) => { if (!cancelled) setBudget(bg); }).catch(() => {});
         getWorkforce(r).then((wf) => { if (!cancelled) setWorkforce(wf); }).catch(() => {});
-        getTeamSpread(r).then((sp) => { if (!cancelled) setSpread(sp); }).catch(() => {});
         const cmd = await getCommand(r);
         if (cancelled) return;
         setData(cmd);
@@ -432,7 +429,6 @@ export default function CommandCenter({
     getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
     getBudget(f).then(setBudget).catch(() => setBudget(null));
     getWorkforce(f).then(setWorkforce).catch(() => setWorkforce(null));
-    getTeamSpread(f).then(setSpread).catch(() => setSpread(null));
     try { setData(await getCommand(f)); } finally { setLoading(false); }
   }
   // date range helpers (used by quick presets in the period bar)
@@ -947,34 +943,6 @@ export default function CommandCenter({
           <div className="row2" style={{ marginBottom: 14 }}>
             {hpanel("By Department", data.departments || [], true, drillDept)}
             {hpanel("By Team", data.teams || [], false, openTeam)}
-          </div>
-        );
-      })()}
-
-      {/* WHERE THIS TEAM'S MEMBERS WORKED — cross-team spread of genuine members */}
-      {(draft.atl || draft.department) && spread && (() => {
-        const rows = spread.rows.filter((r) => r.hours >= 0.1);
-        if (rows.length === 0) return null;
-        const max = Math.max(1, ...rows.map((r) => r.hours));
-        const homeSet = new Set((draft.atl || "").split(",").map((s) => s.trim()).filter(Boolean));
-        const label = draft.atl || draft.department;
-        const crossH = rows.filter((r) => !homeSet.has(r.team)).reduce((s, r) => s + r.hours, 0);
-        return (
-          <div className="panel" style={{ marginBottom: 14 }}>
-            <div className="ph"><h3>Where {label}&rsquo;s members worked <span className="hl">{spread.members} members · {n0(spread.total_h)}h · {n0(crossH)}h on other teams</span></h3></div>
-            <div className="hbar-list">
-              {rows.map((r) => {
-                const isHome = homeSet.has(r.team);
-                return (
-                  <div className="hbar-row click" key={r.team} onClick={() => openTeam(r.team)}>
-                    <span className="hbar-lbl" title={r.team}>{r.team}{isHome ? " · home" : ""}</span>
-                    <span className="hbar-track"><span className="hbar-fill" style={{ width: `${Math.max(2, (r.hours / max) * 100)}%`, background: isHome ? "#2f6fbf" : "#e8930c" }} /></span>
-                    <b className="hbar-v num">{n0(r.hours)}h</b>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="lc-leg" style={{ marginTop: 8 }}><span><i style={{ background: "#2f6fbf", width: 14, height: 3 }} />Home team</span><span><i style={{ background: "#e8930c", width: 14, height: 3 }} />Cross-team work</span></div>
           </div>
         );
       })()}
