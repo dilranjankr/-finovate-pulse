@@ -2068,10 +2068,10 @@ def command(
                                 "active_tasks": int(info.get("active_tasks", 0)),
                                 "total_tasks": int(info.get("total", 0))})
     clients_summary.sort(key=lambda c: -c["hours"])
-    # Header count is date-aware: clients actually worked on in the selected
-    # period (matches the employees/active-days counts). The Client Health
-    # section still lists every in-scope client.
-    summary["clients"] = sum(1 for c in clients_summary if c["hours"] > 0)
+    # Header count = REAL external clients worked in the period (same definition as
+    # the Active Clients drill-down modal / /api/clients), so the KPI and its modal
+    # agree. The Client Health section below still lists every in-scope client.
+    summary["clients"] = _n_clients
     active_clients = sum(1 for c in clients_summary if c["hours"] > 0)
     clients_status = {"active": active_clients, "inactive": len(scope_clients) - active_clients}
 
