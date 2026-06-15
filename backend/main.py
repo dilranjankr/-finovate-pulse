@@ -602,7 +602,7 @@ def attendance(month: Optional[str] = None, authorization: Optional[str] = Heade
                    sum(effective_min) eff, sum(overtime_min) ot,
                    sum(short_eff_min) FILTER (WHERE effective_min>0) sh,
                    count(*) FILTER (WHERE effective_min>0) present_days,
-                   count(*) FILTER (WHERE late_by_min>0) late_days,
+                   count(*) FILTER (WHERE late_by_min>30) late_days,
                    count(*) FILTER (WHERE effective_min=0 AND upper(coalesce(status,'')) NOT LIKE 'WO%') off_days
             FROM keka_attendance WHERE month=:m GROUP BY emp_name""", {"m": month})
     except Exception:
@@ -717,7 +717,7 @@ def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
                 SELECT round(sum(effective_min)/60.0) eff, round(sum(overtime_min)/60.0) ot,
                        round(sum(short_eff_min) FILTER (WHERE effective_min>0)/60.0) sh,
                        count(*) FILTER (WHERE effective_min>0) present,
-                       count(*) FILTER (WHERE late_by_min>0) late,
+                       count(*) FILTER (WHERE late_by_min>30) late,
                        count(*) FILTER (WHERE effective_min=0 AND upper(coalesce(status,'')) NOT LIKE 'WO%') off
                 FROM keka_attendance
                 WHERE lower(trim(emp_name)) = ANY(:names) AND work_date BETWEEN :df AND :dt
@@ -1520,20 +1520,28 @@ def _emp_clickup_map():
         return {}
 
 
-def build_tasks_db(uid):
+def build_tasks_db(uid, date_from=None, date_to=None):
     # An employee's tasks come from HUBSTAFF first: hubstaff_tasks.assignee_ids holds
     # Hubstaff user ids, so we match on the employee's hubstaff_user_id (no name
     # matching). Only LIVE tasks (status active/completed — archived/deleted excluded)
     # count as "in Hubstaff". ClickUp is joined only to enrich estimate / client.
     # When the person has NO live Hubstaff tasks, we fall back to ClickUp via the
     # stable identity map (employee_mapping.clickup_user_id).
+    # When a date range is given, list ONLY tasks DUE in that period (status as it
+    # stands — closed or still open), so the list matches the selected window.
     try:
         import json
         uid_i = int(float(str(uid)))
     except (TypeError, ValueError):
         return []
+    hb_due = ck_due = ""
+    p_hb = {"u": json.dumps([uid_i])}
+    if date_from and date_to:
+        hb_due = "AND COALESCE(ct.due_date, ht.due_at)::date BETWEEN :df AND :dt"
+        ck_due = "AND due_date::date BETWEEN :df AND :dt"
+        p_hb["df"] = date_from; p_hb["dt"] = date_to
     try:
-        t = db.q("""
+        t = db.q(f"""
             SELECT COALESCE(NULLIF(ct.subtask_name,''), ct.parent_task_name, ht.summary) AS task,
                    COALESCE(ct.list_name, ct.space_name, hp.name, '—') AS client,
                    COALESCE(ct.time_estimate_hrs,0) AS estimated,
@@ -1544,15 +1552,18 @@ def build_tasks_db(uid):
             LEFT JOIN clickup_tasks ct
                    ON ct.task_id = ht.remote_id AND COALESCE(ct.is_deleted,false)=false
             LEFT JOIN hubstaff_projects hp ON hp.id = ht.project_id
-            WHERE ht.assignee_ids @> :u AND ht.status IN ('active','completed')
+            WHERE ht.assignee_ids @> :u AND ht.status IN ('active','completed') {hb_due}
             ORDER BY COALESCE(ct.due_date, ht.due_at) DESC NULLS LAST LIMIT 60
-        """, {"u": json.dumps([uid_i])})
+        """, p_hb)
         if t is not None and not t.empty:
             return t.fillna("").to_dict("records")
         # Fallback: ClickUp by mapped id (only when no live Hubstaff tasks).
         cid = _emp_clickup_map().get(str(uid_i))
         if cid:
-            t = db.q("""
+            p_ck = {"one": json.dumps([{"id": int(cid)}])}
+            if date_from and date_to:
+                p_ck["df"] = date_from; p_ck["dt"] = date_to
+            t = db.q(f"""
                 SELECT COALESCE(NULLIF(subtask_name,''), parent_task_name, '—') AS task,
                        COALESCE(list_name, space_name, '—') AS client,
                        COALESCE(time_estimate_hrs,0) AS estimated,
@@ -1562,9 +1573,9 @@ def build_tasks_db(uid):
                 FROM clickup_tasks
                 WHERE coalesce(is_deleted,false)=false AND coalesce(archived,false)=false
                   AND (CASE WHEN coalesce(assignees,'') ~ '^\\s*\\['
-                            THEN assignees::jsonb ELSE '[]'::jsonb END) @> :one
+                            THEN assignees::jsonb ELSE '[]'::jsonb END) @> :one {ck_due}
                 ORDER BY due_date DESC NULLS LAST LIMIT 60
-            """, {"one": json.dumps([{"id": int(cid)}])})
+            """, p_ck)
             return t.fillna("").to_dict("records")
         return []
     except Exception:
@@ -2464,7 +2475,7 @@ def employee(name: str, date_from: Optional[str] = None, date_to: Optional[str] 
                    "non_billable": round(r.tracked_h - r.billable_h, 2),
                    "activity": round(r.overall_h / r.tracked_h * 100, 0) if r.tracked_h else 0,
                    "productivity": round(r.billable_h / r.tracked_h * 100, 0) if r.tracked_h else 0} for r in daily.itertuples()]
-    tasks = build_tasks_db(uid) if db.has_db() else build_tasks_sample(uid, name, client)
+    tasks = build_tasks_db(uid, date_from, date_to) if db.has_db() else build_tasks_sample(uid, name, client)
 
     return clean({
         "found": True,
@@ -2613,7 +2624,7 @@ def _table(f, d, emp, members, d_prev=None):
     if f.get("employee"):
         row = members[members["name"] == f["employee"]]
         uid = row.iloc[0]["user_id"] if not row.empty else None
-        rows = build_tasks_db(uid) if db.has_db() else \
+        rows = build_tasks_db(uid, f.get("date_from"), f.get("date_to")) if db.has_db() else \
             build_tasks_sample(uid, f["employee"], "")
         return ["task", "client", "estimated", "tracked", "status", "due"], rows, "employee", "Tasks"
     if f.get("atl"):
