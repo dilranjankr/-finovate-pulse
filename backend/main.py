@@ -1901,11 +1901,12 @@ def command(
     else:
         pa = {}
 
-    def _grouprows(by):
+    def _grouprows(by, frame=None):
         out = []
         if empty:
             return out
-        for _, r in group_metrics(d, by).sort_values("billable", ascending=False).head(60).iterrows():
+        src = d if frame is None else frame
+        for _, r in group_metrics(src, by).sort_values("billable", ascending=False).head(60).iterrows():
             out.append({"team": r[by], "team_size": int(r["people"]),
                         "billable": round(r["billable"], 1), "non_billable": round(r["non_billable"], 1),
                         "total": round(r["total"], 1), "utilization": round(r["utilization"], 0),
@@ -1915,8 +1916,23 @@ def command(
                         "variance": round(r["variance"], 0), "status": "Active"})
         return out
 
-    teams = _grouprows("atl")
-    departments = _grouprows("department")
+    # By Team / By Department. The company-wide view groups per ACTIVITY (the ClickUp
+    # space the work was done in). When a team or department is filtered, regroup by
+    # the CONTRIBUTOR'S HR HOME team/dept, so cross-team helpers surface as their own
+    # bars — e.g. filtering Alliance shows Alliance + Audit & CFOs + Taxes &
+    # Compliances (the home teams of people who pitched in on Alliance's work). Hours
+    # are unchanged (same rows, just regrouped), so the totals still tie out.
+    if not empty and (_vals(f.get("atl")) or _vals(f.get("department"))):
+        _ht, _hd = _hr_team_dept_maps()
+        _dh = d.copy()
+        _uid = _dh["user_id"].astype(str)
+        _dh["atl"] = _uid.map(_ht).fillna(_dh["atl"])
+        _dh["department"] = _uid.map(_hd).fillna(_dh["department"])
+        teams = _grouprows("atl", _dh)
+        departments = _grouprows("department", _dh)
+    else:
+        teams = _grouprows("atl")
+        departments = _grouprows("department")
 
     employees_tbl = []
     if not emp.empty:
