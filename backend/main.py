@@ -732,7 +732,12 @@ def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
                             "attendance_pct": round(present / (present + off) * 100, 0) if (present + off) else 0})
     except Exception:  # noqa
         pass
-    out["funnel"] = {"office_h": round(office_h), "tracked_h": round(tracked_h), "billable_h": round(billable_h)}
+    # Funnel "Office hours" must use the SAME capacity as the Utilization KPI
+    # (_user_cap_hours = Keka effective, with an 8h×working-days fallback for anyone
+    # without attendance) — otherwise the funnel's Tracked% (Keka-only denominator)
+    # wouldn't match the KPI. So Tracked ÷ Office here == the Utilization KPI.
+    cap_h = sum(_user_cap_hours(d).values()) if not d.empty else 0.0
+    out["funnel"] = {"office_h": round(cap_h), "tracked_h": round(tracked_h), "billable_h": round(billable_h)}
     return clean(out)
 
 
