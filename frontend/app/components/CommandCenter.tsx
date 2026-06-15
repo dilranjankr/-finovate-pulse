@@ -954,9 +954,9 @@ export default function CommandCenter({
           <div className="panel">
             <div className="ph"><h3>Workforce <span className="hl">attendance &amp; effort, this period</span></h3></div>
             <div className="wf-tiles">
-              <div className="wf-tile"><b className="num">{workforce.has_keka ? n0(workforce.attendance_pct) + "%" : "—"}</b><span>Attendance</span></div>
-              <div className="wf-tile"><b className="num" style={{ color: "#e8930c" }}>{workforce.has_keka ? n0(workforce.overtime_h) + "h" : "—"}</b><span>Overtime</span></div>
-              <div className="wf-tile"><b className="num" style={{ color: "#ef4444" }}>{workforce.has_keka ? n0(workforce.short_h) + "h" : "—"}</b><span>Short hours</span></div>
+              <div className="wf-tile"><b className="num">{workforce.has_keka ? n0(workforce.attendance_pct) + "%" : "—"}</b><span>Attendance</span><i className="wf-sub">present ÷ scheduled days</i></div>
+              <div className="wf-tile"><b className="num" style={{ color: "#e8930c" }}>{workforce.has_keka ? n0(workforce.overtime_h) + "h" : "—"}</b><span>Overtime</span><i className="wf-sub">worked beyond shift</i></div>
+              <div className="wf-tile"><b className="num" style={{ color: "#ef4444" }}>{workforce.has_keka ? n0(workforce.short_h) + "h" : "—"}</b><span>Short hours</span><i className="wf-sub">below shift hrs · Keka</i></div>
             </div>
             {workforce.has_keka && <div className="wf-note">{n0(workforce.present_days)} present · {n0(workforce.off_days)} leave/absent days · {n0(workforce.late_days)} late arrivals</div>}
           </div>
@@ -2124,7 +2124,9 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
     setHi(Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1)))));
   };
   const fy = fmtY || ((v: number) => String(Math.round(v)));
-  const leftPct = hi != null ? (X(hi) / W) * 100 : 0;
+  // Pin the tooltip to the corner AWAY from the cursor so it never sits on the
+  // lines: hovering the left half -> tooltip top-right, right half -> top-left.
+  const tipRight = hi != null && hi <= (n - 1) / 2;
   return (
     <div ref={ref} className="lc-wrap" onMouseMove={onMove} onMouseLeave={() => setHi(null)}>
       <svg viewBox={`0 0 ${W} ${height}`} width="100%" preserveAspectRatio="none" style={{ display: "block", overflow: "visible" }}>
@@ -2153,7 +2155,7 @@ function LineChart({ series, labels, height = 150, fmtY, fmtX, tipDate }: {
         ) : null)}
       </svg>
       {hi != null && (
-        <div className="lc-tip" style={{ left: `${leftPct}%`, transform: `translateX(${leftPct > 60 ? "-100%" : "0"})` }}>
+        <div className="lc-tip" style={tipRight ? { right: 8 } : { left: 8 }}>
           <b>{tipDate ? tipDate(labels[hi]) : labels[hi]}</b>
           {series.map((s) => (
             <span key={s.name}><i style={{ background: s.color }} />{s.name}: <em>{s.values[hi] != null ? fy(s.values[hi] as number) : "—"}</em></span>
