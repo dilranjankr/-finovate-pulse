@@ -1691,9 +1691,12 @@ def filters(department: Optional[str] = None, atl: Optional[str] = None,
         home_map, hdept_map = _hr_team_dept_maps()
         seen = {str(u) for u in gp["user_id"].unique()}          # active in the period (scope)
         if atl_vals or dep_vals:
+            # Unmapped users (not in employee_mapping) have no home team/dept; their
+            # activity rolls into "Unassigned" in the metrics, so list them there too
+            # — keeps the dropdown consistent with the By Department/Team graphs.
             emp_uids = [u for u in seen
-                        if (not atl_vals or home_map.get(u) in atl_vals)
-                        and (not dep_vals or hdept_map.get(u) in dep_vals)]
+                        if (not atl_vals or (home_map.get(u) or "Unassigned") in atl_vals)
+                        and (not dep_vals or (hdept_map.get(u) or "Unassigned") in dep_vals)]
         else:
             emp_uids = list(seen)
         employees = sorted({name_map.get(u) for u in emp_uids if name_map.get(u)})
@@ -2905,20 +2908,50 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
         return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0, "error": str(e)[:150]}
 
 
+def _budget_norm(c):
+    return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
+
+
+_BUDGET_DDL = """
+CREATE TABLE IF NOT EXISTS client_budgets (
+  client          text PRIMARY KEY,
+  team            text,
+  type            text,
+  monthly_budget  numeric,
+  updated_at      timestamptz DEFAULT now()
+)
+"""
+
+
 @lru_cache(maxsize=1)
 def client_budgets():
-    """{normalized_client -> {budget(monthly hrs), type, team}} from client_budgets.csv."""
+    """{normalized_client -> {budget(monthly hrs), type, team, client}}. Reads the
+    editable client_budgets DB table; falls back to client_budgets.csv only if the
+    table is missing or empty (first run / no DB write)."""
+    out = {}
+    # 1) DB table (preferred — editable from the UI).
+    if db.has_db():
+        try:
+            t = db.q("SELECT client, team, type, monthly_budget FROM client_budgets "
+                     "WHERE coalesce(monthly_budget,0) > 0")
+            for _, r in t.iterrows():
+                cn = (r["client"] or "").strip()
+                if cn:
+                    out[_budget_norm(cn)] = {"budget": float(r["monthly_budget"]),
+                                             "type": (r["type"] or "").strip(),
+                                             "team": (r["team"] or "").strip(), "client": cn}
+            if out:
+                return out
+        except Exception:  # noqa  (table not created yet)
+            pass
+    # 2) CSV fallback.
     import csv as _csv
     here = os.path.dirname(__file__)
     path = os.path.join(here, "client_budgets.csv")
-    if not os.path.exists(path):  # local-dev fallback: repo-root copy
+    if not os.path.exists(path):
         path = os.path.join(here, "..", "client_budgets.csv")
-    out = {}
     if not os.path.exists(path):
         return out
-
-    def _n(c):
-        return re.sub(r"\s*\([fh]\)\s*$", "", str(c).strip(), flags=re.I).strip().lower()
     try:
         with open(path, encoding="utf-8-sig") as fh:
             for r in _csv.DictReader(fh):
@@ -2928,11 +2961,113 @@ def client_budgets():
                 except Exception:
                     bud = 0
                 if cn and bud > 0:
-                    out[_n(cn)] = {"budget": bud, "type": (r.get("type") or "").strip(),
-                                   "team": (r.get("team") or "").strip(), "client": cn}
+                    out[_budget_norm(cn)] = {"budget": bud, "type": (r.get("type") or "").strip(),
+                                             "team": (r.get("team") or "").strip(), "client": cn}
     except Exception:  # noqa
         pass
     return out
+
+
+@app.get("/api/budgets")
+def budgets_list(authorization: Optional[str] = Header(None)):
+    """All client budget rows (for the management table). Owner only."""
+    _require(authorization, "owner")
+    try:
+        df = db.q_write("SELECT client, team, type, monthly_budget FROM client_budgets ORDER BY client")
+        rows = [{"client": r["client"], "team": (r["team"] or ""), "type": (r["type"] or ""),
+                 "monthly_budget": float(r["monthly_budget"]) if r["monthly_budget"] is not None else 0.0}
+                for _, r in df.iterrows()]
+        return {"exists": True, "write": db.has_write(), "count": len(rows), "rows": rows}
+    except Exception:
+        return {"exists": False, "write": db.has_write(), "count": 0, "rows": []}
+
+
+@app.post("/api/budgets/save")
+def budgets_save(payload: dict, authorization: Optional[str] = Header(None)):
+    """Add or update one client budget. Owner only."""
+    _require(authorization, "owner")
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
+    client = str((payload or {}).get("client", "")).strip()
+    if not client:
+        return {"ok": False, "reason": "no_client"}
+    try:
+        bud = float(payload.get("monthly_budget") or 0)
+    except Exception:
+        return {"ok": False, "reason": "bad_budget"}
+    try:
+        db.execute(_BUDGET_DDL)
+        db.execute("""
+            INSERT INTO client_budgets (client, team, type, monthly_budget, updated_at)
+            VALUES (:c, :t, :ty, :b, now())
+            ON CONFLICT (client) DO UPDATE
+              SET team=:t, type=:ty, monthly_budget=:b, updated_at=now()
+        """, {"c": client, "t": (payload.get("team") or "").strip(),
+              "ty": (payload.get("type") or "").strip(), "b": bud})
+        try:
+            db.execute("GRANT SELECT ON client_budgets TO finovate_viewer")
+        except Exception:
+            pass
+        client_budgets.cache_clear()
+        return {"ok": True}
+    except Exception as e:  # noqa
+        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
+
+
+@app.post("/api/budgets/delete")
+def budgets_delete(payload: dict, authorization: Optional[str] = Header(None)):
+    """Delete a client budget row. Owner only."""
+    _require(authorization, "owner")
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write"}
+    client = str((payload or {}).get("client", "")).strip()
+    if not client:
+        return {"ok": False, "reason": "no_client"}
+    try:
+        db.execute("DELETE FROM client_budgets WHERE client = :c", {"c": client})
+        client_budgets.cache_clear()
+        return {"ok": True}
+    except Exception as e:  # noqa
+        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
+
+
+@app.post("/api/budgets/init")
+def budgets_init(authorization: Optional[str] = Header(None)):
+    """One-time: create client_budgets and seed it from client_budgets.csv. Owner only."""
+    _require(authorization, "owner")
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
+    import csv as _csv
+    here = os.path.dirname(__file__)
+    path = os.path.join(here, "client_budgets.csv")
+    if not os.path.exists(path):
+        path = os.path.join(here, "..", "client_budgets.csv")
+    try:
+        db.execute(_BUDGET_DDL)
+        n = 0
+        if os.path.exists(path):
+            with open(path, encoding="utf-8-sig") as fh:
+                for r in _csv.DictReader(fh):
+                    cn = (r.get("client") or "").strip()
+                    if not cn:
+                        continue
+                    try:
+                        bud = float(r.get("monthly_budget") or 0)
+                    except Exception:
+                        bud = 0
+                    db.execute("""INSERT INTO client_budgets (client, team, type, monthly_budget)
+                        VALUES (:c,:t,:ty,:b) ON CONFLICT (client) DO NOTHING""",
+                        {"c": cn, "t": (r.get("team") or "").strip(),
+                         "ty": (r.get("type") or "").strip(), "b": bud})
+                    n += 1
+        try:
+            db.execute("GRANT SELECT ON client_budgets TO finovate_viewer")
+        except Exception:
+            pass
+        client_budgets.cache_clear()
+        return {"ok": True, "rows": n}
+    except Exception as e:  # noqa
+        return {"ok": False, "reason": "db", "detail": str(e)[:300]}
 
 
 def _client_period_tasks(uids, date_from, date_to):

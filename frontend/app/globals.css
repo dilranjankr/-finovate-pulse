@@ -638,6 +638,15 @@ select.map-inp { cursor: pointer; }
 .usr-create-row { display: flex; gap: 8px; flex-wrap: wrap; }
 .usr-in { flex: 1 1 150px; min-width: 130px; border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; font-size: 13px; background: var(--card); color: var(--ink); outline: none; }
 .usr-in:focus { border-color: #2f6fbf; }
+.bgt-add { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.bgt-go { flex: 0 0 auto; border: none; background: var(--navy); color: #fff; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 650; cursor: pointer; }
+.bgt-go:hover { background: var(--navy-2); }
+.bgt-cell { width: 100%; border: 1px solid transparent; border-radius: 6px; padding: 4px 6px; font-size: 12.5px; background: transparent; color: var(--ink); outline: none; }
+.bgt-cell:hover { border-color: var(--line); }
+.bgt-cell:focus { border-color: #2f6fbf; background: var(--card); }
+.bgt-cell.num { text-align: right; font-weight: 650; }
+.bgt-del { border: 1px solid var(--line); background: var(--card); color: var(--muted); border-radius: 6px; padding: 3px 6px; cursor: pointer; display: inline-flex; }
+.bgt-del:hover { border-color: #ef4444; color: #ef4444; }
 .usr-add { flex: 0 0 auto; background: #0f2742; color: #fff; border: 0; border-radius: 8px; padding: 9px 20px; font-weight: 700; font-size: 13px; cursor: pointer; min-width: 84px; display: inline-flex; justify-content: center; align-items: center; }
 .usr-add:disabled { opacity: .5; cursor: default; }
 .usr-invite { margin-top: 10px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }

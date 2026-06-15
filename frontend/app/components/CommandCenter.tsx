@@ -13,6 +13,7 @@ import {
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
   getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData,
+  getBudgets, saveBudget, deleteBudget, type ClientBudgetRow,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
@@ -204,6 +205,32 @@ export default function CommandCenter({
 
     } catch (e) { setKekaMsg({ err: (e as Error).message }); }
     finally { setKekaBusy(false); }
+  }
+  // ---- Client budgets (editable table) ----
+  const [budgetAdminModal, setBudgetAdminModal] = useState(false);
+  const [budgetRows, setBudgetRows] = useState<ClientBudgetRow[] | null>(null);
+  const [budgetQuery, setBudgetQuery] = useState("");
+  const [budgetMsg, setBudgetMsg] = useState<{ ok?: string; err?: string } | null>(null);
+  const [newBudget, setNewBudget] = useState<ClientBudgetRow>({ client: "", team: "", type: "Hourly", monthly_budget: 0 });
+  async function openBudgets() { setBudgetAdminModal(true); setBudgetMsg(null); setBudgetRows(null); try { setBudgetRows((await getBudgets()).rows); } catch { setBudgetRows([]); } }
+  async function persistBudget(row: ClientBudgetRow) {
+    setBudgetMsg(null);
+    const r = await saveBudget({ ...row, monthly_budget: Number(row.monthly_budget) || 0 });
+    if (r.ok) { setBudgetMsg({ ok: `Saved ${row.client}` }); setBudget(await getBudget(draft)); }
+    else setBudgetMsg({ err: r.detail || r.reason || "save failed" });
+    return r.ok;
+  }
+  async function addBudget() {
+    if (!newBudget.client.trim()) { setBudgetMsg({ err: "Client name required" }); return; }
+    if (await persistBudget(newBudget)) {
+      setBudgetRows((rows) => [...(rows || []).filter((x) => x.client !== newBudget.client), newBudget].sort((a, b) => a.client.localeCompare(b.client)));
+      setNewBudget({ client: "", team: "", type: "Hourly", monthly_budget: 0 });
+    }
+  }
+  async function removeBudget(client: string) {
+    const r = await deleteBudget(client);
+    if (r.ok) { setBudgetRows((rows) => (rows || []).filter((x) => x.client !== client)); setBudgetMsg({ ok: `Removed ${client}` }); setBudget(await getBudget(draft)); }
+    else setBudgetMsg({ err: r.reason || "delete failed" });
   }
   const [usersData, setUsersData] = useState<{ users: AdminUser[]; smtp: boolean; owner_email: string } | null>(null);
   const [uForm, setUForm] = useState({ email: "", role: "employee", full_name: "", scope_team: "" });
@@ -734,6 +761,7 @@ export default function CommandCenter({
                       {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); openMapping(); }}><Users size={16} />Employee mapping</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openKeka(); }}><Clock size={16} />Keka attendance (office hours)</button>}
+                      {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openBudgets(); }}><Briefcase size={16} />Client budgets</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); setUsersModal(true); }}><ShieldCheck size={16} />Users &amp; access</button>}
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setPwModal(true); }}><Lock size={16} />Change password</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
@@ -1643,6 +1671,56 @@ export default function CommandCenter({
                   </table>
                 )}
               <p className="email-help" style={{ marginTop: 12 }}>Effective (office) hours from this report now power <b>Utilization</b> across the dashboard — tracked hours ÷ real office hours, instead of a flat 8h/day. Upload each month to keep it accurate.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CLIENT BUDGETS — editable table */}
+      {budgetAdminModal && (
+        <div className="modal-bg" onClick={() => setBudgetAdminModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div><h3><Briefcase size={15} style={{ verticalAlign: -2 }} /> Client Budgets</h3><div className="sub">monthly budgeted hours per client — powers Budget vs Actual</div></div>
+              <div className="modal-x" onClick={() => setBudgetAdminModal(false)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              {budgetMsg?.err && <div className="login-err"><ShieldAlert size={13} />{budgetMsg.err}</div>}
+              {budgetMsg?.ok && <div className="email-ok"><Check size={13} />{budgetMsg.ok}</div>}
+              <div className="bgt-add">
+                <input className="usr-in" placeholder="Client name" value={newBudget.client} onChange={(e) => setNewBudget({ ...newBudget, client: e.target.value })} />
+                <input className="usr-in" placeholder="Team" value={newBudget.team} onChange={(e) => setNewBudget({ ...newBudget, team: e.target.value })} style={{ flex: "0 0 120px", minWidth: 0 }} />
+                <select className="usr-in" value={newBudget.type} onChange={(e) => setNewBudget({ ...newBudget, type: e.target.value })} style={{ flex: "0 0 100px", minWidth: 0 }}><option>Hourly</option><option>Fixed</option></select>
+                <input className="usr-in" type="number" placeholder="Hrs/mo" value={newBudget.monthly_budget || ""} onChange={(e) => setNewBudget({ ...newBudget, monthly_budget: Number(e.target.value) })} style={{ flex: "0 0 80px", minWidth: 0 }} />
+                <button className="bgt-go" onClick={addBudget}>Add</button>
+              </div>
+              <input className="usr-in" placeholder="Search clients…" value={budgetQuery} onChange={(e) => setBudgetQuery(e.target.value)} style={{ margin: "10px 0", width: "100%" }} />
+              {!budgetRows ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
+                : (() => {
+                  const rows = budgetRows.filter((r) => r.client.toLowerCase().includes(budgetQuery.toLowerCase()));
+                  const upd = (client: string, patch: Partial<ClientBudgetRow>) =>
+                    setBudgetRows((rs) => (rs || []).map((x) => x.client === client ? { ...x, ...patch } : x));
+                  return (
+                    <div className="scrollwrap" style={{ maxHeight: 400 }}>
+                      <table className="hd-table">
+                        <thead><tr><th className="l">Client</th><th className="l">Team</th><th>Type</th><th>Hrs/mo</th><th></th></tr></thead>
+                        <tbody>
+                          {rows.map((r) => (
+                            <tr key={r.client}>
+                              <td className="l" style={{ fontWeight: 600 }}>{r.client}</td>
+                              <td className="l"><input className="bgt-cell" value={r.team} onChange={(e) => upd(r.client, { team: e.target.value })} onBlur={() => persistBudget(r)} /></td>
+                              <td><select className="bgt-cell" value={r.type} onChange={(e) => upd(r.client, { type: e.target.value })} onBlur={() => persistBudget(r)}><option>Hourly</option><option>Fixed</option></select></td>
+                              <td className="num"><input className="bgt-cell num" type="number" value={r.monthly_budget} onChange={(e) => upd(r.client, { monthly_budget: Number(e.target.value) })} onBlur={() => persistBudget(r)} style={{ width: 64, textAlign: "right" }} /></td>
+                              <td><button className="bgt-del" title="Delete" onClick={() => removeBudget(r.client)}><X size={13} /></button></td>
+                            </tr>
+                          ))}
+                          {rows.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No matching clients</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()}
+              <p className="email-help" style={{ marginTop: 12 }}>{budgetRows?.length || 0} clients. Budget is scaled to the selected period (monthly × days/30) and compared with actual tracked hours. Edits save on blur and apply immediately.</p>
             </div>
           </div>
         </div>

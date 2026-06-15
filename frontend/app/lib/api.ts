@@ -259,6 +259,30 @@ export async function initMapping(): Promise<{ ok: boolean; rows?: number; detai
   return r.json();
 }
 
+export interface ClientBudgetRow { client: string; team: string; type: string; monthly_budget: number; }
+export interface ClientBudgetsData { exists: boolean; write: boolean; count: number; rows: ClientBudgetRow[]; }
+export async function getBudgets(): Promise<ClientBudgetsData> {
+  const r = await authedFetch(`${API}/api/budgets`, { cache: "no-store" });
+  if (!r.ok) throw new Error("budgets failed");
+  return r.json();
+}
+export async function saveBudget(row: ClientBudgetRow): Promise<{ ok: boolean; detail?: string; reason?: string }> {
+  const r = await authedFetch(`${API}/api/budgets/save`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(row),
+  });
+  return r.json();
+}
+export async function deleteBudget(client: string): Promise<{ ok: boolean; reason?: string }> {
+  const r = await authedFetch(`${API}/api/budgets/delete`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client }),
+  });
+  return r.json();
+}
+export async function initBudgets(): Promise<{ ok: boolean; rows?: number; detail?: string; reason?: string }> {
+  const r = await authedFetch(`${API}/api/budgets/init`, { method: "POST" });
+  return r.json();
+}
+
 export interface BudgetClient {
   client: string; type: string; team: string;
   budget: number; actual: number; variance: number; over: boolean; pct: number;
