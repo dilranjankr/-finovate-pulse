@@ -3393,6 +3393,8 @@ def _client_period_tasks(uids, date_from, date_to):
     params = {"uids": list(uids)}
     if date_from:
         where.append("a.date >= :df"); params["df"] = date_from
+        # Due-floor: same as Task Delivery — drop tasks due BEFORE the period.
+        where.append("(ht.due_at IS NULL OR ht.due_at::date >= :df)")
     if date_to:
         where.append("a.date <= :dt"); params["dt"] = date_to
     # done/open from HUBSTAFF completion (ht.completed_at), not ClickUp status — the
