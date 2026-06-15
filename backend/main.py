@@ -3302,10 +3302,18 @@ def client_budgets():
             t = db.q("SELECT client, team, type, monthly_budget FROM client_budgets")
             for _, r in t.iterrows():
                 cn = (r["client"] or "").strip()
-                if cn:
-                    out[_budget_norm(cn)] = {"budget": float(r["monthly_budget"] or 0),
-                                             "type": (r["type"] or "").strip(),
-                                             "team": (r["team"] or "").strip(), "client": cn}
+                if not cn:
+                    continue
+                k = _budget_norm(cn)
+                bud = float(r["monthly_budget"] or 0)
+                # Two raw rows (e.g. "Acme_Joe" + "Acme_Joe (F)") normalize to the
+                # same key. Keep the one with the REAL budget — never let a 0-budget
+                # duplicate clobber a set budget (was hiding ~40 clients' budgets).
+                prev = out.get(k)
+                if prev and bud == 0 and prev["budget"] > 0:
+                    continue
+                out[k] = {"budget": bud, "type": (r["type"] or "").strip(),
+                          "team": (r["team"] or "").strip(), "client": cn}
             if out:
                 return out
         except Exception:  # noqa  (table not created yet)
