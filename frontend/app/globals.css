@@ -1709,7 +1709,7 @@ tbody tr:hover td { background: #f7f9fd; }
 .ci-btn { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border: 1px solid var(--line); background: #fff; border-radius: 6px; font-size: 12.5px; font-weight: 650; color: var(--accent); cursor: pointer; }
 .ci-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
 .cpage { position: fixed; inset: 0; z-index: 150; background: var(--bg, #f6f7fb); display: flex; flex-direction: column; animation: chatin .16s ease; overflow: hidden; }
-.cpage .panel { border-radius: 6px; }
+.cv-wrap .panel { border-radius: 6px; }
 .cpage-top { display: flex; align-items: center; gap: 16px; padding: 12px 20px; background: #fff; border-bottom: 1px solid var(--line); flex: none; flex-wrap: wrap; }
 .cpage-back { display: inline-flex; align-items: center; gap: 7px; padding: 8px 13px; border: 1px solid var(--line); background: #fff; border-radius: 6px; font-size: 13px; font-weight: 650; color: var(--ink-2); cursor: pointer; }
 .cpage-back:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
@@ -1745,7 +1745,7 @@ tbody tr:hover td { background: #f7f9fd; }
 .cpage-kpi .v { font-size: 20px; font-weight: 750; color: var(--ink); margin-top: 4px; letter-spacing: -.01em; }
 .cpage-kpi .v.ok { color: #15803d; } .cpage-kpi .v.warn { color: #c2410c; } .cpage-kpi .v.bad { color: #dc2626; }
 .cpage-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
-.cpage .ph { display: flex; align-items: center; justify-content: space-between; }
+.cv-wrap .ph { display: flex; align-items: center; justify-content: space-between; }
 .cpage-exp { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: #fff; border-radius: 5px; padding: 6px 11px; font-size: 12px; font-weight: 650; color: var(--ink-2); cursor: pointer; }
 .cpage-exp:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .cpage-bnums { display: flex; gap: 26px; margin-bottom: 13px; }
@@ -1778,3 +1778,10 @@ tbody tr:hover td { background: #f7f9fd; }
 .cpage-note { margin-top: 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
 @media (max-width: 1150px) { .cpage-kpis { grid-template-columns: repeat(4, 1fr); } }
 @media (max-width: 760px) { .cpage-kpis { grid-template-columns: repeat(2, 1fr); } .cpage-grid2 { grid-template-columns: 1fr; } .cpage-rail { width: 190px; } }
+
+/* In-dashboard client view + hide capacity cards in client-mode */
+.cv-wrap { display: flex; flex-direction: column; gap: 13px; margin-bottom: 14px; animation: chatin .16s ease; }
+.page.cmode > .kpi-grid, .page.cmode > .donut-row, .page.cmode > .row2, .page.cmode > .row3,
+.page.cmode > .row3a, .page.cmode > .sec, .page.cmode > .panel, .page.cmode > .foot,
+.page.cmode > .headline, .page.cmode > .kpibento, .page.cmode > .kpi-row, .page.cmode > .tt-row,
+.page.cmode > .ia-row, .page.cmode > .vtabs { display: none !important; }

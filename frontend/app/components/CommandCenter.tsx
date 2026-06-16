@@ -6,7 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight, ArrowLeft, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
+  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
 } from "lucide-react";
 import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
@@ -187,55 +187,28 @@ export default function CommandCenter({
     setClientProf({ name, data: null });
     try { setClientProf({ name, data: await getClient(name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
   }
-  // ===== Standalone Client Intelligence page (separate view; dashboard untouched) =====
-  type CpF = { from: string; to: string; employee: string; team: string; billing: string; status: string };
-  const [clientPage, setClientPage] = useState(false);
-  const [cpClients, setCpClients] = useState<import("../lib/api").ClientListRow[] | null>(null);
-  const [cpName, setCpName] = useState("");
+  // ===== In-dashboard Client view: when ONE client is filtered, the dashboard shows
+  // a client-best view and hides the capacity/HR cards. Driven by the existing filters.
   const [cpData, setCpData] = useState<import("../lib/api").ClientProfile | null>(null);
-  const [cpSearch, setCpSearch] = useState("");
-  const [cpEmpOpts, setCpEmpOpts] = useState<string[]>([]);
-  const [cpF, setCpF] = useState<CpF>({ from: "", to: "", employee: "", team: "", billing: "", status: "all" });
-  function cpFilterObj(f: CpF): Filters {
-    return { ...draft, date_from: f.from || undefined, date_to: f.to || undefined,
-      employee: f.employee || undefined, atl: f.team || undefined, billable: f.billing || undefined };
-  }
-  async function loadCpClient(name: string, f: CpF) {
-    setCpName(name); setCpData(null);
-    try {
-      const d = await getClient(name, cpFilterObj(f));
-      setCpData(d);
-      if (!f.employee && d.people) setCpEmpOpts(d.people.map((p) => p.name));
-    } catch { setCpData({ found: false }); }
-  }
-  async function loadCpList(f: CpF, keepName?: string) {
-    setCpClients(null);
-    try {
-      const list = (await getClientsList(cpFilterObj(f))).clients;
-      setCpClients(list);
-      const keep = (keepName && list.some((c) => c.client === keepName)) ? keepName : list[0]?.client;
-      if (keep) loadCpClient(keep, f); else { setCpName(""); setCpData(null); }
-    } catch { setCpClients([]); }
-  }
-  function openClientPage() {
-    setClientPage(true); setCpData(null); setCpClients(null); setCpSearch(""); setCpEmpOpts([]);
-    const f: CpF = { from: draft.date_from || "", to: draft.date_to || "", employee: "", team: "", billing: "", status: "all" };
-    setCpF(f); loadCpList(f);
-  }
-  function cpApply(patch: Partial<CpF>) {
-    const f = { ...cpF, ...patch }; setCpF(f);
-    if (Object.keys(patch).length === 1 && "status" in patch) return;   // status = frontend-only
-    if ("from" in patch || "to" in patch || "team" in patch) loadCpList(f, cpName);  // date/team affect the list
-    else if (cpName) loadCpClient(cpName, f);                                          // employee/billing = current client
-  }
+  const [cpStatus, setCpStatus] = useState<"all" | "open" | "done" | "over">("all");
+  const cpClientName = (draft.client || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const clientMode = cpClientName.length === 1;
+  useEffect(() => {
+    const cl = (draft.client || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (cl.length !== 1) { setCpData(null); return; }
+    let cancelled = false;
+    setCpData(null); setCpStatus("all");
+    getClient(cl[0], draft).then((d) => { if (!cancelled) setCpData(d); }).catch(() => { if (!cancelled) setCpData({ found: false }); });
+    return () => { cancelled = true; };
+  }, [draft.client, draft.date_from, draft.date_to, draft.employee, draft.atl, draft.billable]);
   function exportClientCsv() {
     if (!cpData?.tasks) return;
-    const head = ["Task", "Status", "Top worker", "Estimate (h)", "Tracked (h)", "Variance (h)", "Variance %"];
+    const head = ["Task", "Status", "Top employee", "Estimate (h)", "Tracked (h)", "Variance (h)", "Variance %"];
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const rows = cpData.tasks.map((t) => [t.task, t.done ? "Done" : "Open", t.worker, t.est, t.actual, t.variance ?? "", t.variance_pct ?? ""].map(esc).join(","));
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([[head.join(","), ...rows].join("\n")], { type: "text/csv" }));
-    a.download = `${cpName || "client"}-tasks.csv`; a.click();
+    a.download = `${cpClientName[0] || "client"}-tasks.csv`; a.click();
   }
   async function openTeam(name: string) {
     setTeamProf({ name, data: null });
@@ -883,7 +856,7 @@ export default function CommandCenter({
   const anyScope = activeCount > 0;
 
   return (
-    <div className="page">
+    <div className={"page" + (clientMode ? " cmode" : "")}>
       {/* HEADER */}
       <div className="topbar">
         <div className="tb-l">
@@ -897,7 +870,6 @@ export default function CommandCenter({
           </div>
         </div>
         <div className="tb-r">
-          <button className="ci-btn" onClick={openClientPage} title="Open the Client Intelligence page"><Briefcase size={14} />Client Intelligence</button>
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
           <span className="tb-sep" />
           {(() => {
@@ -1020,6 +992,113 @@ export default function CommandCenter({
           {loading && <span className="scope-sync"><span className="spin sm" /> updating…</span>}
         </div>
       </div>
+      )}
+
+      {/* ===== CLIENT VIEW — shown in-dashboard when ONE client is filtered ===== */}
+      {clientMode && (
+        <div className="cv-wrap">
+          {!cpData ? <div className="loading" style={{ height: 200 }}><span className="spin" /> Loading client…</div>
+            : !cpData.found ? <div className="empty-s" style={{ padding: 30, textAlign: "center" }}>No tracked time for this client / filter.</div> : (() => {
+              const p = cpData.profile!; const people = cpData.people || []; const allTasks = cpData.tasks || []; const ts = cpData.task_summary;
+              const remaining = p.budget != null ? Math.max(0, p.budget - p.total) : null;
+              const tasks = allTasks.filter((t) => cpStatus === "all" ? true : cpStatus === "open" ? !t.done : cpStatus === "done" ? t.done : (t.variance != null && t.variance > 0));
+              const effCls = (e: number | null) => e == null ? "mid" : e >= 100 ? "good" : e >= 85 ? "mid" : "weak";
+              return (
+                <>
+                  <div className="cpage-hero">
+                    <span className="avatar lg" style={{ background: avatarColor(p.client) }}><Briefcase size={20} /></span>
+                    <div className="cpage-hero-t"><div className="nm">{p.client}</div><div className="tm">{p.team} · {p.department}{p.type ? ` · ${p.type}` : ""} · last worked {p.last_worked}</div></div>
+                    <span className={`grade ${gradeCls(p.health_grade)}`} title="Client health score">{p.health_grade} · {p.health}</span>
+                  </div>
+                  <div className="cpage-kpis">
+                    {[["Total Hours", `${n0(p.total)}h`, ""], ["Billable", `${n0(p.billable)}h`, "ok"], ["Non-Billable", `${n0(p.non_billable)}h`, "warn"],
+                      ["Billable %", `${n0(p.billable_pct)}%`, ""], ["Budget Used", p.used_pct != null ? `${n0(p.used_pct)}%` : "—", p.over ? "bad" : "ok"],
+                      ["Tasks", `${ts?.total ?? 0}`, ""], ["On Estimate", p.on_estimate_pct != null ? `${p.on_estimate_pct}%` : "—", p.on_estimate_pct != null && p.on_estimate_pct < 60 ? "bad" : "ok"], ["Health", `${p.health}/100`, ""]].map(([l, v, tone]) => (
+                      <div className="cpage-kpi" key={l as string}><div className="l">{l}</div><div className={`v num ${tone}`}>{v}</div></div>
+                    ))}
+                  </div>
+                  <div className="cpage-grid2">
+                    <div className="panel">
+                      <div className="ph"><h3>Budget vs Actual</h3></div>
+                      {p.budget == null ? <div className="empty-s" style={{ padding: 18 }}>No budget set for this client.</div> : (
+                        <>
+                          <div className="cpage-bnums">
+                            <div><span>Budget</span><b>{n0(p.budget)}h</b></div>
+                            <div><span>Used</span><b style={{ color: p.over ? "#dc2626" : "var(--accent)" }}>{n0(p.total)}h</b></div>
+                            <div><span>Remaining</span><b>{remaining != null ? n0(remaining) : "—"}h</b></div>
+                          </div>
+                          <div className="cpage-bar"><div className={`cpage-bar-f${p.over ? " over" : ""}`} style={{ width: `${Math.min(100, p.used_pct ?? 0)}%` }} /></div>
+                          <div className="cpage-bar-x"><span>0</span><span>{n0(p.used_pct ?? 0)}% used</span><span>{n0(p.budget)}h</span></div>
+                        </>
+                      )}
+                    </div>
+                    <div className="panel">
+                      <div className="ph"><h3>Billable vs Non-Billable</h3></div>
+                      <div className="donut-wrap" style={{ gap: 16 }}>
+                        <div style={{ width: 130 }}><Donut data={[{ name: "Billable", value: p.billable }, { name: "Non-Billable", value: p.non_billable }]} colors={["#2f6fbf", "#cbd5e1"]} height={150} center={{ value: `${n0(p.billable_pct)}%`, label: "Billable" }} /></div>
+                        <div className="legend">
+                          <div className="li"><span className="dot" style={{ background: "#2f6fbf" }} /><span className="nm">Billable</span><span className="vl">{n0(p.billable)}h</span></div>
+                          <div className="li"><span className="dot" style={{ background: "#cbd5e1" }} /><span className="nm">Non-Billable</span><span className="vl">{n0(p.non_billable)}h</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="panel">
+                    <div className="ph">
+                      <h3>Tasks — Estimate vs Tracked <span className="hl">ClickUp estimate vs Hubstaff tracked</span></h3>
+                      <button className="cpage-exp" onClick={exportClientCsv} title="Export tasks to CSV"><Download size={13} />Export</button>
+                    </div>
+                    {ts && <div className="cpage-tsum">
+                      {([["all", `${ts.total}`, "tasks", ""], ["open", `${ts.open}`, "open", ""], ["done", `${ts.done}`, "done", "okk"], ["over", `${ts.over}`, "over est.", "bad"]] as const).map(([k, v, lbl, tone]) => (
+                        <button key={k} className={`cpage-tchip click ${tone}${cpStatus === k ? " on" : ""}`} onClick={() => setCpStatus(k)}><b>{v}</b><span>{lbl}</span></button>
+                      ))}
+                      <div className="cpage-tchip"><b>{n0(ts.est_total)}h</b><span>estimated</span></div>
+                      <div className="cpage-tchip"><b>{n0(ts.actual_total)}h</b><span>tracked</span></div>
+                    </div>}
+                    <div className="scrollwrap" style={{ maxHeight: 340 }}>
+                      <table className="cpage-tbl">
+                        <thead><tr><th className="l">Task</th><th className="l">Top employee</th><th>Estimate</th><th>Tracked</th><th>Variance</th></tr></thead>
+                        <tbody>
+                          {tasks.map((t, i) => (
+                            <tr key={t.task + i}>
+                              <td className="l"><span className="cpage-tk"><span className={`cpage-st ${t.done ? "done" : "open"}`} />{t.task}</span></td>
+                              <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
+                              <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? `${n1(t.est)}h` : "—"}</td>
+                              <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
+                              <td className="num">{t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={`cpage-var ${t.variance > 0 ? "over" : "under"}`}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h{t.variance_pct != null ? ` (${t.variance_pct > 0 ? "+" : ""}${t.variance_pct}%)` : ""}</span>}</td>
+                            </tr>
+                          ))}
+                          {tasks.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks match.</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                  <div className="panel">
+                    <div className="ph"><h3>Employee Efficiency <span className="hl">estimate vs actual on their tasks</span></h3></div>
+                    <div className="scrollwrap" style={{ maxHeight: 320 }}>
+                      <table className="cpage-tbl">
+                        <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable %</th><th>Tasks</th><th>Efficiency</th><th className="l">Rating</th></tr></thead>
+                        <tbody>
+                          {people.map((e, i) => (
+                            <tr key={e.name + i} className="click" onClick={() => openEmployee(e.name)}>
+                              <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                              <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
+                              <td className="num">{n0(e.billable_pct)}%</td>
+                              <td className="num">{e.tasks}</td>
+                              <td className="num">{e.efficiency != null ? `${e.efficiency}%` : "—"}</td>
+                              <td className="l"><span className={`cpage-flag ${effCls(e.efficiency)}`}>{e.efficiency == null ? "—" : e.efficiency >= 100 ? "Efficient" : e.efficiency >= 85 ? "On track" : "Slow"}</span></td>
+                            </tr>
+                          ))}
+                          {people.length === 0 && <tr><td colSpan={6} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No data</td></tr>}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="cpage-note">Efficiency = task estimate ÷ tracked on tasks they lead. ≥100% = within estimate (efficient); &lt;85% = over estimate.</div>
+                  </div>
+                </>
+              );
+            })()}
+        </div>
       )}
 
       {/* KPI — 8 clean cards (label + big value + icon badge + delta) */}
@@ -2062,140 +2141,6 @@ export default function CommandCenter({
       {/* CHANGE PASSWORD */}
       {pwModal && <ChangePwModal onClose={() => setPwModal(false)} />}
 
-      {/* ===== STANDALONE CLIENT INTELLIGENCE PAGE (separate full-screen view) ===== */}
-      {clientPage && (
-        <div className="cpage">
-          <div className="cpage-top">
-            <button className="cpage-back" onClick={() => setClientPage(false)}><ArrowLeft size={16} />Dashboard</button>
-            <div className="cpage-ttl"><span className="cpage-ic"><Briefcase size={17} /></span><div><h2>Client Intelligence</h2><span>{cpClients ? `${cpClients.length} clients` : "loading…"}</span></div></div>
-            <div className="cpage-filters">
-              <span className="cpage-fl"><CalendarDays size={13} /><input type="date" value={cpF.from} max={cpF.to || undefined} onChange={(e) => cpApply({ from: e.target.value })} /><span>→</span><input type="date" value={cpF.to} min={cpF.from || undefined} onChange={(e) => cpApply({ to: e.target.value })} /></span>
-              <select className="cpage-sel" value={cpF.employee} onChange={(e) => cpApply({ employee: e.target.value })}><option value="">All employees</option>{cpEmpOpts.map((n) => <option key={n} value={n}>{n}</option>)}</select>
-              <select className="cpage-sel" value={cpF.team} onChange={(e) => cpApply({ team: e.target.value })}><option value="">All teams</option>{(opts?.atls || []).map((t) => <option key={t} value={t}>{t}</option>)}</select>
-              <select className="cpage-sel" value={cpF.billing} onChange={(e) => cpApply({ billing: e.target.value })}><option value="">All billing</option><option value="billable">Billable</option><option value="non_billable">Non-billable</option></select>
-              {(cpF.employee || cpF.team || cpF.billing) && <button className="cpage-preset" onClick={() => cpApply({ employee: "", team: "", billing: "" })}>Clear</button>}
-            </div>
-          </div>
-          <div className="cpage-body">
-            <aside className="cpage-rail">
-              <div className="cpage-search"><Search size={14} /><input placeholder="Search clients…" value={cpSearch} onChange={(e) => setCpSearch(e.target.value)} /></div>
-              <div className="cpage-clist">
-                {!cpClients ? <div className="loading" style={{ padding: 24 }}><span className="spin" /></div>
-                  : cpClients.filter((c) => !cpSearch || c.client.toLowerCase().includes(cpSearch.toLowerCase())).map((c) => (
-                    <button key={c.client} className={`cpage-citem${cpName === c.client ? " on" : ""}`} onClick={() => loadCpClient(c.client, cpF)}>
-                      <span className="avatar sm" style={{ background: avatarColor(c.client) }}>{initials(c.client)}</span>
-                      <span className="cpage-cinfo"><b>{c.client}</b><span>{n0(c.hours)}h · {n0(c.billable_pct)}% bill</span></span>
-                    </button>
-                  ))}
-                {cpClients && cpClients.length === 0 && <div className="empty-s" style={{ padding: 20 }}>No clients</div>}
-              </div>
-            </aside>
-            <main className="cpage-main">
-              {!cpData ? <div className="loading" style={{ height: 240 }}><span className="spin" /> Loading client…</div>
-                : !cpData.found ? <div className="loading" style={{ height: 240 }}>No tracked time for this client / filter.</div> : (() => {
-                  const p = cpData.profile!; const people = cpData.people || []; const allTasks = cpData.tasks || []; const ts = cpData.task_summary; const daily = cpData.daily || [];
-                  const remaining = p.budget != null ? Math.max(0, p.budget - p.total) : null;
-                  const tasks = allTasks.filter((t) => cpF.status === "all" ? true : cpF.status === "open" ? !t.done : cpF.status === "done" ? t.done : (t.variance != null && t.variance > 0));
-                  const effCls = (e: number | null) => e == null ? "mid" : e >= 100 ? "good" : e >= 85 ? "mid" : "weak";
-                  return (
-                    <>
-                      <div className="cpage-hero">
-                        <span className="avatar lg" style={{ background: avatarColor(p.client) }}><Briefcase size={20} /></span>
-                        <div className="cpage-hero-t"><div className="nm">{p.client}</div><div className="tm">{p.team} · {p.department}{p.type ? ` · ${p.type}` : ""} · last worked {p.last_worked}</div></div>
-                        <span className={`grade ${gradeCls(p.health_grade)}`} title="Client health score">{p.health_grade} · {p.health}</span>
-                      </div>
-                      <div className="cpage-kpis">
-                        {[["Total Hours", `${n0(p.total)}h`, ""], ["Billable", `${n0(p.billable)}h`, "ok"], ["Non-Billable", `${n0(p.non_billable)}h`, "warn"],
-                          ["Billable %", `${n0(p.billable_pct)}%`, ""], ["Budget Used", p.used_pct != null ? `${n0(p.used_pct)}%` : "—", p.over ? "bad" : "ok"],
-                          ["Tasks", `${ts?.total ?? 0}`, ""], ["On Estimate", p.on_estimate_pct != null ? `${p.on_estimate_pct}%` : "—", p.on_estimate_pct != null && p.on_estimate_pct < 60 ? "bad" : "ok"], ["Health", `${p.health}/100`, ""]].map(([l, v, tone]) => (
-                          <div className="cpage-kpi" key={l as string}><div className="l">{l}</div><div className={`v num ${tone}`}>{v}</div></div>
-                        ))}
-                      </div>
-                      <div className="cpage-grid2">
-                        <div className="panel">
-                          <div className="ph"><h3>Budget vs Actual</h3></div>
-                          {p.budget == null ? <div className="empty-s" style={{ padding: 18 }}>No budget set for this client.</div> : (
-                            <>
-                              <div className="cpage-bnums">
-                                <div><span>Budget</span><b>{n0(p.budget)}h</b></div>
-                                <div><span>Used</span><b style={{ color: p.over ? "#dc2626" : "var(--accent)" }}>{n0(p.total)}h</b></div>
-                                <div><span>Remaining</span><b>{remaining != null ? n0(remaining) : "—"}h</b></div>
-                              </div>
-                              <div className="cpage-bar"><div className={`cpage-bar-f${p.over ? " over" : ""}`} style={{ width: `${Math.min(100, p.used_pct ?? 0)}%` }} /></div>
-                              <div className="cpage-bar-x"><span>0</span><span>{n0(p.used_pct ?? 0)}% used</span><span>{n0(p.budget)}h</span></div>
-                            </>
-                          )}
-                        </div>
-                        <div className="panel">
-                          <div className="ph"><h3>Billable vs Non-Billable</h3></div>
-                          <div className="donut-wrap" style={{ gap: 16 }}>
-                            <div style={{ width: 130 }}><Donut data={[{ name: "Billable", value: p.billable }, { name: "Non-Billable", value: p.non_billable }]} colors={["#2f6fbf", "#cbd5e1"]} height={150} center={{ value: `${n0(p.billable_pct)}%`, label: "Billable" }} /></div>
-                            <div className="legend">
-                              <div className="li"><span className="dot" style={{ background: "#2f6fbf" }} /><span className="nm">Billable</span><span className="vl">{n0(p.billable)}h</span></div>
-                              <div className="li"><span className="dot" style={{ background: "#cbd5e1" }} /><span className="nm">Non-Billable</span><span className="vl">{n0(p.non_billable)}h</span></div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="panel">
-                        <div className="ph">
-                          <h3>Tasks — Estimate vs Tracked <span className="hl">ClickUp estimate vs Hubstaff tracked</span></h3>
-                          <button className="cpage-exp" onClick={exportClientCsv} title="Export tasks to CSV"><Download size={13} />Export</button>
-                        </div>
-                        {ts && <div className="cpage-tsum">
-                          {([["all", `${ts.total}`, "tasks", ""], ["open", `${ts.open}`, "open", ""], ["done", `${ts.done}`, "done", "okk"], ["over", `${ts.over}`, "over est.", "bad"]] as const).map(([k, v, lbl, tone]) => (
-                            <button key={k} className={`cpage-tchip click ${tone}${cpF.status === k ? " on" : ""}`} onClick={() => cpApply({ status: k })}><b>{v}</b><span>{lbl}</span></button>
-                          ))}
-                          <div className="cpage-tchip"><b>{n0(ts.est_total)}h</b><span>estimated</span></div>
-                          <div className="cpage-tchip"><b>{n0(ts.actual_total)}h</b><span>tracked</span></div>
-                        </div>}
-                        <div className="scrollwrap" style={{ maxHeight: 320 }}>
-                          <table className="cpage-tbl">
-                            <thead><tr><th className="l">Task</th><th className="l">Top employee</th><th>Estimate</th><th>Tracked</th><th>Variance</th></tr></thead>
-                            <tbody>
-                              {tasks.map((t, i) => (
-                                <tr key={t.task + i}>
-                                  <td className="l"><span className="cpage-tk"><span className={`cpage-st ${t.done ? "done" : "open"}`} />{t.task}</span></td>
-                                  <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
-                                  <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? `${n1(t.est)}h` : "—"}</td>
-                                  <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
-                                  <td className="num">{t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={`cpage-var ${t.variance > 0 ? "over" : "under"}`}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h{t.variance_pct != null ? ` (${t.variance_pct > 0 ? "+" : ""}${t.variance_pct}%)` : ""}</span>}</td>
-                                </tr>
-                              ))}
-                              {tasks.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks match.</td></tr>}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                      <div className="panel">
-                        <div className="ph"><h3>Employee Efficiency <span className="hl">estimate vs actual on their tasks</span></h3></div>
-                        <div className="scrollwrap" style={{ maxHeight: 300 }}>
-                          <table className="cpage-tbl">
-                            <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable %</th><th>Tasks</th><th>Efficiency</th><th className="l">Rating</th></tr></thead>
-                            <tbody>
-                              {people.map((e, i) => (
-                                <tr key={e.name + i} className="click" onClick={() => { setClientPage(false); openEmployee(e.name); }}>
-                                  <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
-                                  <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
-                                  <td className="num">{n0(e.billable_pct)}%</td>
-                                  <td className="num">{e.tasks}</td>
-                                  <td className="num">{e.efficiency != null ? `${e.efficiency}%` : "—"}</td>
-                                  <td className="l"><span className={`cpage-flag ${effCls(e.efficiency)}`}>{e.efficiency == null ? "—" : e.efficiency >= 100 ? "Efficient" : e.efficiency >= 85 ? "On track" : "Slow"}</span></td>
-                                </tr>
-                              ))}
-                              {people.length === 0 && <tr><td colSpan={6} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No data</td></tr>}
-                            </tbody>
-                          </table>
-                        </div>
-                        <div className="cpage-note">Efficiency = task estimate ÷ tracked on tasks they lead. ≥100% = finished within estimate (efficient); &lt;85% = over estimate.</div>
-                      </div>
-                    </>
-                  );
-                })()}
-            </main>
-          </div>
-        </div>
-      )}
 
       {/* FLOATING AI CHAT */}
       <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Pulse AI" aria-label="Ask AI">
