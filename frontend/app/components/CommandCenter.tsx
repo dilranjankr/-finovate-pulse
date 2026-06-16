@@ -6,7 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil,
+  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
 } from "lucide-react";
 import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
@@ -47,7 +47,6 @@ function hrBadge(s?: string) {
   const m = HR_BADGE[s || ""];
   return m ? <span className={`hrb ${m[1]}`}>{m[0]}</span> : null;
 }
-const AI_SUGGESTIONS = ["Top clients by hours", "Clients over budget", "Synergy team hours", "Most overtime this month", "At-risk clients"];
 type AiMsg = {
   role: "user" | "ai"; text: string; insight?: string; kind?: "bar" | "donut" | "none";
   bars?: { label: string; value: number; color?: string }[];
@@ -1932,21 +1931,21 @@ export default function CommandCenter({
       {pwModal && <ChangePwModal onClose={() => setPwModal(false)} />}
 
       {/* FLOATING AI CHAT */}
-      <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Insight AI" aria-label="Ask AI">
-        {chatOpen ? <X size={20} /> : <Sparkles size={20} />}
+      <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Pulse AI" aria-label="Ask AI">
+        {chatOpen ? <X size={20} /> : <Bot size={23} />}
       </button>
       {chatOpen && (
         <div className="ai-chat">
           <div className="ai-chat-h">
-            <div className="ai-chat-title"><span className="ai-chat-ic"><Sparkles size={16} /></span><div><b>Insight AI</b><span>powered by Gemini · live data</span></div></div>
+            <div className="ai-chat-title"><span className="ai-chat-ic"><Bot size={17} /></span><div><b>Pulse AI</b><span>Live data · charts & insights</span></div></div>
             <button className="ai-chat-x" onClick={() => setChatOpen(false)}><X size={16} /></button>
           </div>
           <div className="ai-chat-body" ref={chatRef}>
             {messages.length === 0 && (
               <div className="ai-welcome">
-                <span className="ai-welcome-ic"><Sparkles size={22} /></span>
-                <p>Hi! Main Pulse AI hoon — poore database se live jawab deta hoon. Kisi bhi employee, client, team, budget, attendance ya trend pe sawaal poochho — chart aur insight ke saath jawab milega.</p>
-                <div className="chipsai">{AI_SUGGESTIONS.map((s) => <span key={s} className="aichip" onClick={() => ask(s)}>{s}</span>)}</div>
+                <span className="ai-welcome-ic"><Bot size={24} /></span>
+                <b className="ai-welcome-t">Ask in your natural language</b>
+                <p>Type any question about employees, clients, teams, budgets or attendance — answered live from your data with a chart and insight.</p>
               </div>
             )}
             {messages.map((m, i) => (m.role === "user" ? (
