@@ -652,23 +652,31 @@ select.map-inp { cursor: pointer; }
 .td-link { cursor: pointer; }
 .td-link:hover { background: var(--chip); border-radius: 6px; }
 
-/* Employee Mapping — table cells + Actions */
-.emp-id { display: inline-block; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 11.5px; border-radius: 6px; padding: 2px 8px; }
-.mp-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 650; }
-.mp-status .dot { width: 7px; height: 7px; border-radius: 50%; }
-.mp-status.on { color: #15803d; } .mp-status.on .dot { background: #22c55e; }
-.mp-status.off { color: var(--muted); } .mp-status.off .dot { background: #cbd5e1; }
-.mp-actions { display: flex; align-items: center; gap: 4px; position: relative; }
-.mp-change { color: var(--accent); background: none; border: none; font-weight: 650; font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
-.mp-change:hover:not(:disabled) { background: var(--accent-soft); }
-.mp-change:disabled { color: var(--muted); cursor: default; }
-.mp-kebwrap { position: relative; }
-.mp-kebab { background: none; border: none; cursor: pointer; color: var(--muted); padding: 2px 6px; font-size: 17px; line-height: 1; border-radius: 6px; }
-.mp-kebab:hover { background: var(--accent-soft); color: var(--accent); }
-.mp-menu { position: absolute; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: 0 10px 30px rgba(15,23,42,.14); z-index: 20; min-width: 160px; padding: 5px; }
-.mp-menu button { display: block; width: 100%; text-align: left; padding: 8px 11px; border: none; background: none; font-size: 12.5px; cursor: pointer; border-radius: 6px; color: var(--ink-2); }
-.mp-menu button:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
-.mp-menu button:disabled { color: var(--muted); cursor: default; }
+/* Employee Mapping — clean professional table */
+.emp-id { display: inline-block; background: var(--accent-soft); color: var(--accent); font-weight: 650; font-size: 11.5px; border-radius: 6px; padding: 3px 9px; letter-spacing: .01em; }
+.mp-dash { color: var(--muted); }
+.mp-table { width: 100%; border-collapse: collapse; }
+.mp-table thead th { font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--muted); text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: #fff; z-index: 1; }
+.mp-table tbody td { padding: 12px 16px; border-bottom: 1px solid #f1f3f8; font-size: 13px; vertical-align: middle; }
+.mp-table tbody tr:hover { background: #fafbfe; }
+.mp-table tbody tr:last-child td { border-bottom: none; }
+.mp-emp { display: flex; align-items: center; gap: 11px; }
+.mp-avatar { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 750; flex: none; letter-spacing: .02em; }
+.mp-emp-t { display: flex; flex-direction: column; line-height: 1.35; min-width: 0; }
+.mp-emp-t b { font-size: 13px; font-weight: 650; color: var(--ink); }
+.mp-emp-t span { font-size: 11.5px; color: var(--muted); }
+.mp-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 650; padding: 3px 11px 3px 9px; border-radius: 20px; }
+.mp-pill .dot { width: 6px; height: 6px; border-radius: 50%; }
+.mp-pill.on { background: #e8f7ee; color: #15803d; } .mp-pill.on .dot { background: #22c55e; }
+.mp-pill.off { background: #f1f3f8; color: var(--muted); } .mp-pill.off .dot { background: #aab4c4; }
+.mp-team { display: flex; flex-direction: column; line-height: 1.35; }
+.mp-team b { font-size: 12.5px; font-weight: 650; color: var(--ink); }
+.mp-team span { font-size: 11px; color: var(--muted); }
+.mp-moves { color: var(--accent); font-weight: 650; }
+.mp-date { white-space: nowrap; color: var(--ink-2); font-size: 12.5px; }
+.mp-edit { display: inline-flex; align-items: center; gap: 6px; padding: 6px 13px; border: 1px solid var(--line); background: #fff; border-radius: 8px; color: var(--ink-2); font-size: 12.5px; font-weight: 650; cursor: pointer; transition: all .12s; }
+.mp-edit:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.mp-edit:disabled { color: var(--muted); cursor: default; opacity: .6; }
 
 /* Right-side slide-out drawer */
 .drawer-bg { position: fixed; inset: 0; background: rgba(15,23,42,.34); z-index: 80; display: flex; justify-content: flex-end; }

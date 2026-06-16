@@ -6,7 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Filter, MoreVertical, ExternalLink,
+  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil,
 } from "lucide-react";
 import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
@@ -361,7 +361,6 @@ export default function CommandCenter({
   // Right-side "Update Employee Mapping" drawer (edit + dated team transfer in one place)
   type MapEditState = { row: import("../lib/api").MappingRow; hr_full_name: string; hr_employee_no: string; status: string; department: string; team: string; xferDate: string; reason: string; notes: string; histOpen: boolean };
   const [mapEdit, setMapEdit] = useState<MapEditState | null>(null);
-  const [mapMenu, setMapMenu] = useState("");
   const XFER_REASONS = ["Team Restructuring", "Promotion", "Performance", "Client Requirement", "Resource Reallocation", "Role Change", "Other"];
   function fmtDate(s?: string | null) {
     if (!s) return "—";
@@ -372,8 +371,11 @@ export default function CommandCenter({
     const h = r.history || [];
     return h.length ? fmtDate(h[h.length - 1].effective_from) : "—";
   }
+  function initials(name: string) {
+    const p = (name || "").trim().split(/\s+/).filter(Boolean);
+    return ((p[0]?.[0] || "") + (p.length > 1 ? p[p.length - 1][0] : "")).toUpperCase() || "?";
+  }
   function openMapEdit(r: import("../lib/api").MappingRow, histOpen = false) {
-    setMapMenu("");
     setMapEdit({ row: r, hr_full_name: r.hr_full_name || "", hr_employee_no: r.hr_employee_no || "", status: r.status || "ACTIVE", department: r.department || "", team: r.team || "", xferDate: "", reason: "", notes: r.notes || "", histOpen });
   }
   async function saveMapEdit() {
@@ -1792,7 +1794,6 @@ export default function CommandCenter({
                 </div>
                 <div className="keka-loaded-r">
                   <div className="keka-srch"><Search size={14} /><input placeholder="Search month…" value={kekaSearch} onChange={(e) => setKekaSearch(e.target.value)} /></div>
-                  <button className="keka-filt"><Filter size={15} /></button>
                 </div>
               </div>
 
@@ -1802,7 +1803,7 @@ export default function CommandCenter({
                     <table className="keka-table">
                       <thead><tr>
                         <th className="l">MONTH</th><th>EMPLOYEES</th><th>ROWS</th><th>EFFECTIVE HOURS</th>
-                        <th className="l">UPLOADED ON</th><th className="l">UPLOADED BY</th><th>ACTIONS</th>
+                        <th className="l">UPLOADED ON</th><th className="l">UPLOADED BY</th>
                       </tr></thead>
                       <tbody>
                         {months.map((m) => (
@@ -1813,12 +1814,6 @@ export default function CommandCenter({
                             <td className="num" style={{ fontWeight: 700 }}>{n0(m.effective_hours)}h</td>
                             <td className="l" style={{ whiteSpace: "nowrap", color: "var(--ink-2)" }}>{m.uploaded_on || "—"}</td>
                             <td className="l" style={{ color: "var(--ink-2)" }}>{m.uploaded_by || "—"}</td>
-                            <td>
-                              <div className="keka-acts">
-                                <button className="keka-act" title="Download not available" disabled><Download size={15} /></button>
-                                <button className="keka-act" title="More"><MoreVertical size={15} /></button>
-                              </div>
-                            </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1827,11 +1822,7 @@ export default function CommandCenter({
                 )}
 
               <div className="keka-foot">
-                <div className="keka-secure"><span className="keka-secure-ico"><ShieldCheck size={18} /></span><div><b>Secure &amp; Reliable</b><span>Your data is encrypted and stored securely.</span></div></div>
-                <div className="keka-foot-r">
-                  <span className="keka-help">Need help? <a href="#" onClick={(e) => e.preventDefault()}>View upload guide <ExternalLink size={12} /></a></span>
-                  <button className="btn-ghost" onClick={() => setKekaModal(false)}>Close</button>
-                </div>
+                <button className="btn-ghost" onClick={() => setKekaModal(false)}>Close</button>
               </div>
             </div>
           </div>
@@ -2068,49 +2059,43 @@ export default function CommandCenter({
                 ) : (
                   <>
                     {!mapData.write && <div className="empty-s" style={{ padding: "6px 10px", marginBottom: 8, color: "#e8930c" }}>Read-only — editing disabled (DATABASE_URL_WRITE not set).</div>}
-                    <div className="scrollwrap" style={{ maxHeight: 520 }}>
-                      <table className="ec-table">
+                    <div className="scrollwrap" style={{ maxHeight: 540 }}>
+                      <table className="mp-table">
                         <thead><tr>
-                          <th className="l">Hubstaff Name</th><th className="l">HR Name</th><th className="l">Employee ID</th>
-                          <th className="l">Status</th><th className="l">Department</th><th className="l">Team</th>
-                          <th className="l">Transfer Date</th><th className="l">Actions</th>
+                          <th className="l">Employee</th><th className="l">Employee ID</th>
+                          <th className="l">Status</th><th className="l">Team</th>
+                          <th className="l">Transfer Date</th><th></th>
                         </tr></thead>
                         <tbody>
-                          {mapData.rows.filter((r) => !mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "")).toLowerCase().includes(mapSearch.toLowerCase())).slice(0, 60).map((r) => (
-                            <tr key={r.hubstaff_name} style={r.reviewed ? { background: "color-mix(in srgb, var(--accent) 6%, transparent)" } : undefined}>
-                              <td className="l"><span className="tname">{r.hubstaff_name}</span></td>
-                              <td className="l">{r.hr_full_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                              <td className="l">{r.hr_employee_no ? <span className="emp-id">{r.hr_employee_no}</span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                          {mapData.rows.filter((r) => !mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "")).toLowerCase().includes(mapSearch.toLowerCase())).slice(0, 60).map((r) => {
+                            const active = (r.status || "").toUpperCase() === "ACTIVE";
+                            const moves = r.history?.length || 0;
+                            return (
+                            <tr key={r.hubstaff_name}>
                               <td className="l">
-                                <span className={"mp-status " + ((r.status || "").toUpperCase() === "ACTIVE" ? "on" : "off")}>
-                                  <span className="dot" />{r.status || "—"}
-                                </span>
-                              </td>
-                              <td className="l">{r.department || <span style={{ color: "var(--muted)" }}>—</span>}</td>
-                              <td className="l">
-                                {r.team || <span style={{ color: "var(--muted)" }}>—</span>}
-                                {(r.history && r.history.length > 0) && (
-                                  <span className="xfer-chip" title={r.history.map((h) => `${h.team} from ${h.effective_from}`).join("  →  ")}>⟳ {r.history.length}</span>
-                                )}
-                              </td>
-                              <td className="l" style={{ whiteSpace: "nowrap", color: "var(--ink, #0f172a)" }}>{lastTransferDate(r)}</td>
-                              <td className="l">
-                                <div className="mp-actions">
-                                  <button className="mp-change" disabled={!mapData.write} onClick={() => openMapEdit(r)}>Change</button>
-                                  <div className="mp-kebwrap">
-                                    <button className="mp-kebab" onClick={() => setMapMenu(mapMenu === r.hubstaff_name ? "" : r.hubstaff_name)}>⋮</button>
-                                    {mapMenu === r.hubstaff_name && (
-                                      <div className="mp-menu" onMouseLeave={() => setMapMenu("")}>
-                                        <button onClick={() => openMapEdit(r)} disabled={!mapData.write}>Change Mapping</button>
-                                        <button onClick={() => openMapEdit(r, true)}>Transfer History</button>
-                                        <button onClick={() => openMapEdit(r)}>View Details</button>
-                                      </div>
-                                    )}
+                                <div className="mp-emp">
+                                  <span className="mp-avatar">{initials(r.hubstaff_name)}</span>
+                                  <div className="mp-emp-t">
+                                    <b>{r.hubstaff_name}</b>
+                                    <span>{r.hr_full_name || "—"}</span>
                                   </div>
                                 </div>
                               </td>
+                              <td className="l">{r.hr_employee_no ? <span className="emp-id">{r.hr_employee_no}</span> : <span className="mp-dash">—</span>}</td>
+                              <td className="l"><span className={"mp-pill " + (active ? "on" : "off")}><span className="dot" />{r.status || "—"}</span></td>
+                              <td className="l">
+                                <div className="mp-team">
+                                  <b>{r.team || "—"}</b>
+                                  <span>{r.department || "—"}{moves > 0 && <span className="mp-moves" title="Team transfers recorded"> · {moves} move{moves > 1 ? "s" : ""}</span>}</span>
+                                </div>
+                              </td>
+                              <td className="l mp-date">{lastTransferDate(r)}</td>
+                              <td style={{ textAlign: "right" }}>
+                                <button className="mp-edit" disabled={!mapData.write} onClick={() => openMapEdit(r)}><Pencil size={13} /> Edit</button>
+                              </td>
                             </tr>
-                          ))}
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
