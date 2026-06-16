@@ -330,16 +330,20 @@ export async function getBudget(f: Filters): Promise<BudgetData> {
   return r.json();
 }
 
+export interface ClientTask { task: string; done: boolean; est: number; actual: number; variance: number | null; variance_pct: number | null; worker: string; }
+export interface ClientTaskSummary { total: number; open: number; done: number; over: number; under: number; est_total: number; actual_total: number; }
 export interface ClientProfile {
   found: boolean;
   profile?: {
     client: string; team: string; department: string; type: string;
     total: number; billable: number; non_billable: number; billable_pct: number;
-    budget: number | null; variance: number | null; over: boolean | null;
-    people: number; days: number; last_worked: string;
+    budget: number | null; used_pct: number | null; variance: number | null; over: boolean | null;
+    people: number; days: number; last_worked: string; health: number; health_grade: string;
   };
-  people?: { name: string; hours: number; billable: number; days: number }[];
+  people?: { name: string; hours: number; billable: number; days: number; billable_pct: number; activity_pct: number }[];
   daily?: { date: string; billable: number; non_billable: number }[];
+  tasks?: ClientTask[];
+  task_summary?: ClientTaskSummary;
 }
 export async function getClient(name: string, f: Filters): Promise<ClientProfile> {
   const qs = new URLSearchParams({ name });

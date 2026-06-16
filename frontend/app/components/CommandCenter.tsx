@@ -6,7 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
+  Check, ArrowRight, ArrowLeft, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
 } from "lucide-react";
 import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
@@ -22,7 +22,8 @@ import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
-function gradeCls(g: string) {
+function gradeCls(g?: string) {
+  if (!g) return "gD";
   if (g.startsWith("A")) return "gA";
   if (g === "B+") return "gB";
   if (g === "B") return "gBb";
@@ -186,6 +187,24 @@ export default function CommandCenter({
   async function openClient(name: string) {
     setClientProf({ name, data: null });
     try { setClientProf({ name, data: await getClient(name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
+  }
+  // Standalone Client Intelligence page (separate full-screen view; dashboard untouched)
+  const [clientPage, setClientPage] = useState(false);
+  const [cpClients, setCpClients] = useState<import("../lib/api").ClientListRow[] | null>(null);
+  const [cpName, setCpName] = useState("");
+  const [cpData, setCpData] = useState<import("../lib/api").ClientProfile | null>(null);
+  const [cpSearch, setCpSearch] = useState("");
+  async function selectCp(name: string) {
+    setCpName(name); setCpData(null);
+    try { setCpData(await getClient(name, draft)); } catch { setCpData({ found: false }); }
+  }
+  async function openClientPage() {
+    setClientPage(true); setCpData(null); setCpClients(null); setCpSearch("");
+    try {
+      const list = (await getClientsList(draft)).clients;
+      setCpClients(list);
+      if (list[0]?.client) selectCp(list[0].client);
+    } catch { setCpClients([]); }
   }
   async function openTeam(name: string) {
     setTeamProf({ name, data: null });
@@ -847,6 +866,7 @@ export default function CommandCenter({
           </div>
         </div>
         <div className="tb-r">
+          <button className="ci-btn" onClick={openClientPage} title="Open the Client Intelligence page"><Briefcase size={14} />Client Intelligence</button>
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
           <span className="tb-sep" />
           {(() => {
@@ -2010,6 +2030,136 @@ export default function CommandCenter({
 
       {/* CHANGE PASSWORD */}
       {pwModal && <ChangePwModal onClose={() => setPwModal(false)} />}
+
+      {/* ===== STANDALONE CLIENT INTELLIGENCE PAGE (separate full-screen view) ===== */}
+      {clientPage && (
+        <div className="cpage">
+          <div className="cpage-top">
+            <button className="cpage-back" onClick={() => setClientPage(false)}><ArrowLeft size={16} />Dashboard</button>
+            <div className="cpage-ttl"><span className="cpage-ic"><Briefcase size={17} /></span><div><h2>Client Intelligence</h2><span>{draft.date_from && draft.date_to ? `${draft.date_from} → ${draft.date_to}` : "All time"}</span></div></div>
+          </div>
+          <div className="cpage-body">
+            <aside className="cpage-rail">
+              <div className="cpage-search"><Search size={14} /><input placeholder="Search clients…" value={cpSearch} onChange={(e) => setCpSearch(e.target.value)} /></div>
+              <div className="cpage-clist">
+                {!cpClients ? <div className="loading" style={{ padding: 24 }}><span className="spin" /></div>
+                  : cpClients.filter((c) => !cpSearch || c.client.toLowerCase().includes(cpSearch.toLowerCase())).map((c) => (
+                    <button key={c.client} className={`cpage-citem${cpName === c.client ? " on" : ""}`} onClick={() => selectCp(c.client)}>
+                      <span className="avatar sm" style={{ background: avatarColor(c.client) }}>{initials(c.client)}</span>
+                      <span className="cpage-cinfo"><b>{c.client}</b><span>{n0(c.hours)}h · {n0(c.billable_pct)}% bill</span></span>
+                    </button>
+                  ))}
+                {cpClients && cpClients.length === 0 && <div className="empty-s" style={{ padding: 20 }}>No clients</div>}
+              </div>
+            </aside>
+            <main className="cpage-main">
+              {!cpData ? <div className="loading" style={{ height: 240 }}><span className="spin" /> Loading client…</div>
+                : !cpData.found ? <div className="loading" style={{ height: 240 }}>No tracked time for this client in the selected period.</div> : (() => {
+                  const p = cpData.profile!; const people = cpData.people || []; const tasks = cpData.tasks || []; const ts = cpData.task_summary;
+                  const remaining = p.budget != null ? Math.max(0, p.budget - p.total) : null;
+                  return (
+                    <>
+                      <div className="cpage-hero">
+                        <span className="avatar lg" style={{ background: avatarColor(p.client) }}><Briefcase size={20} /></span>
+                        <div className="cpage-hero-t"><div className="nm">{p.client}</div><div className="tm">{p.team} · {p.department}{p.type ? ` · ${p.type}` : ""}</div></div>
+                        <span className={`grade ${gradeCls(p.health_grade)}`} title="Client health score">{p.health_grade} · {p.health}</span>
+                      </div>
+
+                      <div className="cpage-kpis">
+                        {[["Total Hours", `${n0(p.total)}h`, ""], ["Billable", `${n0(p.billable)}h`, "ok"], ["Non-Billable", `${n0(p.non_billable)}h`, "warn"],
+                          ["Billable %", `${n0(p.billable_pct)}%`, ""], ["Budget Used", p.used_pct != null ? `${n0(p.used_pct)}%` : "—", p.over ? "bad" : "ok"], ["Health", `${p.health}/100`, ""]].map(([l, v, tone]) => (
+                          <div className="cpage-kpi" key={l as string}><div className="l">{l}</div><div className={`v num ${tone}`}>{v}</div></div>
+                        ))}
+                      </div>
+
+                      <div className="cpage-grid2">
+                        <div className="panel">
+                          <div className="ph"><h3>Budget Health</h3></div>
+                          {p.budget == null ? <div className="empty-s" style={{ padding: 18 }}>No budget set for this client.</div> : (
+                            <>
+                              <div className="cpage-bnums">
+                                <div><span>Budget</span><b>{n0(p.budget)}h</b></div>
+                                <div><span>Used</span><b style={{ color: p.over ? "#dc2626" : "var(--accent)" }}>{n0(p.total)}h</b></div>
+                                <div><span>Remaining</span><b>{remaining != null ? n0(remaining) : "—"}h</b></div>
+                              </div>
+                              <div className="cpage-bar"><div className={`cpage-bar-f${p.over ? " over" : ""}`} style={{ width: `${Math.min(100, p.used_pct ?? 0)}%` }} /></div>
+                              <div className="cpage-bar-x"><span>0</span><span>{n0(p.used_pct ?? 0)}% used</span><span>{n0(p.budget)}h</span></div>
+                            </>
+                          )}
+                        </div>
+                        <div className="panel">
+                          <div className="ph"><h3>Billable Performance</h3></div>
+                          <div className="donut-wrap" style={{ gap: 16 }}>
+                            <div style={{ width: 130 }}><Donut data={[{ name: "Billable", value: p.billable }, { name: "Non-Billable", value: p.non_billable }]} colors={["#2f6fbf", "#cbd5e1"]} height={150} center={{ value: `${n0(p.billable_pct)}%`, label: "Billable" }} /></div>
+                            <div className="legend">
+                              <div className="li"><span className="dot" style={{ background: "#2f6fbf" }} /><span className="nm">Billable</span><span className="vl">{n0(p.billable)}h</span></div>
+                              <div className="li"><span className="dot" style={{ background: "#cbd5e1" }} /><span className="nm">Non-Billable</span><span className="vl">{n0(p.non_billable)}h</span></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="panel">
+                        <div className="ph"><h3>Task Estimation Intelligence <span className="hl">ClickUp estimate vs tracked hours</span></h3></div>
+                        {ts && <div className="cpage-tsum">
+                          <div className="cpage-tchip"><b>{ts.total}</b><span>tasks</span></div>
+                          <div className="cpage-tchip ok"><b>{ts.done}</b><span>done</span></div>
+                          <div className="cpage-tchip"><b>{ts.open}</b><span>open</span></div>
+                          <div className="cpage-tchip bad"><b>{ts.over}</b><span>over est.</span></div>
+                          <div className="cpage-tchip okk"><b>{ts.under}</b><span>under est.</span></div>
+                          <div className="cpage-tchip"><b>{n0(ts.est_total)}h</b><span>estimated</span></div>
+                          <div className="cpage-tchip"><b>{n0(ts.actual_total)}h</b><span>actual</span></div>
+                        </div>}
+                        <div className="scrollwrap" style={{ maxHeight: 340 }}>
+                          <table className="cpage-tbl">
+                            <thead><tr><th className="l">Task</th><th className="l">Top worker</th><th>Estimate</th><th>Actual</th><th>Variance</th></tr></thead>
+                            <tbody>
+                              {tasks.map((t, i) => (
+                                <tr key={t.task + i}>
+                                  <td className="l"><span className="cpage-tk"><span className={`cpage-st ${t.done ? "done" : "open"}`} />{t.task}</span></td>
+                                  <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
+                                  <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? `${n1(t.est)}h` : "—"}</td>
+                                  <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
+                                  <td className="num">{t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={`cpage-var ${t.variance > 0 ? "over" : "under"}`}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h{t.variance_pct != null ? ` (${t.variance_pct > 0 ? "+" : ""}${t.variance_pct}%)` : ""}</span>}</td>
+                                </tr>
+                              ))}
+                              {tasks.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No linked tasks with tracked time in this period.</td></tr>}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      <div className="panel">
+                        <div className="ph"><h3>Employee Performance <span className="hl">who is delivering on this client</span></h3></div>
+                        <div className="scrollwrap" style={{ maxHeight: 320 }}>
+                          <table className="cpage-tbl">
+                            <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable</th><th>Billable %</th><th>Activity %</th></tr></thead>
+                            <tbody>
+                              {people.map((e, i) => {
+                                const good = e.billable_pct >= 70 && e.activity_pct >= 50;
+                                const weak = e.billable_pct < 40 || e.activity_pct < 35;
+                                return (
+                                  <tr key={e.name + i} className="click" onClick={() => { setClientPage(false); openEmployee(e.name); }}>
+                                    <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span><span className={`cpage-flag ${good ? "good" : weak ? "weak" : "mid"}`}>{good ? "Strong" : weak ? "Needs review" : "OK"}</span></span></td>
+                                    <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
+                                    <td className="num" style={{ color: "var(--muted)" }}>{n1(e.billable)}h</td>
+                                    <td className="num">{n0(e.billable_pct)}%</td>
+                                    <td className="num">{n0(e.activity_pct)}%</td>
+                                  </tr>
+                                );
+                              })}
+                              {people.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No data</td></tr>}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+            </main>
+          </div>
+        </div>
+      )}
 
       {/* FLOATING AI CHAT */}
       <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Pulse AI" aria-label="Ask AI">
