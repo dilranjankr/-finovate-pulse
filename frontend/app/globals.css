@@ -678,6 +678,45 @@ select.map-inp { cursor: pointer; }
 .mp-edit:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
 .mp-edit:disabled { color: var(--muted); cursor: default; opacity: .6; }
 
+/* Shared admin-modal chrome: header icon, stats strip, filter bar */
+.adm-ico { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 11px; background: var(--accent-soft); color: var(--accent); flex: none; }
+.adm-export { display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid var(--line); background: #fff; border-radius: 8px; color: var(--ink-2); font-size: 12.5px; font-weight: 650; cursor: pointer; }
+.adm-export:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.adm-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; margin-bottom: 16px; }
+.adm-stats:has(.adm-stat:nth-child(4):last-child) { grid-template-columns: repeat(4, 1fr); }
+.adm-stat { border: 1px solid var(--line); border-radius: 11px; padding: 13px 15px; background: #fcfcfe; }
+.adm-stat b { display: block; font-size: 21px; font-weight: 750; color: var(--ink); line-height: 1.1; letter-spacing: -.01em; }
+.adm-stat b.ok { color: #15803d; } .adm-stat b.warn { color: #c2410c; } .adm-stat b.acc { color: var(--accent); }
+.adm-stat-sub { font-size: 15px; font-weight: 650; color: var(--muted); }
+.adm-stat span { display: block; font-size: 11.5px; color: var(--muted); margin-top: 4px; font-weight: 550; }
+.adm-bar { display: flex; align-items: center; gap: 9px; margin-bottom: 14px; flex-wrap: wrap; }
+.adm-srch { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 0 12px; color: var(--muted); background: #fff; flex: 1; min-width: 180px; }
+.adm-srch input { border: none; outline: none; padding: 9px 0; font-size: 13px; width: 100%; background: transparent; color: var(--ink); }
+.adm-sel { border: 1px solid var(--line); border-radius: 9px; padding: 9px 12px; font-size: 12.5px; color: var(--ink-2); background: #fff; cursor: pointer; font-weight: 550; }
+.adm-sel:hover { border-color: var(--accent); }
+.adm-clear { border: none; background: none; color: var(--accent); font-size: 12.5px; font-weight: 650; cursor: pointer; padding: 6px 8px; }
+.adm-count { margin-left: auto; font-size: 12px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+.adm-note { margin-top: 12px; font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+
+/* Client Budgets — refined */
+.bgt-addbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 12px; background: var(--accent-soft); border-radius: 11px; margin-bottom: 14px; }
+.bgt-addbar .usr-in { flex: 1; min-width: 0; }
+.bgt-table { width: 100%; border-collapse: collapse; }
+.bgt-table thead th { font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--muted); text-align: right; padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; position: sticky; top: 0; background: #fff; z-index: 1; }
+.bgt-table thead th.l { text-align: left; }
+.bgt-table tbody td { padding: 8px 14px; border-bottom: 1px solid #f1f3f8; font-size: 13px; text-align: right; vertical-align: middle; }
+.bgt-table tbody td.l { text-align: left; }
+.bgt-table tbody tr:hover { background: #fafbfe; }
+.bgt-client { font-weight: 650; color: var(--ink); }
+.bgt-typesel { border: 1px solid transparent; border-radius: 20px; padding: 3px 10px; font-size: 11.5px; font-weight: 650; cursor: pointer; outline: none; background: #f1f3f8; color: var(--ink-2); }
+.bgt-typesel:hover { border-color: var(--line); }
+.bgt-typesel.hourly { background: #eaf2fb; color: #2563a8; }
+.bgt-typesel.fixed { background: #f3eefc; color: #7c3aed; }
+.bgt-hrs { display: inline-flex; align-items: center; gap: 1px; }
+.bgt-hrs input { width: 58px; text-align: right; }
+.bgt-hrs i { font-style: normal; color: var(--muted); font-size: 12px; }
+.bgt-nob { display: inline-block; margin-left: 8px; font-size: 10px; font-weight: 650; color: #c2410c; background: #fff5ec; border-radius: 5px; padding: 1px 6px; vertical-align: middle; }
+
 /* Right-side slide-out drawer */
 .drawer-bg { position: fixed; inset: 0; background: rgba(15,23,42,.34); z-index: 80; display: flex; justify-content: flex-end; }
 .drawer { width: 440px; max-width: 94vw; height: 100%; background: #fff; box-shadow: -10px 0 36px rgba(15,23,42,.16); display: flex; flex-direction: column; animation: drawerIn .2s ease; }

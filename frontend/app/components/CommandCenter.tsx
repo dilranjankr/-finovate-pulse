@@ -361,6 +361,20 @@ export default function CommandCenter({
   // Right-side "Update Employee Mapping" drawer (edit + dated team transfer in one place)
   type MapEditState = { row: import("../lib/api").MappingRow; hr_full_name: string; hr_employee_no: string; status: string; department: string; team: string; xferDate: string; reason: string; notes: string; histOpen: boolean };
   const [mapEdit, setMapEdit] = useState<MapEditState | null>(null);
+  const [mapFDept, setMapFDept] = useState("");
+  const [mapFTeam, setMapFTeam] = useState("");
+  const [mapFStatus, setMapFStatus] = useState("");
+  function exportMapping() {
+    const rows = mapData?.rows || [];
+    const head = ["Hubstaff Name", "HR Name", "Employee ID", "Status", "Department", "Team", "Hours"];
+    const keys: (keyof import("../lib/api").MappingRow)[] = ["hubstaff_name", "hr_full_name", "hr_employee_no", "status", "department", "team", "total_hours"];
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const csv = [head.join(","), ...rows.map((r) => keys.map((k) => esc(r[k])).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "employee_mapping.csv"; a.click();
+  }
+  const [budgetFType, setBudgetFType] = useState("");
   const XFER_REASONS = ["Team Restructuring", "Promotion", "Performance", "Client Requirement", "Resource Reallocation", "Role Change", "Other"];
   function fmtDate(s?: string | null) {
     if (!s) return "—";
@@ -1833,48 +1847,82 @@ export default function CommandCenter({
       {/* CLIENT BUDGETS — editable table */}
       {budgetAdminModal && (
         <div className="modal-bg" onClick={() => setBudgetAdminModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 900, width: "94vw" }}>
             <div className="modal-h">
-              <div><h3><Briefcase size={15} style={{ verticalAlign: -2 }} /> Client Budgets</h3><div className="sub">monthly budgeted hours per client — powers Budget vs Actual</div></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+                <span className="adm-ico"><Briefcase size={18} /></span>
+                <div><h3 style={{ margin: 0 }}>Client Budgets</h3><div className="sub">Monthly budgeted hours per client — powers Budget vs Actual</div></div>
+              </div>
               <div className="modal-x" onClick={() => setBudgetAdminModal(false)}><X size={16} /></div>
             </div>
             <div className="modal-b">
-              {budgetMsg?.err && <div className="login-err"><ShieldAlert size={13} />{budgetMsg.err}</div>}
-              {budgetMsg?.ok && <div className="email-ok"><Check size={13} />{budgetMsg.ok}</div>}
-              <div className="bgt-add">
-                <input className="usr-in" placeholder="Client name" value={newBudget.client} onChange={(e) => setNewBudget({ ...newBudget, client: e.target.value })} />
-                <input className="usr-in" placeholder="Team" value={newBudget.team} onChange={(e) => setNewBudget({ ...newBudget, team: e.target.value })} style={{ flex: "0 0 120px", minWidth: 0 }} />
-                <select className="usr-in" value={newBudget.type} onChange={(e) => setNewBudget({ ...newBudget, type: e.target.value })} style={{ flex: "0 0 100px", minWidth: 0 }}><option>Hourly</option><option>Fixed</option></select>
-                <input className="usr-in" type="number" placeholder="Hrs/mo" value={newBudget.monthly_budget || ""} onChange={(e) => setNewBudget({ ...newBudget, monthly_budget: Number(e.target.value) })} style={{ flex: "0 0 80px", minWidth: 0 }} />
-                <button className="bgt-go" onClick={addBudget}>Add</button>
-              </div>
-              <input className="usr-in" placeholder="Search clients…" value={budgetQuery} onChange={(e) => setBudgetQuery(e.target.value)} style={{ margin: "10px 0", width: "100%" }} />
-              {!budgetRows ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
+              {budgetMsg?.err && <div className="login-err" style={{ marginBottom: 10 }}><ShieldAlert size={13} />{budgetMsg.err}</div>}
+              {budgetMsg?.ok && <div className="email-ok" style={{ marginBottom: 10 }}><Check size={13} />{budgetMsg.ok}</div>}
+              {!budgetRows ? <div className="loading" style={{ height: 120 }}><span className="spin" /> Loading…</div>
                 : (() => {
-                  const rows = budgetRows.filter((r) => r.client.toLowerCase().includes(budgetQuery.toLowerCase()));
+                  const total = budgetRows.length;
+                  const budgeted = budgetRows.filter((r) => (r.monthly_budget || 0) > 0);
+                  const totalHrs = budgeted.reduce((s, r) => s + (r.monthly_budget || 0), 0);
+                  const nHourly = budgetRows.filter((r) => (r.type || "").toLowerCase() === "hourly").length;
+                  const rows = budgetRows.filter((r) =>
+                    r.client.toLowerCase().includes(budgetQuery.toLowerCase())
+                    && (!budgetFType
+                      || (budgetFType === "budgeted" ? (r.monthly_budget || 0) > 0
+                        : budgetFType === "unbudgeted" ? (r.monthly_budget || 0) === 0
+                          : (r.type || "").toLowerCase() === budgetFType.toLowerCase())));
                   const upd = (client: string, patch: Partial<ClientBudgetRow>) =>
                     setBudgetRows((rs) => (rs || []).map((x) => x.client === client ? { ...x, ...patch } : x));
                   return (
-                    <div className="scrollwrap" style={{ maxHeight: 400 }}>
-                      <table className="hd-table">
-                        <thead><tr><th className="l">Client</th><th className="l">Team</th><th>Type</th><th>Hrs/mo</th><th></th></tr></thead>
+                  <>
+                    <div className="adm-stats">
+                      <div className="adm-stat"><b>{total}</b><span>Total clients</span></div>
+                      <div className="adm-stat"><b className="ok">{budgeted.length}</b><span>With budget</span></div>
+                      <div className="adm-stat"><b className="acc">{n0(totalHrs)}h</b><span>Budgeted / month</span></div>
+                      <div className="adm-stat"><b>{nHourly} <span className="adm-stat-sub">/ {total - nHourly}</span></b><span>Hourly / Fixed</span></div>
+                    </div>
+                    <div className="bgt-addbar">
+                      <input className="usr-in" placeholder="+ New client name" value={newBudget.client} onChange={(e) => setNewBudget({ ...newBudget, client: e.target.value })} />
+                      <input className="usr-in" placeholder="Team" value={newBudget.team} onChange={(e) => setNewBudget({ ...newBudget, team: e.target.value })} style={{ flex: "0 0 130px", minWidth: 0 }} />
+                      <select className="usr-in" value={newBudget.type} onChange={(e) => setNewBudget({ ...newBudget, type: e.target.value })} style={{ flex: "0 0 100px", minWidth: 0 }}><option>Hourly</option><option>Fixed</option></select>
+                      <input className="usr-in" type="number" placeholder="Hrs/mo" value={newBudget.monthly_budget || ""} onChange={(e) => setNewBudget({ ...newBudget, monthly_budget: Number(e.target.value) })} style={{ flex: "0 0 90px", minWidth: 0 }} />
+                      <button className="bgt-go" onClick={addBudget}>Add client</button>
+                    </div>
+                    <div className="adm-bar">
+                      <div className="adm-srch"><Search size={14} /><input placeholder="Search clients…" value={budgetQuery} onChange={(e) => setBudgetQuery(e.target.value)} /></div>
+                      <select className="adm-sel" value={budgetFType} onChange={(e) => setBudgetFType(e.target.value)}>
+                        <option value="">All types</option><option value="Hourly">Hourly</option><option value="Fixed">Fixed</option>
+                        <option value="budgeted">Budgeted only</option><option value="unbudgeted">No budget set</option>
+                      </select>
+                      {(budgetQuery || budgetFType) && <button className="adm-clear" onClick={() => { setBudgetQuery(""); setBudgetFType(""); }}>Clear</button>}
+                      <span className="adm-count">{rows.length} shown</span>
+                    </div>
+                    <div className="scrollwrap" style={{ maxHeight: 420 }}>
+                      <table className="bgt-table">
+                        <thead><tr><th className="l">Client</th><th className="l">Team</th><th className="l">Type</th><th>Budget / month</th><th></th></tr></thead>
                         <tbody>
-                          {rows.map((r) => (
+                          {rows.slice(0, 200).map((r) => {
+                            const has = (r.monthly_budget || 0) > 0;
+                            return (
                             <tr key={r.client}>
-                              <td className="l" style={{ fontWeight: 600 }}>{r.client}</td>
-                              <td className="l"><input className="bgt-cell" value={r.team} onChange={(e) => upd(r.client, { team: e.target.value })} onBlur={() => persistBudget(r)} /></td>
-                              <td><select className="bgt-cell" value={r.type} onChange={(e) => upd(r.client, { type: e.target.value })} onBlur={() => persistBudget(r)}><option>Hourly</option><option>Fixed</option></select></td>
-                              <td className="num"><input className="bgt-cell num" type="number" value={r.monthly_budget} onChange={(e) => upd(r.client, { monthly_budget: Number(e.target.value) })} onBlur={() => persistBudget(r)} style={{ width: 64, textAlign: "right" }} /></td>
-                              <td><button className="bgt-del" title="Delete" onClick={() => removeBudget(r.client)}><X size={13} /></button></td>
+                              <td className="l"><span className="bgt-client">{r.client}</span></td>
+                              <td className="l"><input className="bgt-cell" value={r.team} placeholder="—" onChange={(e) => upd(r.client, { team: e.target.value })} onBlur={() => persistBudget(r)} /></td>
+                              <td className="l"><select className={"bgt-typesel " + (r.type || "").toLowerCase()} value={r.type} onChange={(e) => { upd(r.client, { type: e.target.value }); persistBudget({ ...r, type: e.target.value }); }}><option>Hourly</option><option>Fixed</option></select></td>
+                              <td className="num">
+                                <span className="bgt-hrs"><input className="bgt-cell num" type="number" value={r.monthly_budget} onChange={(e) => upd(r.client, { monthly_budget: Number(e.target.value) })} onBlur={() => persistBudget(r)} /><i>h</i></span>
+                                {!has && <span className="bgt-nob">not set</span>}
+                              </td>
+                              <td><button className="bgt-del" title="Delete client" onClick={() => removeBudget(r.client)}><X size={13} /></button></td>
                             </tr>
-                          ))}
-                          {rows.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No matching clients</td></tr>}
+                            );
+                          })}
+                          {rows.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 20 }}>No matching clients</td></tr>}
                         </tbody>
                       </table>
                     </div>
+                    <div className="adm-note">A full calendar month shows the flat monthly budget; partial ranges pro-rate by days. Edits save on blur and apply immediately.</div>
+                  </>
                   );
                 })()}
-              <p className="email-help" style={{ marginTop: 12 }}>{budgetRows?.length || 0} clients. Budget is scaled to the selected period (monthly × days/30) and compared with actual tracked hours. Edits save on blur and apply immediately.</p>
             </div>
           </div>
         </div>
@@ -2034,12 +2082,12 @@ export default function CommandCenter({
         <div className="modal-bg" onClick={() => setMapModal(false)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 1080, width: "94vw" }}>
             <div className="modal-h">
-              <div>
-                <h3><Users size={15} style={{ verticalAlign: -2, color: "var(--accent)" }} /> Employee Mapping</h3>
-                <div className="sub">{mapData ? (mapData.exists ? `${mapData.count} employees · Hubstaff name → HR identity` : "Mapping table not created yet") : "loading…"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+                <span className="adm-ico"><Users size={19} /></span>
+                <div><h3 style={{ margin: 0 }}>Employee Mapping</h3><div className="sub">Hubstaff identity → HR record · team & transfer management</div></div>
               </div>
               <div className="modal-h-r">
-                <input className="filt-search" placeholder="Search name…" value={mapSearch} onChange={(e) => setMapSearch(e.target.value)} style={{ width: 160 }} />
+                {mapData?.write && mapData?.exists && <button className="adm-export" onClick={exportMapping}><Download size={14} /> Export</button>}
                 <div className="modal-x" onClick={() => setMapModal(false)}><X size={16} /></div>
               </div>
             </div>
@@ -2056,10 +2104,38 @@ export default function CommandCenter({
                   <div className="empty-s">
                     Table abhi nahi bani. <button className="tb-act" disabled={mapBusy === "init"} onClick={mapInit} style={{ marginLeft: 8 }}>{mapBusy === "init" ? "Creating…" : "Create & seed table"}</button>
                   </div>
-                ) : (
+                ) : (() => {
+                  const all = mapData.rows;
+                  const nActive = all.filter((r) => (r.status || "").toUpperCase() === "ACTIVE").length;
+                  const nUnmapped = all.filter((r) => !(r.hr_full_name || "").trim() || !(r.team || "").trim()).length;
+                  const nMoved = all.filter((r) => (r.history?.length || 0) > 0).length;
+                  const teamSet = Array.from(new Set(all.map((r) => (r.team || "").trim()).filter(Boolean))).sort();
+                  const deptSet = Array.from(new Set(all.map((r) => (r.department || "").trim()).filter(Boolean))).sort();
+                  const statusSet = Array.from(new Set(all.map((r) => (r.status || "").trim()).filter(Boolean))).sort();
+                  const rows = all.filter((r) =>
+                    (!mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "") + " " + (r.hr_employee_no || "")).toLowerCase().includes(mapSearch.toLowerCase()))
+                    && (!mapFDept || r.department === mapFDept)
+                    && (!mapFTeam || r.team === mapFTeam)
+                    && (!mapFStatus || r.status === mapFStatus));
+                  return (
                   <>
                     {!mapData.write && <div className="empty-s" style={{ padding: "6px 10px", marginBottom: 8, color: "#e8930c" }}>Read-only — editing disabled (DATABASE_URL_WRITE not set).</div>}
-                    <div className="scrollwrap" style={{ maxHeight: 540 }}>
+                    <div className="adm-stats">
+                      <div className="adm-stat"><b>{all.length}</b><span>Total employees</span></div>
+                      <div className="adm-stat"><b className="ok">{nActive}</b><span>Active</span></div>
+                      <div className="adm-stat"><b>{teamSet.length}</b><span>Teams</span></div>
+                      <div className="adm-stat"><b className="warn">{nUnmapped}</b><span>Need attention</span></div>
+                      <div className="adm-stat"><b className="acc">{nMoved}</b><span>Transferred</span></div>
+                    </div>
+                    <div className="adm-bar">
+                      <div className="adm-srch"><Search size={14} /><input placeholder="Search name or ID…" value={mapSearch} onChange={(e) => setMapSearch(e.target.value)} /></div>
+                      <select className="adm-sel" value={mapFDept} onChange={(e) => setMapFDept(e.target.value)}><option value="">All departments</option>{deptSet.map((d) => <option key={d} value={d}>{d}</option>)}</select>
+                      <select className="adm-sel" value={mapFTeam} onChange={(e) => setMapFTeam(e.target.value)}><option value="">All teams</option>{teamSet.map((t) => <option key={t} value={t}>{t}</option>)}</select>
+                      <select className="adm-sel" value={mapFStatus} onChange={(e) => setMapFStatus(e.target.value)}><option value="">All status</option>{statusSet.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+                      {(mapFDept || mapFTeam || mapFStatus || mapSearch) && <button className="adm-clear" onClick={() => { setMapFDept(""); setMapFTeam(""); setMapFStatus(""); setMapSearch(""); }}>Clear</button>}
+                      <span className="adm-count">{rows.length} shown</span>
+                    </div>
+                    <div className="scrollwrap" style={{ maxHeight: 460 }}>
                       <table className="mp-table">
                         <thead><tr>
                           <th className="l">Employee</th><th className="l">Employee ID</th>
@@ -2067,7 +2143,7 @@ export default function CommandCenter({
                           <th className="l">Transfer Date</th><th></th>
                         </tr></thead>
                         <tbody>
-                          {mapData.rows.filter((r) => !mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "")).toLowerCase().includes(mapSearch.toLowerCase())).slice(0, 60).map((r) => {
+                          {rows.slice(0, 80).map((r) => {
                             const active = (r.status || "").toUpperCase() === "ACTIVE";
                             const moves = r.history?.length || 0;
                             return (
@@ -2096,11 +2172,14 @@ export default function CommandCenter({
                             </tr>
                             );
                           })}
+                          {rows.length === 0 && <tr><td colSpan={6} className="empty-s" style={{ textAlign: "center", padding: 22 }}>No employees match the filters.</td></tr>}
                         </tbody>
                       </table>
                     </div>
+                    {rows.length > 80 && <div className="adm-note">Showing first 80 of {rows.length} — narrow with search or filters.</div>}
                   </>
-                )}
+                  );
+                })()}
             </div>
           </div>
         </div>
