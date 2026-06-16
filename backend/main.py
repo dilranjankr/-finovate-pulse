@@ -2889,75 +2889,24 @@ def client_profile(name: str, date_from: Optional[str] = None, date_to: Optional
     budget = round(b["budget"] * months, 1) if b else None
     name_map = dict(zip(members["user_id"], members["name"]))
     pe = (d.groupby("user_id").agg(h=("tracked_h", "sum"), billh=("billable_h", "sum"),
-          ov=("overall_h", "sum"), dd=("date_s", "nunique")).reset_index().sort_values("h", ascending=False))
+          dd=("date_s", "nunique")).reset_index().sort_values("h", ascending=False))
     people = [{"name": name_map.get(r.user_id, f"User {r.user_id}"), "hours": round(r.h, 1),
-               "billable": round(r.billh, 1), "days": int(r.dd),
-               "billable_pct": round(r.billh / r.h * 100) if r.h else 0,
-               "activity_pct": round(r.ov / r.h * 100) if r.h else 0} for r in pe.itertuples()]
-    # Per-task estimate vs actual (ClickUp estimate vs Hubstaff tracked in period) + top worker
-    tasks, tsum = [], {"total": 0, "open": 0, "done": 0, "over": 0, "under": 0, "est_total": 0.0, "actual_total": 0.0}
-    if db.has_db():
-        try:
-            tw, tp = [], {"c": name}
-            if date_from:
-                tw.append("a.date >= :df"); tp["df"] = date_from
-            if date_to:
-                tw.append("a.date <= :dt"); tp["dt"] = date_to
-            dflt = (" AND " + " AND ".join(tw)) if tw else ""
-            tq = db.q(f"""
-                WITH ta AS (
-                  SELECT c.task_id,
-                         COALESCE(NULLIF(c.subtask_name,''), NULLIF(c.parent_task_name,''), c.task_id) task,
-                         max(c.status) status, max(c.time_estimate_hrs) est,
-                         max(c.date_done) date_done, a.user_id uid, sum(a.tracked)/3600.0 uh
-                  FROM clickup_tasks c
-                  JOIN hubstaff_tasks h ON h.remote_id = c.task_id
-                  JOIN hubstaff_activities a ON a.task_id = h.id
-                  WHERE c.folder_name = :c{dflt}
-                  GROUP BY c.task_id, task, a.user_id)
-                SELECT task_id, task, max(status) status, max(est) est, max(date_done) date_done,
-                       round(sum(uh)::numeric,1) actual, (array_agg(uid ORDER BY uh DESC))[1] top_uid
-                FROM ta GROUP BY task_id, task ORDER BY actual DESC NULLS LAST LIMIT 60""", tp)
-            for r in tq.itertuples():
-                est = 0.0 if (r.est is None or pd.isna(r.est)) else float(r.est)
-                act = 0.0 if (r.actual is None or pd.isna(r.actual)) else float(r.actual)
-                done = bool(r.date_done) or str(r.status or "").lower() in ("complete", "done", "closed", "completed")
-                var = round(act - est, 1) if est > 0 else None
-                tasks.append({"task": r.task, "done": done, "est": round(est, 1), "actual": round(act, 1),
-                              "variance": var, "variance_pct": (round((act - est) / est * 100) if est > 0 else None),
-                              "worker": name_map.get(str(r.top_uid), name_map.get(r.top_uid, "—"))})
-                tsum["total"] += 1
-                tsum["done" if done else "open"] += 1
-                tsum["est_total"] += est; tsum["actual_total"] += act
-                if est > 0 and act > est * 1.05:
-                    tsum["over"] += 1
-                elif est > 0 and act < est * 0.95:
-                    tsum["under"] += 1
-            tsum["est_total"] = round(tsum["est_total"], 1); tsum["actual_total"] = round(tsum["actual_total"], 1)
-        except Exception:  # noqa
-            pass
+               "billable": round(r.billh, 1), "days": int(r.dd)} for r in pe.itertuples()]
     daily = (d.groupby("date_s").agg(h=("tracked_h", "sum"), b=("billable_h", "sum"))
              .reset_index().sort_values("date_s"))
     daily_rows = [{"date": r.date_s, "billable": round(r.b, 2), "non_billable": round(r.h - r.b, 2)}
                   for r in daily.itertuples()]
-    bilpct = (bill / tracked * 100) if tracked else 0
-    done_pct = (tsum["done"] / tsum["total"] * 100) if tsum["total"] else 70.0
-    bud_score = 100.0 if (budget is None or budget <= 0 or tracked <= budget) else max(0.0, 100 - ((tracked - budget) / budget * 100))
-    health = round(0.4 * bud_score + 0.3 * done_pct + 0.3 * bilpct)
-    used_pct = round(tracked / budget * 100) if (budget and budget > 0) else None
     return clean({
         "found": True,
         "profile": {
             "client": name, "team": team, "department": dept, "type": (b["type"] if b else ""),
             "total": round(tracked, 1), "billable": round(bill, 1), "non_billable": round(nb, 1),
-            "billable_pct": round(bilpct, 0),
-            "budget": budget, "used_pct": used_pct,
-            "variance": round(tracked - budget, 1) if budget is not None else None,
+            "billable_pct": round(bill / tracked * 100, 0) if tracked else 0,
+            "budget": budget, "variance": round(tracked - budget, 1) if budget is not None else None,
             "over": bool(tracked > budget) if budget is not None else None,
             "people": len(people), "days": days, "last_worked": d["date_s"].max(),
-            "health": min(100, max(0, health)), "health_grade": grade_letter(health),
         },
-        "people": people, "daily": daily_rows, "tasks": tasks, "task_summary": tsum,
+        "people": people, "daily": daily_rows,
     })
 
 
