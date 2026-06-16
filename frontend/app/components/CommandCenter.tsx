@@ -211,6 +211,7 @@ export default function CommandCenter({
   const [kekaMsg, setKekaMsg] = useState<{ ok?: string; err?: string } | null>(null);
   const [kekaSearch, setKekaSearch] = useState("");
   const [kekaDrag, setKekaDrag] = useState(false);
+  const [kekaTab, setKekaTab] = useState<"data" | "policy">("data");
   const [hoursCfg, setHoursCfg] = useState<import("../lib/api").HoursConfig | null>(null);
   const [hoursBusy, setHoursBusy] = useState(false);
   const [newPol, setNewPol] = useState<{ from: string; shift: number; thr: number; sbrk: number; lbrk: number }>({ from: "", shift: 9, thr: 6, sbrk: 30, lbrk: 60 });
@@ -241,7 +242,7 @@ export default function CommandCenter({
     return `${names[+mm[2] - 1] || mm[2]} ${mm[1]}`;
   }
   async function openKeka() {
-    setKekaModal(true); setKekaMsg(null); setKekaSearch(""); setKekaStatus(null); setHoursCfg(null);
+    setKekaModal(true); setKekaMsg(null); setKekaSearch(""); setKekaTab("data"); setKekaStatus(null); setHoursCfg(null);
     const api = await import("../lib/api");
     try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); }
     try { setHoursCfg(await api.getHoursConfig()); } catch { /* optional */ }
@@ -1801,117 +1802,118 @@ export default function CommandCenter({
         const months = (kekaStatus || []).filter((m) => !kekaSearch || fmtMonth(m.month).toLowerCase().includes(kekaSearch.toLowerCase()));
         return (
         <div className="modal-bg" onClick={() => setKekaModal(false)}>
-          <div className="modal keka-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 980, width: "94vw" }}>
+          <div className="modal keka-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 920, width: "94vw" }}>
             <div className="modal-h">
-              <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
-                <span className="keka-ico"><Clock size={20} /></span>
-                <div><h3 style={{ margin: 0 }}>Upload Keka Attendance</h3><div className="sub">Upload the monthly Daily Performance Report (.xlsx)</div></div>
+              <div className="keka-h-l">
+                <span className="keka-ico"><Clock size={18} /></span>
+                <div><h3 style={{ margin: 0 }}>Keka Attendance</h3><div className="sub">Monthly attendance &amp; working-hours capacity</div></div>
               </div>
               <div className="modal-x" onClick={() => setKekaModal(false)}><X size={16} /></div>
             </div>
+            <div className="seg-tabs">
+              <button className={kekaTab === "data" ? "on" : ""} onClick={() => setKekaTab("data")}>Attendance data</button>
+              <button className={kekaTab === "policy" ? "on" : ""} onClick={() => setKekaTab("policy")}>Working hours{hoursCfg ? <span className="seg-badge">{hoursCfg.policies.length}</span> : null}</button>
+            </div>
             <div className="modal-b">
-              <label
-                className={`keka-drop${kekaBusy ? " busy" : ""}${kekaDrag ? " over" : ""}`}
-                onDragOver={(e) => { e.preventDefault(); setKekaDrag(true); }}
-                onDragLeave={() => setKekaDrag(false)}
-                onDrop={(e) => { e.preventDefault(); setKekaDrag(false); const f = e.dataTransfer.files?.[0]; if (f && !kekaBusy) doKekaUpload(f); }}>
-                <input type="file" accept=".xlsx" disabled={kekaBusy} style={{ display: "none" }}
-                  onChange={(e) => { const f = e.target.files?.[0]; if (f) doKekaUpload(f); e.currentTarget.value = ""; }} />
-                {kekaBusy ? <div className="keka-drop-in"><span className="spin" /><b>Uploading &amp; parsing…</b></div>
-                  : <div className="keka-drop-in">
-                      <UploadCloud size={40} className="keka-cloud" />
-                      <b>Drag and drop your Keka <span className="keka-ext">.xlsx</span> file here</b>
-                      <span>or click to <span className="keka-browse">browse</span> from your device</span>
-                      <span className="keka-hint">Daily Performance Report — re-uploading a month replaces the existing data</span>
-                    </div>}
-              </label>
-              {kekaMsg?.err && <div className="login-err" style={{ marginTop: 12 }}><ShieldAlert size={13} />{kekaMsg.err}</div>}
-              {kekaMsg?.ok && <div className="email-ok" style={{ marginTop: 12 }}><Check size={13} />{kekaMsg.ok}</div>}
+              {kekaTab === "data" ? (
+                <>
+                  <label
+                    className={`keka-up${kekaBusy ? " busy" : ""}${kekaDrag ? " over" : ""}`}
+                    onDragOver={(e) => { e.preventDefault(); setKekaDrag(true); }}
+                    onDragLeave={() => setKekaDrag(false)}
+                    onDrop={(e) => { e.preventDefault(); setKekaDrag(false); const f = e.dataTransfer.files?.[0]; if (f && !kekaBusy) doKekaUpload(f); }}>
+                    <input type="file" accept=".xlsx" disabled={kekaBusy} style={{ display: "none" }}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) doKekaUpload(f); e.currentTarget.value = ""; }} />
+                    <span className="keka-up-ic">{kekaBusy ? <span className="spin" /> : <UploadCloud size={19} />}</span>
+                    <div className="keka-up-t">
+                      <b>{kekaBusy ? "Uploading & parsing…" : "Drop your Keka .xlsx, or click to browse"}</b>
+                      <span>Daily Performance Report — re-uploading a month replaces it</span>
+                    </div>
+                    {!kekaBusy && <span className="keka-up-btn">Browse</span>}
+                  </label>
+                  {kekaMsg?.err && <div className="login-err" style={{ marginTop: 12 }}><ShieldAlert size={13} />{kekaMsg.err}</div>}
+                  {kekaMsg?.ok && <div className="email-ok" style={{ marginTop: 12 }}><Check size={13} />{kekaMsg.ok}</div>}
 
-              {hoursCfg && (() => {
-                const curNet = hoursCfg.current ? Math.round((hoursCfg.current.net_min / 60) * 100) / 100 : 8;
+                  <div className="keka-loaded-h">
+                    <div className="keka-loaded-t">Loaded months {kekaStatus ? <span className="seg-badge">{kekaStatus.length}</span> : null}</div>
+                    <div className="keka-srch"><Search size={14} /><input placeholder="Search month…" value={kekaSearch} onChange={(e) => setKekaSearch(e.target.value)} /></div>
+                  </div>
+
+                  {!kekaStatus ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
+                    : months.length === 0 ? <div className="empty-s">{kekaSearch ? "No months match." : "No attendance data yet — upload a month above."}</div> : (
+                      <div className="scrollwrap" style={{ maxHeight: 400 }}>
+                        <table className="keka-table">
+                          <thead><tr>
+                            <th className="l">MONTH</th><th>EMPLOYEES</th><th>ROWS</th><th>EFFECTIVE HOURS</th>
+                            <th className="l">UPLOADED ON</th><th className="l">UPLOADED BY</th>
+                          </tr></thead>
+                          <tbody>
+                            {months.map((m) => (
+                              <tr key={m.month}>
+                                <td className="l"><span className="keka-mrow"><FileSpreadsheet size={16} className="keka-frow" /><b>{fmtMonth(m.month)}</b></span></td>
+                                <td className="num">{m.employees}</td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{n0(m.rows)}</td>
+                                <td className="num" style={{ fontWeight: 700 }}>{n0(m.effective_hours)}h</td>
+                                <td className="l" style={{ whiteSpace: "nowrap", color: "var(--ink-2)" }}>{m.uploaded_on || "—"}</td>
+                                <td className="l" style={{ color: "var(--ink-2)" }}>{m.uploaded_by || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                </>
+              ) : !hoursCfg ? <div className="loading" style={{ height: 120 }}><span className="spin" /> Loading…</div> : (() => {
+                const cur = hoursCfg.current;
+                const curNet = cur ? Math.round((cur.net_min / 60) * 100) / 100 : 8;
                 const fmt = (s?: string) => (s ? fmtDate(s) : "—");
                 const addNet = Math.max(0, Math.round(newPol.shift * 60) - Math.round(newPol.lbrk));
                 return (
-                  <div className="wh-card">
-                    <div className="wh-head">
-                      <div><b>Working-hours policy</b><span>Office-hours capacity per present day. Break is tiered by hours worked, and changes apply by date.</span></div>
-                      <span className="wh-net">{curNet}h<i>full-day net now</i></span>
+                  <>
+                    <div className="wh2-top">
+                      <div className="wh2-net"><b>{curNet}h</b><span>net capacity · full day</span></div>
+                      {cur && <div className="wh2-rule">
+                        <div className="wh2-rule-r"><span>Worked ≤ {cur.threshold_hours}h</span><b>− {cur.short_break_min}m break</b></div>
+                        <div className="wh2-rule-r"><span>Worked &gt; {cur.threshold_hours}h</span><b>− {cur.long_break_min}m break</b></div>
+                        <div className="wh2-rule-foot">Shift {cur.shift_hours}h · break deducted from each present day's worked hours.</div>
+                      </div>}
                     </div>
+
+                    <div className="wh2-sec">Policy timeline</div>
                     <div className="wh-list">
-                      {[...hoursCfg.policies].reverse().map((p) => (
+                      {[...hoursCfg.policies].reverse().map((p, i) => (
                         <div className="wh-item" key={p.effective_from}>
+                          <span className={"wh-tag " + (i === 0 ? "cur" : "")}>{i === 0 ? "Current" : "Past"}</span>
                           <span className="wh-date">From {fmt(p.effective_from)}</span>
-                          <span className="wh-calc">{p.shift_hours}h shift · break {p.short_break_min}m if ≤{p.threshold_hours}h, else {p.long_break_min}m</span>
+                          <span className="wh-calc">{p.shift_hours}h · {p.short_break_min}m/{p.long_break_min}m @ {p.threshold_hours}h</span>
                           <span className="wh-pill">{p.net_hours}h net</span>
                           {hoursCfg.write && hoursCfg.policies.length > 1 && (
-                            <button className="wh-del" title="Remove this policy" disabled={hoursBusy} onClick={() => delPolicy(p.effective_from)}><X size={12} /></button>
+                            <button className="wh-del" title="Remove" disabled={hoursBusy} onClick={() => delPolicy(p.effective_from)}><X size={12} /></button>
                           )}
                         </div>
                       ))}
                     </div>
+
                     {hoursCfg.write && (
                       <div className="wh-add">
-                        <div className="wh-add-t">Add a change</div>
-                        <div className="wh-row">
-                          <label className="wh-fld">Effective from
-                            <input type="date" value={newPol.from} onChange={(e) => setNewPol({ ...newPol, from: e.target.value })} />
-                          </label>
-                          <label className="wh-fld">Shift hours
-                            <input type="number" step="0.5" min={1} max={24} value={newPol.shift} onChange={(e) => setNewPol({ ...newPol, shift: Number(e.target.value) })} />
-                          </label>
-                          <label className="wh-fld">Break ≤ thr (min)
-                            <input type="number" step="5" min={0} value={newPol.sbrk} onChange={(e) => setNewPol({ ...newPol, sbrk: Number(e.target.value) })} />
-                          </label>
-                          <label className="wh-fld">Threshold hrs
-                            <input type="number" step="0.5" min={0} max={24} value={newPol.thr} onChange={(e) => setNewPol({ ...newPol, thr: Number(e.target.value) })} />
-                          </label>
-                          <label className="wh-fld">Break &gt; thr (min)
-                            <input type="number" step="5" min={0} value={newPol.lbrk} onChange={(e) => setNewPol({ ...newPol, lbrk: Number(e.target.value) })} />
-                          </label>
-                          <div className="wh-eq">{Math.round((addNet / 60) * 100) / 100}h net</div>
-                          <button className="bgt-go" disabled={hoursBusy || !newPol.from} onClick={addPolicy}>{hoursBusy ? "Saving…" : "Add"}</button>
+                        <div className="wh-add-t">Add a policy change</div>
+                        <div className="wh-grid">
+                          <label className="wh-fld">Effective from<input type="date" value={newPol.from} onChange={(e) => setNewPol({ ...newPol, from: e.target.value })} /></label>
+                          <label className="wh-fld">Shift hours<input type="number" step="0.5" min={1} max={24} value={newPol.shift} onChange={(e) => setNewPol({ ...newPol, shift: Number(e.target.value) })} /></label>
+                          <label className="wh-fld">Threshold hrs<input type="number" step="0.5" min={0} max={24} value={newPol.thr} onChange={(e) => setNewPol({ ...newPol, thr: Number(e.target.value) })} /></label>
+                          <label className="wh-fld">Break ≤ thr (min)<input type="number" step="5" min={0} value={newPol.sbrk} onChange={(e) => setNewPol({ ...newPol, sbrk: Number(e.target.value) })} /></label>
+                          <label className="wh-fld">Break &gt; thr (min)<input type="number" step="5" min={0} value={newPol.lbrk} onChange={(e) => setNewPol({ ...newPol, lbrk: Number(e.target.value) })} /></label>
+                        </div>
+                        <div className="wh-add-foot">
+                          <span className="wh-eq">= {Math.round((addNet / 60) * 100) / 100}h net / full day</span>
+                          <button className="bgt-go" disabled={hoursBusy || !newPol.from} onClick={addPolicy}>{hoursBusy ? "Saving…" : "Add change"}</button>
                         </div>
                       </div>
                     )}
-                    <div className="wh-hint">Per present day: worked ≤ threshold → short break, else long break, deducted from worked hours (capped at shift). e.g. 6h day → −30m = 5.5h; 9h day → −60m = 8h. Changes apply only to dates on/after their effective-from.</div>
-                  </div>
+                    <div className="wh-hint">Each present day uses the policy effective on that date. e.g. a 6h day → −30m = 5.5h; a 9h day → −60m = 8h.</div>
+                  </>
                 );
               })()}
-
-              <div className="keka-loaded-h">
-                <div>
-                  <div className="keka-loaded-t">Loaded Months</div>
-                  <div className="sub">Previously uploaded attendance files</div>
-                </div>
-                <div className="keka-loaded-r">
-                  <div className="keka-srch"><Search size={14} /><input placeholder="Search month…" value={kekaSearch} onChange={(e) => setKekaSearch(e.target.value)} /></div>
-                </div>
-              </div>
-
-              {!kekaStatus ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
-                : months.length === 0 ? <div className="empty-s">{kekaSearch ? "No months match." : "No attendance data yet — upload a month above."}</div> : (
-                  <div className="scrollwrap" style={{ maxHeight: 380 }}>
-                    <table className="keka-table">
-                      <thead><tr>
-                        <th className="l">MONTH</th><th>EMPLOYEES</th><th>ROWS</th><th>EFFECTIVE HOURS</th>
-                        <th className="l">UPLOADED ON</th><th className="l">UPLOADED BY</th>
-                      </tr></thead>
-                      <tbody>
-                        {months.map((m) => (
-                          <tr key={m.month}>
-                            <td className="l"><span className="keka-mrow"><FileSpreadsheet size={17} className="keka-frow" /><b>{fmtMonth(m.month)}</b></span></td>
-                            <td className="num">{m.employees}</td>
-                            <td className="num" style={{ color: "var(--accent)" }}>{n0(m.rows)}</td>
-                            <td className="num" style={{ fontWeight: 700 }}>{n0(m.effective_hours)}h</td>
-                            <td className="l" style={{ whiteSpace: "nowrap", color: "var(--ink-2)" }}>{m.uploaded_on || "—"}</td>
-                            <td className="l" style={{ color: "var(--ink-2)" }}>{m.uploaded_by || "—"}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
 
               <div className="keka-foot">
                 <button className="btn-ghost" onClick={() => setKekaModal(false)}>Close</button>
