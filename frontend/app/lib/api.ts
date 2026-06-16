@@ -243,12 +243,12 @@ export async function getBreakdownList(f: Filters): Promise<BreakdownListData> {
   return r.json();
 }
 
-export interface TeamHistoryRow { team: string; department?: string; effective_from: string; }
+export interface TeamHistoryRow { team: string; department?: string; effective_from: string; reason?: string | null; }
 export interface MappingRow {
   hubstaff_name: string; hubstaff_user_id?: string; hr_employee_no?: string; hr_full_name?: string;
   status?: string; department?: string; team?: string; job_title?: string; reporting_to?: string;
   exit_date?: string; confidence?: string; total_hours?: number; last_worked?: string; reviewed?: boolean;
-  history?: TeamHistoryRow[];
+  notes?: string; history?: TeamHistoryRow[];
 }
 export interface MappingData { exists: boolean; write: boolean; count: number; rows: MappingRow[]; teams?: string[]; departments?: string[]; }
 export async function getMapping(): Promise<MappingData> {
@@ -256,7 +256,7 @@ export async function getMapping(): Promise<MappingData> {
   if (!r.ok) throw new Error("mapping failed");
   return r.json();
 }
-export async function transferTeam(body: { hubstaff_name: string; new_team: string; new_department?: string; effective_from: string }): Promise<{ ok: boolean; detail?: string; reason?: string }> {
+export async function transferTeam(body: { hubstaff_name: string; new_team: string; new_department?: string; effective_from: string; reason?: string }): Promise<{ ok: boolean; detail?: string; reason?: string }> {
   const r = await authedFetch(`${API}/api/mapping/transfer`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
@@ -502,7 +502,7 @@ export async function getAttendance(month?: string): Promise<AttendanceData> {
   if (!r.ok) throw new Error(await asError(r));
   return r.json();
 }
-export interface KekaMonth { month: string; rows: number; employees: number; effective_hours: number; }
+export interface KekaMonth { month: string; rows: number; employees: number; effective_hours: number; uploaded_on?: string | null; uploaded_by?: string | null; }
 export async function getKekaStatus(): Promise<{ months: KekaMonth[] }> {
   const r = await authedFetch(`${API}/api/keka/status`, { cache: "no-store" });
   if (!r.ok) throw new Error(await asError(r));

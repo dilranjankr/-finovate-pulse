@@ -590,6 +590,12 @@ def _ensure_keka():
         )""")
     db.execute("CREATE INDEX IF NOT EXISTS keka_month_idx ON keka_attendance(month)")
     db.execute("CREATE INDEX IF NOT EXISTS keka_name_idx ON keka_attendance(emp_name)")
+    for ddl in ("ALTER TABLE keka_attendance ADD COLUMN IF NOT EXISTS uploaded_at timestamptz",
+                "ALTER TABLE keka_attendance ADD COLUMN IF NOT EXISTS uploaded_by text"):
+        try:
+            db.execute(ddl)
+        except Exception:  # noqa
+            pass
 
 
 def _hm_to_min(x):
@@ -610,7 +616,8 @@ def _hm_to_min(x):
 async def keka_upload(file: UploadFile = File(...), authorization: Optional[str] = Header(None)):
     """Owner uploads the monthly Keka 'Daily Performance Report' xlsx; rows are
     parsed and upserted into keka_attendance (re-uploading a month replaces it)."""
-    _require(authorization, "owner")
+    actor = _require(authorization, "owner")
+    uploader = (actor.get("name") or actor.get("email") or "Admin") if isinstance(actor, dict) else "Admin"
     if not db.has_write():
         raise HTTPException(status_code=400, detail="No write DB configured")
     import pandas as _pd
@@ -652,6 +659,7 @@ async def keka_upload(file: UploadFile = File(...), authorization: Optional[str]
             "effective_min": _hm_to_min(gv(r, "Effective Hours")), "total_min": _hm_to_min(gv(r, "Total Hours")),
             "break_min": _hm_to_min(gv(r, "Break Duration")), "overtime_min": _hm_to_min(gv(r, "Over Time")),
             "short_eff_min": _hm_to_min(gv(r, "Total Short Hours(Effective)")),
+            "uploaded_by": uploader,
         })
     if not rows:
         raise HTTPException(status_code=400, detail="No dated rows parsed")
@@ -660,9 +668,11 @@ async def keka_upload(file: UploadFile = File(...), authorization: Optional[str]
         db.execute("DELETE FROM keka_attendance WHERE month=:m", {"m": m})
     ins = """INSERT INTO keka_attendance
         (month,emp_no,emp_name,job_title,department,sub_department,reporting_manager,work_date,status,shift,
-         in_time,out_time,late_by_min,early_by_min,effective_min,total_min,break_min,overtime_min,short_eff_min)
+         in_time,out_time,late_by_min,early_by_min,effective_min,total_min,break_min,overtime_min,short_eff_min,
+         uploaded_by,uploaded_at)
         VALUES (:month,:emp_no,:emp_name,:job_title,:department,:sub_department,:reporting_manager,:work_date,:status,:shift,
-         :in_time,:out_time,:late_by_min,:early_by_min,:effective_min,:total_min,:break_min,:overtime_min,:short_eff_min)
+         :in_time,:out_time,:late_by_min,:early_by_min,:effective_min,:total_min,:break_min,:overtime_min,:short_eff_min,
+         :uploaded_by,now())
         ON CONFLICT (emp_no, work_date) DO NOTHING"""
     from sqlalchemy import text as _text
     eng = db._engine_write()
@@ -842,12 +852,17 @@ def keka_status(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")
     try:
         r = db.q_write("""SELECT month, count(*) rows, count(DISTINCT emp_name) employees,
-                          round(sum(effective_min)/60.0) eff_h
+                          round(sum(effective_min)/60.0) eff_h,
+                          to_char(max(uploaded_at),'DD Mon YYYY, HH12:MI AM') uploaded_on,
+                          max(uploaded_by) uploaded_by
                           FROM keka_attendance GROUP BY month ORDER BY month DESC""")
     except Exception:
         return {"months": []}
     return {"months": [{"month": x["month"], "rows": int(x["rows"]), "employees": int(x["employees"]),
-                        "effective_hours": float(x["eff_h"] or 0)} for _, x in r.iterrows()]}
+                        "effective_hours": float(x["eff_h"] or 0),
+                        "uploaded_on": (None if pd.isna(x["uploaded_on"]) else x["uploaded_on"]),
+                        "uploaded_by": (None if pd.isna(x["uploaded_by"]) else x["uploaded_by"])}
+                       for _, x in r.iterrows()]}
 
 
 @app.post("/api/settings/email/test")
@@ -2981,13 +2996,27 @@ CREATE TABLE IF NOT EXISTS team_history (
   team text,
   department text,
   effective_from date,
+  reason text,
   created_at timestamptz DEFAULT now()
 )
 """
 
 
+def _ensure_map_cols():
+    """Idempotent column adds for fields added after the original schema."""
+    if not db.has_write():
+        return
+    for ddl in ("ALTER TABLE employee_mapping ADD COLUMN IF NOT EXISTS notes text",
+                "ALTER TABLE team_history ADD COLUMN IF NOT EXISTS reason text"):
+        try:
+            db.execute(ddl)
+        except Exception:  # noqa
+            pass
+
+
 @app.get("/api/mapping")
 def mapping_get():
+    _ensure_map_cols()
     try:
         df = db.q_write("SELECT * FROM employee_mapping ORDER BY total_hours DESC NULLS LAST")
     except Exception:
@@ -2995,12 +3024,13 @@ def mapping_get():
     # per-employee transfer history (sparse) for the dropdown + display
     hist = {}
     try:
-        h = db.q_write("SELECT hubstaff_user_id uid, team, department dept, "
+        h = db.q_write("SELECT hubstaff_user_id uid, team, department dept, reason, "
                        "to_char(effective_from,'YYYY-MM-DD') ef FROM team_history "
                        "ORDER BY hubstaff_user_id, effective_from")
         for _, r in h.iterrows():
             hist.setdefault(str(r["uid"]), []).append(
-                {"team": r["team"], "department": r["dept"], "effective_from": r["ef"]})
+                {"team": r["team"], "department": r["dept"], "effective_from": r["ef"],
+                 "reason": (None if pd.isna(r["reason"]) else r["reason"])})
     except Exception:  # noqa
         pass
     rows = []
@@ -3034,7 +3064,8 @@ def mapping_save(payload: dict):
     if not name:
         return {"ok": False, "reason": "no_name"}
     editable = ["hr_employee_no", "hr_full_name", "status", "department", "team",
-                "job_title", "reporting_to", "exit_date", "reviewed", "clickup_user_id"]
+                "job_title", "reporting_to", "exit_date", "reviewed", "clickup_user_id", "notes"]
+    _ensure_map_cols()
     sets, params = [], {"k_name": name}
     for k in editable:
         if k in payload:
@@ -3077,7 +3108,9 @@ def mapping_transfer(payload: dict):
         cur_team = str(row.iloc[0]["team"] or "").strip()
         cur_dept = str(row.iloc[0]["department"] or "").strip()
         new_dept = (p.get("new_department") or cur_dept or "").strip()
+        reason = (p.get("reason") or "").strip() or None
         db.execute(_TEAMHIST_DDL)
+        _ensure_map_cols()
         # Baseline: if no history yet, anchor the CURRENT team from an early date so all
         # pre-transfer activity keeps it. Use the employee's earliest activity date.
         existing = db.q_write("SELECT count(*) c FROM team_history WHERE hubstaff_user_id = :u", {"u": uid})
@@ -3087,8 +3120,8 @@ def mapping_transfer(payload: dict):
             db.execute("INSERT INTO team_history (hubstaff_user_id, team, department, effective_from) "
                        "VALUES (:u,:t,:d,:f)", {"u": uid, "t": cur_team, "d": cur_dept, "f": base_from})
         # The transfer itself.
-        db.execute("INSERT INTO team_history (hubstaff_user_id, team, department, effective_from) "
-                   "VALUES (:u,:t,:d,:f)", {"u": uid, "t": new_team, "d": new_dept, "f": eff})
+        db.execute("INSERT INTO team_history (hubstaff_user_id, team, department, effective_from, reason) "
+                   "VALUES (:u,:t,:d,:f,:r)", {"u": uid, "t": new_team, "d": new_dept, "f": eff, "r": reason})
         # Current team/dept on employee_mapping = the latest (new) values.
         db.execute("UPDATE employee_mapping SET team=:t, department=:d, updated_at=now() "
                    "WHERE hubstaff_name=:n", {"t": new_team, "d": new_dept, "n": name})

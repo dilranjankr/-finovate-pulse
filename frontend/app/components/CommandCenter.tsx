@@ -6,7 +6,7 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight, BookOpen,
+  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Filter, MoreVertical, ExternalLink,
 } from "lucide-react";
 import {
   getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
@@ -210,7 +210,15 @@ export default function CommandCenter({
   const [kekaStatus, setKekaStatus] = useState<KekaMonth[] | null>(null);
   const [kekaBusy, setKekaBusy] = useState(false);
   const [kekaMsg, setKekaMsg] = useState<{ ok?: string; err?: string } | null>(null);
-  async function openKeka() { setKekaModal(true); setKekaMsg(null); setKekaStatus(null); try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); } }
+  const [kekaSearch, setKekaSearch] = useState("");
+  const [kekaDrag, setKekaDrag] = useState(false);
+  function fmtMonth(m: string) {
+    const mm = /^(\d{4})-(\d{2})$/.exec(m || "");
+    if (!mm) return m;
+    const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    return `${names[+mm[2] - 1] || mm[2]} ${mm[1]}`;
+  }
+  async function openKeka() { setKekaModal(true); setKekaMsg(null); setKekaSearch(""); setKekaStatus(null); try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); } }
   async function doKekaUpload(file: File) {
     setKekaBusy(true); setKekaMsg(null);
     try {
@@ -350,28 +358,47 @@ export default function CommandCenter({
     const r = await api.initMapping(); setMapBusy("");
     if (r.ok) { setMapData(await api.getMapping()); } else { alert("Init failed: " + (r.detail || r.reason)); }
   }
-  async function mapSave(row: import("../lib/api").MappingRow, patch: Partial<import("../lib/api").MappingRow>) {
-    const api = await import("../lib/api");
-    setMapData((d) => d ? { ...d, rows: d.rows.map((x) => x.hubstaff_name === row.hubstaff_name ? { ...x, ...patch } : x) } : d);
-    setMapBusy(row.hubstaff_name);
-    const r = await api.saveMapping({ hubstaff_name: row.hubstaff_name, ...patch });
-    setMapBusy("");
-    if (!r.ok) alert("Save failed: " + (r.detail || r.reason));
+  // Right-side "Update Employee Mapping" drawer (edit + dated team transfer in one place)
+  type MapEditState = { row: import("../lib/api").MappingRow; hr_full_name: string; hr_employee_no: string; status: string; department: string; team: string; xferDate: string; reason: string; notes: string; histOpen: boolean };
+  const [mapEdit, setMapEdit] = useState<MapEditState | null>(null);
+  const [mapMenu, setMapMenu] = useState("");
+  const XFER_REASONS = ["Team Restructuring", "Promotion", "Performance", "Client Requirement", "Resource Reallocation", "Role Change", "Other"];
+  function fmtDate(s?: string | null) {
+    if (!s) return "—";
+    const d = new Date(s + "T00:00:00");
+    return isNaN(+d) ? s : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
   }
-  // pick a value from a <select> of existing options, with a "+ Add new…" escape hatch
-  function pickOrNew(val: string, field: "team" | "department", row: import("../lib/api").MappingRow) {
-    if (val === "__new__") { const v = (prompt(`New ${field} name`) || "").trim(); if (v) mapSave(row, { [field]: v }); }
-    else mapSave(row, { [field]: val });
+  function lastTransferDate(r: import("../lib/api").MappingRow) {
+    const h = r.history || [];
+    return h.length ? fmtDate(h[h.length - 1].effective_from) : "—";
   }
-  const [xfer, setXfer] = useState<{ name: string; team: string; dept: string; from: string } | null>(null);
-  async function doTransfer() {
-    if (!xfer || !xfer.team.trim() || !xfer.from) { alert("Pick a new team and effective date"); return; }
-    const api = await import("../lib/api");
-    setMapBusy(xfer.name);
-    const r = await api.transferTeam({ hubstaff_name: xfer.name, new_team: xfer.team.trim(), new_department: xfer.dept.trim() || undefined, effective_from: xfer.from });
-    setMapBusy("");
-    if (r.ok) { setXfer(null); setMapData(await api.getMapping()); }
-    else alert("Transfer failed: " + (r.detail || r.reason));
+  function openMapEdit(r: import("../lib/api").MappingRow, histOpen = false) {
+    setMapMenu("");
+    setMapEdit({ row: r, hr_full_name: r.hr_full_name || "", hr_employee_no: r.hr_employee_no || "", status: r.status || "ACTIVE", department: r.department || "", team: r.team || "", xferDate: "", reason: "", notes: r.notes || "", histOpen });
+  }
+  async function saveMapEdit() {
+    if (!mapEdit) return;
+    const e = mapEdit, orig = e.row, api = await import("../lib/api");
+    const teamChanged = (e.team || "") !== (orig.team || "");
+    const deptChanged = (e.department || "") !== (orig.department || "");
+    const canTransfer = !!orig.hubstaff_user_id;
+    setMapBusy(orig.hubstaff_name);
+    if ((teamChanged || deptChanged) && canTransfer) {
+      if (!e.xferDate) { setMapBusy(""); alert("Team/Department badla hai — Date of Transfer zaroori hai (history record ke liye)."); return; }
+      const r = await api.transferTeam({ hubstaff_name: orig.hubstaff_name, new_team: e.team, new_department: e.department || undefined, effective_from: e.xferDate, reason: e.reason || undefined });
+      if (!r.ok) { setMapBusy(""); alert("Transfer failed: " + (r.detail || r.reason)); return; }
+    }
+    const patch: Partial<import("../lib/api").MappingRow> = {};
+    if ((e.hr_full_name || "") !== (orig.hr_full_name || "")) patch.hr_full_name = e.hr_full_name;
+    if ((e.hr_employee_no || "") !== (orig.hr_employee_no || "")) patch.hr_employee_no = e.hr_employee_no;
+    if ((e.status || "") !== (orig.status || "")) patch.status = e.status;
+    if ((e.notes || "") !== (orig.notes || "")) patch.notes = e.notes;
+    if ((teamChanged || deptChanged) && !canTransfer) { patch.team = e.team; patch.department = e.department; }
+    if (Object.keys(patch).length) {
+      const r = await api.saveMapping({ hubstaff_name: orig.hubstaff_name, ...patch });
+      if (!r.ok) { setMapBusy(""); alert("Save failed: " + (r.detail || r.reason)); return; }
+    }
+    setMapBusy(""); setMapEdit(null); setMapData(await api.getMapping());
   }
   useEffect(() => {
     const sp = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -1727,39 +1754,90 @@ export default function CommandCenter({
       )}
 
       {/* KEKA ATTENDANCE UPLOAD (owner) */}
-      {kekaModal && (
+      {kekaModal && (() => {
+        const months = (kekaStatus || []).filter((m) => !kekaSearch || fmtMonth(m.month).toLowerCase().includes(kekaSearch.toLowerCase()));
+        return (
         <div className="modal-bg" onClick={() => setKekaModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal keka-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 980, width: "94vw" }}>
             <div className="modal-h">
-              <div><h3><Clock size={15} style={{ verticalAlign: -2 }} /> Keka Attendance</h3><div className="sub">upload the monthly Daily Performance Report (.xlsx)</div></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 13 }}>
+                <span className="keka-ico"><Clock size={20} /></span>
+                <div><h3 style={{ margin: 0 }}>Upload Keka Attendance</h3><div className="sub">Upload the monthly Daily Performance Report (.xlsx)</div></div>
+              </div>
               <div className="modal-x" onClick={() => setKekaModal(false)}><X size={16} /></div>
             </div>
             <div className="modal-b">
-              <label className={`keka-drop${kekaBusy ? " busy" : ""}`}>
+              <label
+                className={`keka-drop${kekaBusy ? " busy" : ""}${kekaDrag ? " over" : ""}`}
+                onDragOver={(e) => { e.preventDefault(); setKekaDrag(true); }}
+                onDragLeave={() => setKekaDrag(false)}
+                onDrop={(e) => { e.preventDefault(); setKekaDrag(false); const f = e.dataTransfer.files?.[0]; if (f && !kekaBusy) doKekaUpload(f); }}>
                 <input type="file" accept=".xlsx" disabled={kekaBusy} style={{ display: "none" }}
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) doKekaUpload(f); e.currentTarget.value = ""; }} />
-                {kekaBusy ? <><span className="spin" /> Uploading & parsing…</>
-                  : <><Download size={20} style={{ transform: "rotate(180deg)" }} /><b>Choose Keka .xlsx file</b><span>Daily Performance Report — re-uploading a month replaces it</span></>}
+                {kekaBusy ? <div className="keka-drop-in"><span className="spin" /><b>Uploading &amp; parsing…</b></div>
+                  : <div className="keka-drop-in">
+                      <UploadCloud size={40} className="keka-cloud" />
+                      <b>Drag and drop your Keka <span className="keka-ext">.xlsx</span> file here</b>
+                      <span>or click to <span className="keka-browse">browse</span> from your device</span>
+                      <span className="keka-hint">Daily Performance Report — re-uploading a month replaces the existing data</span>
+                    </div>}
               </label>
-              {kekaMsg?.err && <div className="login-err"><ShieldAlert size={13} />{kekaMsg.err}</div>}
-              {kekaMsg?.ok && <div className="email-ok"><Check size={13} />{kekaMsg.ok}</div>}
-              <div className="drawer-sec" style={{ marginTop: 14 }}>Loaded months</div>
+              {kekaMsg?.err && <div className="login-err" style={{ marginTop: 12 }}><ShieldAlert size={13} />{kekaMsg.err}</div>}
+              {kekaMsg?.ok && <div className="email-ok" style={{ marginTop: 12 }}><Check size={13} />{kekaMsg.ok}</div>}
+
+              <div className="keka-loaded-h">
+                <div>
+                  <div className="keka-loaded-t">Loaded Months</div>
+                  <div className="sub">Previously uploaded attendance files</div>
+                </div>
+                <div className="keka-loaded-r">
+                  <div className="keka-srch"><Search size={14} /><input placeholder="Search month…" value={kekaSearch} onChange={(e) => setKekaSearch(e.target.value)} /></div>
+                  <button className="keka-filt"><Filter size={15} /></button>
+                </div>
+              </div>
+
               {!kekaStatus ? <div className="loading" style={{ height: 80 }}><span className="spin" /> Loading…</div>
-                : kekaStatus.length === 0 ? <div className="empty-s">No attendance data yet — upload a month above.</div> : (
-                  <table className="hd-table">
-                    <thead><tr><th className="l">Month</th><th>Employees</th><th>Rows</th><th>Effective hrs</th></tr></thead>
-                    <tbody>
-                      {kekaStatus.map((m) => (
-                        <tr key={m.month}><td className="l" style={{ fontWeight: 650 }}>{m.month}</td><td className="num">{m.employees}</td><td className="num" style={{ color: "var(--muted)" }}>{n0(m.rows)}</td><td className="num" style={{ fontWeight: 700 }}>{n0(m.effective_hours)}h</td></tr>
-                      ))}
-                    </tbody>
-                  </table>
+                : months.length === 0 ? <div className="empty-s">{kekaSearch ? "No months match." : "No attendance data yet — upload a month above."}</div> : (
+                  <div className="scrollwrap" style={{ maxHeight: 380 }}>
+                    <table className="keka-table">
+                      <thead><tr>
+                        <th className="l">MONTH</th><th>EMPLOYEES</th><th>ROWS</th><th>EFFECTIVE HOURS</th>
+                        <th className="l">UPLOADED ON</th><th className="l">UPLOADED BY</th><th>ACTIONS</th>
+                      </tr></thead>
+                      <tbody>
+                        {months.map((m) => (
+                          <tr key={m.month}>
+                            <td className="l"><span className="keka-mrow"><FileSpreadsheet size={17} className="keka-frow" /><b>{fmtMonth(m.month)}</b></span></td>
+                            <td className="num">{m.employees}</td>
+                            <td className="num" style={{ color: "var(--accent)" }}>{n0(m.rows)}</td>
+                            <td className="num" style={{ fontWeight: 700 }}>{n0(m.effective_hours)}h</td>
+                            <td className="l" style={{ whiteSpace: "nowrap", color: "var(--ink-2)" }}>{m.uploaded_on || "—"}</td>
+                            <td className="l" style={{ color: "var(--ink-2)" }}>{m.uploaded_by || "—"}</td>
+                            <td>
+                              <div className="keka-acts">
+                                <button className="keka-act" title="Download not available" disabled><Download size={15} /></button>
+                                <button className="keka-act" title="More"><MoreVertical size={15} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
-              <p className="email-help" style={{ marginTop: 12 }}>Effective (office) hours from this report now power <b>Utilization</b> across the dashboard — tracked hours ÷ real office hours, instead of a flat 8h/day. Upload each month to keep it accurate.</p>
+
+              <div className="keka-foot">
+                <div className="keka-secure"><span className="keka-secure-ico"><ShieldCheck size={18} /></span><div><b>Secure &amp; Reliable</b><span>Your data is encrypted and stored securely.</span></div></div>
+                <div className="keka-foot-r">
+                  <span className="keka-help">Need help? <a href="#" onClick={(e) => e.preventDefault()}>View upload guide <ExternalLink size={12} /></a></span>
+                  <button className="btn-ghost" onClick={() => setKekaModal(false)}>Close</button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* CLIENT BUDGETS — editable table */}
       {budgetAdminModal && (
@@ -1993,44 +2071,44 @@ export default function CommandCenter({
                     <div className="scrollwrap" style={{ maxHeight: 520 }}>
                       <table className="ec-table">
                         <thead><tr>
-                          <th className="l">Hubstaff name</th><th className="l">HR name</th><th className="l">Emp #</th>
-                          <th className="l">Status</th><th className="l">Dept</th><th className="l">Team</th>
-                          <th className="l">Transfer</th><th>Hrs</th><th>OK</th>
+                          <th className="l">Hubstaff Name</th><th className="l">HR Name</th><th className="l">Employee ID</th>
+                          <th className="l">Status</th><th className="l">Department</th><th className="l">Team</th>
+                          <th className="l">Transfer Date</th><th className="l">Actions</th>
                         </tr></thead>
                         <tbody>
                           {mapData.rows.filter((r) => !mapSearch || (r.hubstaff_name + " " + (r.hr_full_name || "")).toLowerCase().includes(mapSearch.toLowerCase())).slice(0, 60).map((r) => (
                             <tr key={r.hubstaff_name} style={r.reviewed ? { background: "color-mix(in srgb, var(--accent) 6%, transparent)" } : undefined}>
                               <td className="l"><span className="tname">{r.hubstaff_name}</span></td>
-                              <td className="l"><input className="map-inp" defaultValue={r.hr_full_name || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.hr_full_name || "")) mapSave(r, { hr_full_name: e.target.value }); }} /></td>
-                              <td className="l"><input className="map-inp" style={{ width: 80 }} defaultValue={r.hr_employee_no || ""} disabled={!mapData.write} onBlur={(e) => { if (e.target.value !== (r.hr_employee_no || "")) mapSave(r, { hr_employee_no: e.target.value }); }} /></td>
+                              <td className="l">{r.hr_full_name || <span style={{ color: "var(--muted)" }}>—</span>}</td>
+                              <td className="l">{r.hr_employee_no ? <span className="emp-id">{r.hr_employee_no}</span> : <span style={{ color: "var(--muted)" }}>—</span>}</td>
                               <td className="l">
-                                <select className="map-inp" value={r.status || ""} disabled={!mapData.write} onChange={(e) => mapSave(r, { status: e.target.value })}>
-                                  {["ACTIVE", "RELIEVED", "EXTERNAL", "UNKNOWN"].map((s) => <option key={s} value={s}>{s}</option>)}
-                                </select>
+                                <span className={"mp-status " + ((r.status || "").toUpperCase() === "ACTIVE" ? "on" : "off")}>
+                                  <span className="dot" />{r.status || "—"}
+                                </span>
                               </td>
+                              <td className="l">{r.department || <span style={{ color: "var(--muted)" }}>—</span>}</td>
                               <td className="l">
-                                <select className="map-inp" style={{ width: 110 }} value={r.department || ""} disabled={!mapData.write} onChange={(e) => pickOrNew(e.target.value, "department", r)}>
-                                  {!(mapData.departments || []).includes(r.department || "") && <option value={r.department || ""}>{r.department || "—"}</option>}
-                                  {(mapData.departments || []).map((dp) => <option key={dp} value={dp}>{dp}</option>)}
-                                  <option value="__new__">+ Add new…</option>
-                                </select>
-                              </td>
-                              <td className="l">
-                                <select className="map-inp" style={{ width: 120 }} value={r.team || ""} disabled={!mapData.write} onChange={(e) => pickOrNew(e.target.value, "team", r)}>
-                                  {!(mapData.teams || []).includes(r.team || "") && <option value={r.team || ""}>{r.team || "—"}</option>}
-                                  {(mapData.teams || []).map((tm) => <option key={tm} value={tm}>{tm}</option>)}
-                                  <option value="__new__">+ Add new…</option>
-                                </select>
+                                {r.team || <span style={{ color: "var(--muted)" }}>—</span>}
                                 {(r.history && r.history.length > 0) && (
                                   <span className="xfer-chip" title={r.history.map((h) => `${h.team} from ${h.effective_from}`).join("  →  ")}>⟳ {r.history.length}</span>
                                 )}
                               </td>
+                              <td className="l" style={{ whiteSpace: "nowrap", color: "var(--ink, #0f172a)" }}>{lastTransferDate(r)}</td>
                               <td className="l">
-                                <button className="bgt-del" disabled={!mapData.write || !r.hubstaff_user_id} title="Transfer to another team on a date"
-                                  onClick={() => setXfer({ name: r.hubstaff_name, team: "", dept: r.department || "", from: "" })}>⇄ Transfer</button>
+                                <div className="mp-actions">
+                                  <button className="mp-change" disabled={!mapData.write} onClick={() => openMapEdit(r)}>Change</button>
+                                  <div className="mp-kebwrap">
+                                    <button className="mp-kebab" onClick={() => setMapMenu(mapMenu === r.hubstaff_name ? "" : r.hubstaff_name)}>⋮</button>
+                                    {mapMenu === r.hubstaff_name && (
+                                      <div className="mp-menu" onMouseLeave={() => setMapMenu("")}>
+                                        <button onClick={() => openMapEdit(r)} disabled={!mapData.write}>Change Mapping</button>
+                                        <button onClick={() => openMapEdit(r, true)}>Transfer History</button>
+                                        <button onClick={() => openMapEdit(r)}>View Details</button>
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
                               </td>
-                              <td className="num">{n0(r.total_hours || 0)}</td>
-                              <td className="num"><input type="checkbox" checked={!!r.reviewed} disabled={!mapData.write} onChange={(e) => mapSave(r, { reviewed: e.target.checked })} /></td>
                             </tr>
                           ))}
                         </tbody>
@@ -2044,38 +2122,84 @@ export default function CommandCenter({
       )}
 
       {/* TEAM TRANSFER — record a dated team change (history-aware attribution) */}
-      {xfer && (
-        <div className="modal-bg" onClick={() => setXfer(null)}>
-          <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-h">
-              <div><h3><Users size={15} style={{ verticalAlign: -2 }} /> Transfer team</h3><div className="sub">{xfer.name} — work before the date keeps the old team, after moves to the new one</div></div>
-              <div className="modal-x" onClick={() => setXfer(null)}><X size={16} /></div>
-            </div>
-            <div className="modal-b">
-              <label className="xfer-lbl">New team
-                <select className="usr-in" value={xfer.team} onChange={(e) => { const v = e.target.value; if (v === "__new__") { const n = (prompt("New team name") || "").trim(); if (n) setXfer({ ...xfer, team: n }); } else setXfer({ ...xfer, team: v }); }}>
-                  <option value="">— select —</option>
-                  {(mapData?.teams || []).map((tm) => <option key={tm} value={tm}>{tm}</option>)}
-                  {xfer.team && !(mapData?.teams || []).includes(xfer.team) && <option value={xfer.team}>{xfer.team}</option>}
-                  <option value="__new__">+ Add new…</option>
-                </select>
-              </label>
-              <label className="xfer-lbl">New department
-                <select className="usr-in" value={xfer.dept} onChange={(e) => { const v = e.target.value; if (v === "__new__") { const n = (prompt("New department name") || "").trim(); if (n) setXfer({ ...xfer, dept: n }); } else setXfer({ ...xfer, dept: v }); }}>
-                  <option value="">— same —</option>
-                  {(mapData?.departments || []).map((dp) => <option key={dp} value={dp}>{dp}</option>)}
-                  {xfer.dept && !(mapData?.departments || []).includes(xfer.dept) && <option value={xfer.dept}>{xfer.dept}</option>}
-                  <option value="__new__">+ Add new…</option>
-                </select>
-              </label>
-              <label className="xfer-lbl">Effective from
-                <input type="date" className="usr-in" value={xfer.from} onChange={(e) => setXfer({ ...xfer, from: e.target.value })} />
-              </label>
-              <button className="bgt-go" style={{ marginTop: 12 }} disabled={mapBusy === xfer.name} onClick={doTransfer}>{mapBusy === xfer.name ? "Saving…" : "Record transfer"}</button>
+      {mapEdit && (() => {
+        const e = mapEdit;
+        const teamMoved = (e.team || "") !== (e.row.team || "") || (e.department || "") !== (e.row.department || "");
+        const hist = [...(e.row.history || [])].reverse();   // latest first
+        return (
+          <div className="drawer-bg" onClick={() => setMapEdit(null)}>
+            <div className="drawer" onClick={(ev) => ev.stopPropagation()}>
+              <div className="drawer-h">
+                <h3>Update Employee Mapping</h3>
+                <div className="modal-x" onClick={() => setMapEdit(null)}><X size={16} /></div>
+              </div>
+              <div className="drawer-b">
+                <div className="drawer-sec">Employee Information</div>
+                <label className="fld">Hubstaff Name<input value={e.row.hubstaff_name} disabled /></label>
+                <label className="fld">HR Name<input value={e.hr_full_name} onChange={(ev) => setMapEdit({ ...e, hr_full_name: ev.target.value })} /></label>
+                <label className="fld">Employee ID<input value={e.hr_employee_no} onChange={(ev) => setMapEdit({ ...e, hr_employee_no: ev.target.value })} /></label>
+
+                <div className="drawer-sec">Mapping Details</div>
+                <div className="fld-row3">
+                  <label className="fld">Status
+                    <select value={e.status} onChange={(ev) => setMapEdit({ ...e, status: ev.target.value })}>
+                      {["ACTIVE", "RELIEVED", "EXTERNAL", "UNKNOWN"].map((s) => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </label>
+                  <label className="fld">Department
+                    <select value={e.department} onChange={(ev) => { const v = ev.target.value; if (v === "__new__") { const n = (prompt("New department name") || "").trim(); if (n) setMapEdit({ ...e, department: n }); } else setMapEdit({ ...e, department: v }); }}>
+                      {!(mapData?.departments || []).includes(e.department) && <option value={e.department}>{e.department || "—"}</option>}
+                      {(mapData?.departments || []).map((dp) => <option key={dp} value={dp}>{dp}</option>)}
+                      <option value="__new__">+ Add new…</option>
+                    </select>
+                  </label>
+                  <label className="fld">Team
+                    <select value={e.team} onChange={(ev) => { const v = ev.target.value; if (v === "__new__") { const n = (prompt("New team name") || "").trim(); if (n) setMapEdit({ ...e, team: n }); } else setMapEdit({ ...e, team: v }); }}>
+                      {!(mapData?.teams || []).includes(e.team) && <option value={e.team}>{e.team || "—"}</option>}
+                      {(mapData?.teams || []).map((tm) => <option key={tm} value={tm}>{tm}</option>)}
+                      <option value="__new__">+ Add new…</option>
+                    </select>
+                  </label>
+                </div>
+                <label className="fld">Date of Transfer{teamMoved && <span className="req"> *</span>}
+                  <input type="date" value={e.xferDate} onChange={(ev) => setMapEdit({ ...e, xferDate: ev.target.value })} />
+                </label>
+                {teamMoved && <div className="fld-hint">Date se pehle ka kaam purani team me rahega, baad ka nayi team me.</div>}
+                <label className="fld">Reason for Transfer
+                  <select value={e.reason} onChange={(ev) => setMapEdit({ ...e, reason: ev.target.value })}>
+                    <option value="">— select —</option>
+                    {XFER_REASONS.map((rs) => <option key={rs} value={rs}>{rs}</option>)}
+                  </select>
+                </label>
+                <label className="fld">Notes (Optional)<textarea value={e.notes} placeholder="Add notes here…" onChange={(ev) => setMapEdit({ ...e, notes: ev.target.value })} /></label>
+
+                {hist.length > 0 && (
+                  <div className="hist-box">
+                    <div className="hist-h" onClick={() => setMapEdit({ ...e, histOpen: !e.histOpen })}>
+                      Mapping History <span className="hist-n">{hist.length}</span>
+                      <span style={{ marginLeft: "auto", color: "var(--muted)" }}>{e.histOpen ? "▲" : "▼"}</span>
+                    </div>
+                    {e.histOpen && hist.map((h, i) => (
+                      <div className="hist-item" key={i}>
+                        <span className="hist-dot" />
+                        <div>
+                          <div className="hist-date">{fmtDate(h.effective_from)}</div>
+                          <div className="hist-sub">{(h.department || "—")} • {h.team}{h.reason ? " · " + h.reason : ""}</div>
+                        </div>
+                        <span className={"hist-badge " + (i === 0 ? "cur" : "past")}>{i === 0 ? "Active" : "Past"}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="drawer-f">
+                <button className="btn-ghost" onClick={() => setMapEdit(null)}>Cancel</button>
+                <button className="btn-prim" disabled={!mapData?.write || mapBusy === e.row.hubstaff_name} onClick={saveMapEdit}>{mapBusy === e.row.hubstaff_name ? "Saving…" : "Save Changes"}</button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TOTAL HOURS DETAIL — employee x project x task, billable / non-billable */}
       {hoursModal && (() => {
@@ -2692,3 +2816,4 @@ function MultiSelect({ Icon, label, value, opts, on, allLabel, status }: {
     </div>
   );
 }
+
