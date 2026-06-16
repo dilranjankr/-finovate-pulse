@@ -516,6 +516,18 @@ export async function uploadKeka(file: File): Promise<{ ok: boolean; rows: numbe
   if (!r.ok) throw new Error(await asError(r));
   return r.json();
 }
+export interface HoursConfig { shift_min: number; break_min: number; net_min: number; shift_hours: number; net_hours: number; }
+export async function getHoursConfig(): Promise<HoursConfig> {
+  const r = await authedFetch(`${API}/api/settings/hours`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
+export async function saveHoursConfig(shift_min: number, break_min: number): Promise<{ ok: boolean; detail?: string; reason?: string; net_min?: number }> {
+  const r = await authedFetch(`${API}/api/settings/hours`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ shift_min, break_min }),
+  });
+  return r.json();
+}
 export interface EmailSettings {
   smtp_host: string; smtp_port: string; smtp_user: string; smtp_from: string;
   public_app_url: string; password_set: boolean; ready: boolean;

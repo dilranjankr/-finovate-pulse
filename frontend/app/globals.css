@@ -791,6 +791,22 @@ select.map-inp { cursor: pointer; }
 .keka-foot-r { display: flex; align-items: center; gap: 16px; flex: none; }
 .keka-help { font-size: 12.5px; color: var(--muted); }
 .keka-help a { color: var(--accent); font-weight: 650; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+
+/* Working-hours capacity policy card (Keka modal) */
+.wh-card { margin-top: 16px; border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; background: #fcfcfe; }
+.wh-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.wh-head b { font-size: 13px; font-weight: 700; color: var(--ink); display: block; }
+.wh-head span { font-size: 11px; color: var(--muted); display: block; margin-top: 2px; }
+.wh-net { text-align: right; font-size: 20px; font-weight: 750; color: var(--accent); white-space: nowrap; }
+.wh-net i { display: block; font-size: 10px; font-weight: 600; color: var(--muted); font-style: normal; margin-top: -2px; }
+.wh-row { display: flex; align-items: flex-end; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.wh-fld { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 600; color: var(--muted); }
+.wh-fld input { width: 96px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font-size: 13px; color: var(--ink); font-weight: 600; outline: none; }
+.wh-fld input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+.wh-op { font-size: 16px; font-weight: 700; color: var(--muted); padding-bottom: 8px; }
+.wh-eq { padding: 8px 12px; background: var(--accent-soft); color: var(--accent); border-radius: 7px; font-size: 13px; font-weight: 700; }
+.wh-row .bgt-go { margin-left: auto; }
+.wh-hint { margin-top: 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
 .una-assign { display: flex; gap: 6px; align-items: center; }
 .una-assign .map-inp { width: 120px; }
 .una-assign .bgt-go { padding: 6px 12px; font-size: 12px; }

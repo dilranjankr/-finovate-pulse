@@ -211,13 +211,28 @@ export default function CommandCenter({
   const [kekaMsg, setKekaMsg] = useState<{ ok?: string; err?: string } | null>(null);
   const [kekaSearch, setKekaSearch] = useState("");
   const [kekaDrag, setKekaDrag] = useState(false);
+  const [hoursCfg, setHoursCfg] = useState<import("../lib/api").HoursConfig | null>(null);
+  const [hoursBusy, setHoursBusy] = useState(false);
+  async function saveHours(shift_min: number, break_min: number) {
+    setHoursBusy(true);
+    const api = await import("../lib/api");
+    const r = await api.saveHoursConfig(shift_min, break_min);
+    setHoursBusy(false);
+    if (r.ok) { try { setHoursCfg(await api.getHoursConfig()); } catch { /* keep */ } }
+    else alert("Save failed: " + (r.detail || r.reason));
+  }
   function fmtMonth(m: string) {
     const mm = /^(\d{4})-(\d{2})$/.exec(m || "");
     if (!mm) return m;
     const names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     return `${names[+mm[2] - 1] || mm[2]} ${mm[1]}`;
   }
-  async function openKeka() { setKekaModal(true); setKekaMsg(null); setKekaSearch(""); setKekaStatus(null); try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); } }
+  async function openKeka() {
+    setKekaModal(true); setKekaMsg(null); setKekaSearch(""); setKekaStatus(null); setHoursCfg(null);
+    const api = await import("../lib/api");
+    try { setKekaStatus((await getKekaStatus()).months); } catch { setKekaStatus([]); }
+    try { setHoursCfg(await api.getHoursConfig()); } catch { /* optional */ }
+  }
   async function doKekaUpload(file: File) {
     setKekaBusy(true); setKekaMsg(null);
     try {
@@ -1799,6 +1814,34 @@ export default function CommandCenter({
               </label>
               {kekaMsg?.err && <div className="login-err" style={{ marginTop: 12 }}><ShieldAlert size={13} />{kekaMsg.err}</div>}
               {kekaMsg?.ok && <div className="email-ok" style={{ marginTop: 12 }}><Check size={13} />{kekaMsg.ok}</div>}
+
+              {hoursCfg && (() => {
+                const sh = Math.round((hoursCfg.shift_min / 60) * 100) / 100;
+                const net = Math.max(0, hoursCfg.shift_min - hoursCfg.break_min);
+                return (
+                  <div className="wh-card">
+                    <div className="wh-head">
+                      <div><b>Working hours policy</b><span>Office-hours capacity per present day = shift − break. Drives utilization.</span></div>
+                      <span className="wh-net">{Math.round((net / 60) * 100) / 100}h<i>net / day</i></span>
+                    </div>
+                    <div className="wh-row">
+                      <label className="wh-fld">Shift hours
+                        <input type="number" step="0.5" min={1} max={24} defaultValue={sh}
+                          onChange={(e) => setHoursCfg({ ...hoursCfg, shift_min: Math.round(Number(e.target.value) * 60) })} />
+                      </label>
+                      <span className="wh-op">−</span>
+                      <label className="wh-fld">Break minutes
+                        <input type="number" step="5" min={0} max={hoursCfg.shift_min} defaultValue={hoursCfg.break_min}
+                          onChange={(e) => setHoursCfg({ ...hoursCfg, break_min: Math.max(0, Math.round(Number(e.target.value))) })} />
+                      </label>
+                      <span className="wh-op">=</span>
+                      <div className="wh-eq">{Math.round((net / 60) * 100) / 100}h net</div>
+                      <button className="bgt-go" disabled={hoursBusy} onClick={() => saveHours(hoursCfg.shift_min, hoursCfg.break_min)}>{hoursBusy ? "Saving…" : "Save"}</button>
+                    </div>
+                    <div className="wh-hint">e.g. 9h shift − 60 min (30 min lunch + 30 min evening) = 8h actual work. Full days cap at net; short days keep their actual hours.</div>
+                  </div>
+                );
+              })()}
 
               <div className="keka-loaded-h">
                 <div>

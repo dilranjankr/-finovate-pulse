@@ -548,6 +548,34 @@ def _setting_source(key: str, env: str) -> str:
     return "env" if os.environ.get(env, "").strip() else "none"
 
 
+@app.get("/api/settings/hours")
+def hours_settings_get(authorization: Optional[str] = Header(None)):
+    """Office-hours capacity policy: shift length and total break per present day."""
+    _require(authorization, "owner")
+    shift, brk, net = _capacity_cfg()
+    return {"shift_min": shift, "break_min": brk, "net_min": net,
+            "shift_hours": round(shift / 60.0, 2), "net_hours": round(net / 60.0, 2)}
+
+
+@app.post("/api/settings/hours")
+def hours_settings_save(payload: dict, authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
+    try:
+        shift = max(60, min(int(float((payload or {}).get("shift_min", 540))), 1440))
+        brk = max(0, min(int(float((payload or {}).get("break_min", 60))), shift))
+        _ensure_app_settings()
+        _set_setting("capacity_shift_min", str(shift))
+        _set_setting("capacity_break_min", str(brk))
+        _capacity_cfg.cache_clear()
+        keka_effective_hours.cache_clear()
+        load.cache_clear(); _clear_resp_cache()
+        return {"ok": True, "shift_min": shift, "break_min": brk, "net_min": max(shift - brk, 0)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
+
+
 @app.get("/api/settings/email")
 def email_settings_get(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")
@@ -1575,25 +1603,47 @@ def _user_wdays(d):
     return {u: max(1, _working_days(r["min"], r["max"])) for u, r in span.iterrows()}
 
 
+@lru_cache(maxsize=1)
+def _capacity_cfg():
+    """(shift_min, break_min, net_min) for office-hours capacity. Configurable from
+    the app (app_settings). Default: 9h shift − 60m break = 8h net per present day."""
+    shift, brk = 540, 60
+    try:
+        r = db.q_write("SELECT key, value FROM app_settings "
+                       "WHERE key IN ('capacity_shift_min','capacity_break_min')")
+        for _, x in r.iterrows():
+            v = int(float(x["value"]))
+            if x["key"] == "capacity_shift_min":
+                shift = v
+            elif x["key"] == "capacity_break_min":
+                brk = v
+    except Exception:  # noqa
+        pass
+    return shift, brk, max(shift - brk, 0)
+
+
 @lru_cache(maxsize=64)
 def keka_effective_hours(date_from, date_to):
     """{hubstaff_uid: office hours} from Keka daily effective time over the range —
-    the REAL utilization denominator (replaces the flat 8h/day assumption)."""
+    the REAL utilization denominator. Each present day is CAPPED at the configured
+    net shift (shift − break), so a full 9h day counts as 8h of capacity while
+    partial days keep their actual lower hours (no double-counting of breaks)."""
     out = {}
     if not db.has_write():
         return out
+    net_min = _capacity_cfg()[2]
     try:
         hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
                         "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
                         "AND coalesce(hr_full_name,'')<>''")
         n2u = {str(x["nm"]): str(x["uid"]) for _, x in hm.iterrows() if x["nm"]}
-        where, params = [], {}
+        where, params = [], {"net": net_min}
         if date_from:
             where.append("work_date >= :df"); params["df"] = date_from
         if date_to:
             where.append("work_date <= :dt"); params["dt"] = date_to
         w = (" WHERE " + " AND ".join(where)) if where else ""
-        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum(effective_min) eff "
+        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum(LEAST(effective_min, :net)) eff "
                         f"FROM keka_attendance{w} GROUP BY 1", params)
         for _, x in kr.iterrows():
             uid = n2u.get(str(x["nm"]))
@@ -1605,13 +1655,15 @@ def keka_effective_hours(date_from, date_to):
 
 
 def _user_cap_hours(d):
-    """{uid: capacity HOURS}: real Keka office hours for the active range when
-    available, else working-days × 8 (fallback for anyone without attendance)."""
+    """{uid: capacity HOURS}: real Keka office hours (capped at net shift) for the
+    active range when available, else working-days × net-shift hours (fallback for
+    anyone without attendance). Net shift = configurable shift − break (default 8h)."""
     wd = _user_wdays(d)
     if not wd:
         return {}
+    net_h = _capacity_cfg()[2] / 60.0
     keka = keka_effective_hours(str(d["date_s"].min()), str(d["date_s"].max()))
-    return {u: float(keka.get(str(u)) or (wd[u] * 8)) for u in wd}
+    return {u: float(keka.get(str(u)) or (wd[u] * net_h)) for u in wd}
 
 
 def group_metrics(d, by):
