@@ -213,13 +213,23 @@ export default function CommandCenter({
   const [kekaDrag, setKekaDrag] = useState(false);
   const [hoursCfg, setHoursCfg] = useState<import("../lib/api").HoursConfig | null>(null);
   const [hoursBusy, setHoursBusy] = useState(false);
-  async function saveHours(shift_min: number, break_min: number) {
+  const [newPol, setNewPol] = useState<{ from: string; shift: number; brk: number }>({ from: "", shift: 9, brk: 60 });
+  async function addPolicy() {
+    if (!newPol.from) { alert("Pick an effective-from date"); return; }
     setHoursBusy(true);
     const api = await import("../lib/api");
-    const r = await api.saveHoursConfig(shift_min, break_min);
+    const r = await api.saveHoursConfig(newPol.from, Math.round(newPol.shift * 60), Math.round(newPol.brk));
+    setHoursBusy(false);
+    if (r.ok) { setNewPol({ from: "", shift: 9, brk: 60 }); try { setHoursCfg(await api.getHoursConfig()); } catch { /* keep */ } }
+    else alert("Save failed: " + (r.detail || r.reason));
+  }
+  async function delPolicy(eff: string) {
+    setHoursBusy(true);
+    const api = await import("../lib/api");
+    const r = await api.deleteHoursPolicy(eff);
     setHoursBusy(false);
     if (r.ok) { try { setHoursCfg(await api.getHoursConfig()); } catch { /* keep */ } }
-    else alert("Save failed: " + (r.detail || r.reason));
+    else alert("Delete failed: " + (r.detail || r.reason));
   }
   function fmtMonth(m: string) {
     const mm = /^(\d{4})-(\d{2})$/.exec(m || "");
@@ -1816,29 +1826,47 @@ export default function CommandCenter({
               {kekaMsg?.ok && <div className="email-ok" style={{ marginTop: 12 }}><Check size={13} />{kekaMsg.ok}</div>}
 
               {hoursCfg && (() => {
-                const sh = Math.round((hoursCfg.shift_min / 60) * 100) / 100;
-                const net = Math.max(0, hoursCfg.shift_min - hoursCfg.break_min);
+                const curNet = hoursCfg.current ? Math.round((hoursCfg.current.net_min / 60) * 100) / 100 : 8;
+                const fmt = (s?: string) => (s ? fmtDate(s) : "—");
+                const addNet = Math.max(0, Math.round(newPol.shift * 60) - Math.round(newPol.brk));
                 return (
                   <div className="wh-card">
                     <div className="wh-head">
-                      <div><b>Working hours policy</b><span>Office-hours capacity per present day = shift − break. Drives utilization.</span></div>
-                      <span className="wh-net">{Math.round((net / 60) * 100) / 100}h<i>net / day</i></span>
+                      <div><b>Working-hours policy</b><span>Office-hours capacity per present day = shift − break. Changes apply by date, so each period uses its own break.</span></div>
+                      <span className="wh-net">{curNet}h<i>net / day now</i></span>
                     </div>
-                    <div className="wh-row">
-                      <label className="wh-fld">Shift hours
-                        <input type="number" step="0.5" min={1} max={24} defaultValue={sh}
-                          onChange={(e) => setHoursCfg({ ...hoursCfg, shift_min: Math.round(Number(e.target.value) * 60) })} />
-                      </label>
-                      <span className="wh-op">−</span>
-                      <label className="wh-fld">Break minutes
-                        <input type="number" step="5" min={0} max={hoursCfg.shift_min} defaultValue={hoursCfg.break_min}
-                          onChange={(e) => setHoursCfg({ ...hoursCfg, break_min: Math.max(0, Math.round(Number(e.target.value))) })} />
-                      </label>
-                      <span className="wh-op">=</span>
-                      <div className="wh-eq">{Math.round((net / 60) * 100) / 100}h net</div>
-                      <button className="bgt-go" disabled={hoursBusy} onClick={() => saveHours(hoursCfg.shift_min, hoursCfg.break_min)}>{hoursBusy ? "Saving…" : "Save"}</button>
+                    <div className="wh-list">
+                      {[...hoursCfg.policies].reverse().map((p) => (
+                        <div className="wh-item" key={p.effective_from}>
+                          <span className="wh-date">From {fmt(p.effective_from)}</span>
+                          <span className="wh-calc">{p.shift_hours}h shift − {p.break_min}m break</span>
+                          <span className="wh-pill">{p.net_hours}h net</span>
+                          {hoursCfg.write && hoursCfg.policies.length > 1 && (
+                            <button className="wh-del" title="Remove this policy" disabled={hoursBusy} onClick={() => delPolicy(p.effective_from)}><X size={12} /></button>
+                          )}
+                        </div>
+                      ))}
                     </div>
-                    <div className="wh-hint">e.g. 9h shift − 60 min (30 min lunch + 30 min evening) = 8h actual work. Full days cap at net; short days keep their actual hours.</div>
+                    {hoursCfg.write && (
+                      <div className="wh-add">
+                        <div className="wh-add-t">Add a change</div>
+                        <div className="wh-row">
+                          <label className="wh-fld">Effective from
+                            <input type="date" value={newPol.from} onChange={(e) => setNewPol({ ...newPol, from: e.target.value })} />
+                          </label>
+                          <label className="wh-fld">Shift hours
+                            <input type="number" step="0.5" min={1} max={24} value={newPol.shift} onChange={(e) => setNewPol({ ...newPol, shift: Number(e.target.value) })} />
+                          </label>
+                          <label className="wh-fld">Break minutes
+                            <input type="number" step="5" min={0} value={newPol.brk} onChange={(e) => setNewPol({ ...newPol, brk: Number(e.target.value) })} />
+                          </label>
+                          <span className="wh-op">=</span>
+                          <div className="wh-eq">{Math.round((addNet / 60) * 100) / 100}h net</div>
+                          <button className="bgt-go" disabled={hoursBusy || !newPol.from} onClick={addPolicy}>{hoursBusy ? "Saving…" : "Add"}</button>
+                        </div>
+                      </div>
+                    )}
+                    <div className="wh-hint">e.g. 9h − 60m (30m lunch + 30m evening) = 8h. Later set break to 30m from a date → 8.5h net for days after it. Full days cap at net; short days keep actual hours.</div>
                   </div>
                 );
               })()}

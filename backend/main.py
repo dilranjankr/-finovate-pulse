@@ -548,30 +548,65 @@ def _setting_source(key: str, env: str) -> str:
     return "env" if os.environ.get(env, "").strip() else "none"
 
 
+def _clear_capacity_caches():
+    _capacity_policies.cache_clear()
+    keka_effective_hours.cache_clear()
+    load.cache_clear(); _clear_resp_cache()
+
+
 @app.get("/api/settings/hours")
 def hours_settings_get(authorization: Optional[str] = Header(None)):
-    """Office-hours capacity policy: shift length and total break per present day."""
+    """Time-effective office-hours policies (shift − break per present day)."""
     _require(authorization, "owner")
-    shift, brk, net = _capacity_cfg()
-    return {"shift_min": shift, "break_min": brk, "net_min": net,
-            "shift_hours": round(shift / 60.0, 2), "net_hours": round(net / 60.0, 2)}
+    from datetime import date as _date
+    pols = [dict(p, shift_hours=round(p["shift_min"] / 60.0, 2),
+                 net_hours=round(p["net_min"] / 60.0, 2)) for p in _capacity_policies()]
+    today = _date.today().isoformat()
+    cur = None
+    for p in pols:
+        if p["effective_from"] <= today:
+            cur = p
+    return {"policies": pols, "current": cur or (pols[-1] if pols else None), "write": db.has_write()}
 
 
 @app.post("/api/settings/hours")
 def hours_settings_save(payload: dict, authorization: Optional[str] = Header(None)):
+    """Add or update a policy effective from a date (upsert by effective_from)."""
     _require(authorization, "owner")
     if not db.has_write():
         return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
+    p = payload or {}
+    eff = (p.get("effective_from") or "").strip()
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", eff):
+        return {"ok": False, "reason": "date", "detail": "effective_from must be YYYY-MM-DD"}
     try:
-        shift = max(60, min(int(float((payload or {}).get("shift_min", 540))), 1440))
-        brk = max(0, min(int(float((payload or {}).get("break_min", 60))), shift))
-        _ensure_app_settings()
-        _set_setting("capacity_shift_min", str(shift))
-        _set_setting("capacity_break_min", str(brk))
-        _capacity_cfg.cache_clear()
-        keka_effective_hours.cache_clear()
-        load.cache_clear(); _clear_resp_cache()
-        return {"ok": True, "shift_min": shift, "break_min": brk, "net_min": max(shift - brk, 0)}
+        shift = max(60, min(int(float(p.get("shift_min", 540))), 1440))
+        brk = max(0, min(int(float(p.get("break_min", 60))), shift))
+        db.execute(_CAPPOL_DDL)
+        db.execute("""INSERT INTO capacity_policy (effective_from, shift_min, break_min)
+                      VALUES (:e,:s,:b)
+                      ON CONFLICT (effective_from) DO UPDATE SET shift_min=:s, break_min=:b""",
+                   {"e": eff, "s": shift, "b": brk})
+        try:
+            db.execute("GRANT SELECT ON capacity_policy TO finovate_viewer")
+        except Exception:  # noqa
+            pass
+        _clear_capacity_caches()
+        return {"ok": True, "effective_from": eff, "shift_min": shift, "break_min": brk, "net_min": max(shift - brk, 0)}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "reason": "db", "detail": str(e)[:200]}
+
+
+@app.post("/api/settings/hours/delete")
+def hours_settings_delete(payload: dict, authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    if not db.has_write():
+        return {"ok": False, "reason": "no_write"}
+    eff = ((payload or {}).get("effective_from") or "").strip()
+    try:
+        db.execute("DELETE FROM capacity_policy WHERE effective_from = :e", {"e": eff})
+        _clear_capacity_caches()
+        return {"ok": True}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
 
@@ -1603,23 +1638,69 @@ def _user_wdays(d):
     return {u: max(1, _working_days(r["min"], r["max"])) for u, r in span.iterrows()}
 
 
+_CAPPOL_DDL = """
+CREATE TABLE IF NOT EXISTS capacity_policy (
+  id serial PRIMARY KEY,
+  effective_from date UNIQUE,
+  shift_min int,
+  break_min int,
+  created_at timestamptz DEFAULT now()
+)
+"""
+
+
 @lru_cache(maxsize=1)
-def _capacity_cfg():
-    """(shift_min, break_min, net_min) for office-hours capacity. Configurable from
-    the app (app_settings). Default: 9h shift − 60m break = 8h net per present day."""
-    shift, brk = 540, 60
+def _capacity_policies():
+    """Time-effective office-hours policies, sorted by effective_from ASC. Each day
+    uses the latest policy whose effective_from <= that day. Lets the break/shift
+    change over time (e.g. 60m break until Aug, 30m after). Falls back to the old
+    single-value app_settings, else a 9h−60m=8h default."""
+    pols = []
     try:
-        r = db.q_write("SELECT key, value FROM app_settings "
-                       "WHERE key IN ('capacity_shift_min','capacity_break_min')")
+        db.execute(_CAPPOL_DDL)
+        r = db.q_write("SELECT to_char(effective_from,'YYYY-MM-DD') ef, shift_min, break_min "
+                       "FROM capacity_policy ORDER BY effective_from")
         for _, x in r.iterrows():
-            v = int(float(x["value"]))
-            if x["key"] == "capacity_shift_min":
-                shift = v
-            elif x["key"] == "capacity_break_min":
-                brk = v
+            sh, bk = int(x["shift_min"]), int(x["break_min"])
+            pols.append({"effective_from": x["ef"], "shift_min": sh, "break_min": bk,
+                         "net_min": max(sh - bk, 0)})
     except Exception:  # noqa
         pass
-    return shift, brk, max(shift - brk, 0)
+    if not pols:                       # seed default from legacy single-value keys
+        sh, bk = 540, 60
+        try:
+            r = db.q_write("SELECT key, value FROM app_settings "
+                           "WHERE key IN ('capacity_shift_min','capacity_break_min')")
+            for _, x in r.iterrows():
+                v = int(float(x["value"]))
+                if x["key"] == "capacity_shift_min":
+                    sh = v
+                elif x["key"] == "capacity_break_min":
+                    bk = v
+        except Exception:  # noqa
+            pass
+        pols = [{"effective_from": "2000-01-01", "shift_min": sh, "break_min": bk,
+                 "net_min": max(sh - bk, 0)}]
+    return tuple(pols)   # hashable for lru_cache
+
+
+def _net_case(col="work_date"):
+    """SQL expression giving the net-shift minutes effective on each `col` date."""
+    pols = list(_capacity_policies())
+    base = min(pols, key=lambda p: p["effective_from"])["net_min"]
+    whens = " ".join(f"WHEN {col} >= DATE '{p['effective_from']}' THEN {p['net_min']}"
+                     for p in sorted(pols, key=lambda p: p["effective_from"], reverse=True))
+    return f"(CASE {whens} ELSE {base} END)"
+
+
+def _net_asof(date_s):
+    """Net-shift minutes effective on a given ISO date (for the no-Keka fallback)."""
+    pols = list(_capacity_policies())
+    chosen = None
+    for p in sorted(pols, key=lambda p: p["effective_from"]):
+        if p["effective_from"] <= str(date_s):
+            chosen = p
+    return (chosen or pols[0])["net_min"]
 
 
 @lru_cache(maxsize=64)
@@ -1631,19 +1712,19 @@ def keka_effective_hours(date_from, date_to):
     out = {}
     if not db.has_write():
         return out
-    net_min = _capacity_cfg()[2]
+    case = _net_case("work_date")     # per-day net shift (time-effective policy)
     try:
         hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
                         "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
                         "AND coalesce(hr_full_name,'')<>''")
         n2u = {str(x["nm"]): str(x["uid"]) for _, x in hm.iterrows() if x["nm"]}
-        where, params = [], {"net": net_min}
+        where, params = [], {}
         if date_from:
             where.append("work_date >= :df"); params["df"] = date_from
         if date_to:
             where.append("work_date <= :dt"); params["dt"] = date_to
         w = (" WHERE " + " AND ".join(where)) if where else ""
-        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum(LEAST(effective_min, :net)) eff "
+        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum(LEAST(effective_min, {case})) eff "
                         f"FROM keka_attendance{w} GROUP BY 1", params)
         for _, x in kr.iterrows():
             uid = n2u.get(str(x["nm"]))
@@ -1661,7 +1742,7 @@ def _user_cap_hours(d):
     wd = _user_wdays(d)
     if not wd:
         return {}
-    net_h = _capacity_cfg()[2] / 60.0
+    net_h = _net_asof(str(d["date_s"].max())) / 60.0   # policy effective at range end
     keka = keka_effective_hours(str(d["date_s"].min()), str(d["date_s"].max()))
     return {u: float(keka.get(str(u)) or (wd[u] * net_h)) for u in wd}
 

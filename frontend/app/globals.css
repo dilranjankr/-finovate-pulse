@@ -804,9 +804,19 @@ select.map-inp { cursor: pointer; }
 .wh-fld input { width: 96px; border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px; font-size: 13px; color: var(--ink); font-weight: 600; outline: none; }
 .wh-fld input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
 .wh-op { font-size: 16px; font-weight: 700; color: var(--muted); padding-bottom: 8px; }
-.wh-eq { padding: 8px 12px; background: var(--accent-soft); color: var(--accent); border-radius: 7px; font-size: 13px; font-weight: 700; }
+.wh-eq { padding: 8px 12px; background: var(--accent-soft); color: var(--accent); border-radius: 7px; font-size: 13px; font-weight: 700; white-space: nowrap; }
 .wh-row .bgt-go { margin-left: auto; }
 .wh-hint { margin-top: 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+.wh-list { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+.wh-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.wh-date { font-size: 12px; font-weight: 700; color: var(--ink); white-space: nowrap; }
+.wh-calc { font-size: 11.5px; color: var(--muted); }
+.wh-pill { margin-left: auto; font-size: 11.5px; font-weight: 700; color: var(--accent); background: var(--accent-soft); border-radius: 20px; padding: 3px 11px; white-space: nowrap; }
+.wh-del { border: 1px solid var(--line); background: #fff; color: var(--muted); border-radius: 6px; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex: none; }
+.wh-del:hover:not(:disabled) { border-color: #ef4444; color: #ef4444; }
+.wh-add { margin-top: 14px; padding-top: 13px; border-top: 1px dashed var(--line); }
+.wh-add-t { font-size: 11.5px; font-weight: 700; color: var(--ink-2); margin-bottom: 8px; }
+.wh-add .wh-row { margin-top: 0; }
 .una-assign { display: flex; gap: 6px; align-items: center; }
 .una-assign .map-inp { width: 120px; }
 .una-assign .bgt-go { padding: 6px 12px; font-size: 12px; }
