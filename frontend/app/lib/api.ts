@@ -516,16 +516,19 @@ export async function uploadKeka(file: File): Promise<{ ok: boolean; rows: numbe
   if (!r.ok) throw new Error(await asError(r));
   return r.json();
 }
-export interface HoursPolicy { effective_from: string; shift_min: number; break_min: number; net_min: number; shift_hours: number; net_hours: number; }
+export interface HoursPolicy {
+  effective_from: string; shift_min: number; threshold_min: number; short_break_min: number; long_break_min: number;
+  net_min: number; shift_hours: number; threshold_hours: number; net_hours: number;
+}
 export interface HoursConfig { policies: HoursPolicy[]; current: HoursPolicy | null; write: boolean; }
 export async function getHoursConfig(): Promise<HoursConfig> {
   const r = await authedFetch(`${API}/api/settings/hours`, { cache: "no-store" });
   if (!r.ok) throw new Error(await asError(r));
   return r.json();
 }
-export async function saveHoursConfig(effective_from: string, shift_min: number, break_min: number): Promise<{ ok: boolean; detail?: string; reason?: string; net_min?: number }> {
+export async function saveHoursConfig(body: { effective_from: string; shift_min: number; threshold_min: number; short_break_min: number; long_break_min: number }): Promise<{ ok: boolean; detail?: string; reason?: string; net_min?: number }> {
   const r = await authedFetch(`${API}/api/settings/hours`, {
-    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ effective_from, shift_min, break_min }),
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
   });
   return r.json();
 }

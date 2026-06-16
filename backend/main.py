@@ -556,10 +556,12 @@ def _clear_capacity_caches():
 
 @app.get("/api/settings/hours")
 def hours_settings_get(authorization: Optional[str] = Header(None)):
-    """Time-effective office-hours policies (shift − break per present day)."""
+    """Time-effective, tiered office-hours policies (shift; short/long break by a
+    daily worked-hours threshold)."""
     _require(authorization, "owner")
     from datetime import date as _date
     pols = [dict(p, shift_hours=round(p["shift_min"] / 60.0, 2),
+                 threshold_hours=round(p["threshold_min"] / 60.0, 2),
                  net_hours=round(p["net_min"] / 60.0, 2)) for p in _capacity_policies()]
     today = _date.today().isoformat()
     cur = None
@@ -571,7 +573,7 @@ def hours_settings_get(authorization: Optional[str] = Header(None)):
 
 @app.post("/api/settings/hours")
 def hours_settings_save(payload: dict, authorization: Optional[str] = Header(None)):
-    """Add or update a policy effective from a date (upsert by effective_from)."""
+    """Add or update a tiered policy effective from a date (upsert by effective_from)."""
     _require(authorization, "owner")
     if not db.has_write():
         return {"ok": False, "reason": "no_write", "detail": "Set DATABASE_URL_WRITE in backend/.env"}
@@ -581,18 +583,23 @@ def hours_settings_save(payload: dict, authorization: Optional[str] = Header(Non
         return {"ok": False, "reason": "date", "detail": "effective_from must be YYYY-MM-DD"}
     try:
         shift = max(60, min(int(float(p.get("shift_min", 540))), 1440))
-        brk = max(0, min(int(float(p.get("break_min", 60))), shift))
-        db.execute(_CAPPOL_DDL)
-        db.execute("""INSERT INTO capacity_policy (effective_from, shift_min, break_min)
-                      VALUES (:e,:s,:b)
-                      ON CONFLICT (effective_from) DO UPDATE SET shift_min=:s, break_min=:b""",
-                   {"e": eff, "s": shift, "b": brk})
+        thr = max(0, min(int(float(p.get("threshold_min", 360))), shift))
+        sb = max(0, min(int(float(p.get("short_break_min", 30))), shift))
+        lb = max(0, min(int(float(p.get("long_break_min", 60))), shift))
+        _ensure_cappol()
+        db.execute("""INSERT INTO capacity_policy
+                      (effective_from, shift_min, threshold_min, short_break_min, long_break_min)
+                      VALUES (:e,:s,:t,:sb,:lb)
+                      ON CONFLICT (effective_from) DO UPDATE SET
+                        shift_min=:s, threshold_min=:t, short_break_min=:sb, long_break_min=:lb""",
+                   {"e": eff, "s": shift, "t": thr, "sb": sb, "lb": lb})
         try:
             db.execute("GRANT SELECT ON capacity_policy TO finovate_viewer")
         except Exception:  # noqa
             pass
         _clear_capacity_caches()
-        return {"ok": True, "effective_from": eff, "shift_min": shift, "break_min": brk, "net_min": max(shift - brk, 0)}
+        return {"ok": True, "effective_from": eff, "shift_min": shift, "threshold_min": thr,
+                "short_break_min": sb, "long_break_min": lb, "net_min": max(shift - lb, 0)}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": "db", "detail": str(e)[:200]}
 
@@ -1643,58 +1650,86 @@ CREATE TABLE IF NOT EXISTS capacity_policy (
   id serial PRIMARY KEY,
   effective_from date UNIQUE,
   shift_min int,
-  break_min int,
+  threshold_min int,
+  short_break_min int,
+  long_break_min int,
   created_at timestamptz DEFAULT now()
 )
 """
 
+# Default office-hours policy: 9h shift; a present day of <= 6h gets a 30m break,
+# more than 6h gets a 60m break (lunch + evening) -> a full 9h day nets to 8h.
+_CAP_DEFAULT = {"shift_min": 540, "threshold_min": 360, "short_break_min": 30, "long_break_min": 60}
+
+
+def _ensure_cappol():
+    db.execute(_CAPPOL_DDL)
+    for col, dflt in (("threshold_min", 360), ("short_break_min", 30), ("long_break_min", 60),
+                      ("shift_min", 540)):
+        try:
+            db.execute(f"ALTER TABLE capacity_policy ADD COLUMN IF NOT EXISTS {col} int DEFAULT {dflt}")
+        except Exception:  # noqa
+            pass
+    # one-time migration from the old single break_min column, if present
+    try:
+        db.execute("UPDATE capacity_policy SET long_break_min = break_min "
+                   "WHERE long_break_min IS NULL AND break_min IS NOT NULL")
+    except Exception:  # noqa
+        pass
+
+
+def _pol_net(p):
+    """Full-day net minutes = shift − long break (a full day exceeds the threshold)."""
+    return max(p["shift_min"] - p["long_break_min"], 0)
+
 
 @lru_cache(maxsize=1)
 def _capacity_policies():
-    """Time-effective office-hours policies, sorted by effective_from ASC. Each day
-    uses the latest policy whose effective_from <= that day. Lets the break/shift
-    change over time (e.g. 60m break until Aug, 30m after). Falls back to the old
-    single-value app_settings, else a 9h−60m=8h default."""
+    """Time-effective office-hours policies (sorted by effective_from ASC). Each day
+    uses the latest policy whose effective_from <= that day, so the break/shift can
+    change over time. Per day the break is TIERED: <= threshold worked -> short break,
+    else long break. Defaults to 9h shift, 6h threshold, 30m/60m breaks (full day = 8h)."""
     pols = []
     try:
-        db.execute(_CAPPOL_DDL)
-        r = db.q_write("SELECT to_char(effective_from,'YYYY-MM-DD') ef, shift_min, break_min "
-                       "FROM capacity_policy ORDER BY effective_from")
+        _ensure_cappol()
+        r = db.q_write("SELECT to_char(effective_from,'YYYY-MM-DD') ef, shift_min, threshold_min, "
+                       "short_break_min, long_break_min FROM capacity_policy ORDER BY effective_from")
         for _, x in r.iterrows():
-            sh, bk = int(x["shift_min"]), int(x["break_min"])
-            pols.append({"effective_from": x["ef"], "shift_min": sh, "break_min": bk,
-                         "net_min": max(sh - bk, 0)})
+            p = {"effective_from": x["ef"],
+                 "shift_min": int(x["shift_min"] if x["shift_min"] is not None else 540),
+                 "threshold_min": int(x["threshold_min"] if x["threshold_min"] is not None else 360),
+                 "short_break_min": int(x["short_break_min"] if x["short_break_min"] is not None else 30),
+                 "long_break_min": int(x["long_break_min"] if x["long_break_min"] is not None else 60)}
+            p["net_min"] = _pol_net(p)
+            pols.append(p)
     except Exception:  # noqa
         pass
-    if not pols:                       # seed default from legacy single-value keys
-        sh, bk = 540, 60
-        try:
-            r = db.q_write("SELECT key, value FROM app_settings "
-                           "WHERE key IN ('capacity_shift_min','capacity_break_min')")
-            for _, x in r.iterrows():
-                v = int(float(x["value"]))
-                if x["key"] == "capacity_shift_min":
-                    sh = v
-                elif x["key"] == "capacity_break_min":
-                    bk = v
-        except Exception:  # noqa
-            pass
-        pols = [{"effective_from": "2000-01-01", "shift_min": sh, "break_min": bk,
-                 "net_min": max(sh - bk, 0)}]
-    return tuple(pols)   # hashable for lru_cache
+    if not pols:
+        p = {"effective_from": "2000-01-01", **_CAP_DEFAULT}
+        p["net_min"] = _pol_net(p)
+        pols = [p]
+    return tuple(pols)
 
 
-def _net_case(col="work_date"):
-    """SQL expression giving the net-shift minutes effective on each `col` date."""
+def _day_office(p, eff="effective_min"):
+    """SQL: office minutes for ONE day under policy p — cap at shift, then deduct a
+    tiered break (short if worked <= threshold, else long), floored at 0."""
+    g = f"LEAST({eff},{p['shift_min']})"
+    brk = f"CASE WHEN {g} <= {p['threshold_min']} THEN {p['short_break_min']} ELSE {p['long_break_min']} END"
+    return f"GREATEST(0, {g} - ({brk}))"
+
+
+def _office_expr(eff="effective_min", col="work_date"):
+    """SQL expression: office minutes per row, picking the date-effective policy."""
     pols = list(_capacity_policies())
-    base = min(pols, key=lambda p: p["effective_from"])["net_min"]
-    whens = " ".join(f"WHEN {col} >= DATE '{p['effective_from']}' THEN {p['net_min']}"
+    base = min(pols, key=lambda p: p["effective_from"])
+    whens = " ".join(f"WHEN {col} >= DATE '{p['effective_from']}' THEN {_day_office(p, eff)}"
                      for p in sorted(pols, key=lambda p: p["effective_from"], reverse=True))
-    return f"(CASE {whens} ELSE {base} END)"
+    return f"(CASE {whens} ELSE {_day_office(base, eff)} END)"
 
 
 def _net_asof(date_s):
-    """Net-shift minutes effective on a given ISO date (for the no-Keka fallback)."""
+    """Full-day net minutes effective on a date (no-Keka fallback capacity/day)."""
     pols = list(_capacity_policies())
     chosen = None
     for p in sorted(pols, key=lambda p: p["effective_from"]):
@@ -1712,7 +1747,7 @@ def keka_effective_hours(date_from, date_to):
     out = {}
     if not db.has_write():
         return out
-    case = _net_case("work_date")     # per-day net shift (time-effective policy)
+    office = _office_expr("effective_min", "work_date")   # tiered, date-effective
     try:
         hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
                         "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
@@ -1724,7 +1759,7 @@ def keka_effective_hours(date_from, date_to):
         if date_to:
             where.append("work_date <= :dt"); params["dt"] = date_to
         w = (" WHERE " + " AND ".join(where)) if where else ""
-        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum(LEAST(effective_min, {case})) eff "
+        kr = db.q_write(f"SELECT lower(trim(emp_name)) nm, sum({office}) eff "
                         f"FROM keka_attendance{w} GROUP BY 1", params)
         for _, x in kr.iterrows():
             uid = n2u.get(str(x["nm"]))

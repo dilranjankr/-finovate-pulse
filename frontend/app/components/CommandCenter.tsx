@@ -213,14 +213,17 @@ export default function CommandCenter({
   const [kekaDrag, setKekaDrag] = useState(false);
   const [hoursCfg, setHoursCfg] = useState<import("../lib/api").HoursConfig | null>(null);
   const [hoursBusy, setHoursBusy] = useState(false);
-  const [newPol, setNewPol] = useState<{ from: string; shift: number; brk: number }>({ from: "", shift: 9, brk: 60 });
+  const [newPol, setNewPol] = useState<{ from: string; shift: number; thr: number; sbrk: number; lbrk: number }>({ from: "", shift: 9, thr: 6, sbrk: 30, lbrk: 60 });
   async function addPolicy() {
     if (!newPol.from) { alert("Pick an effective-from date"); return; }
     setHoursBusy(true);
     const api = await import("../lib/api");
-    const r = await api.saveHoursConfig(newPol.from, Math.round(newPol.shift * 60), Math.round(newPol.brk));
+    const r = await api.saveHoursConfig({
+      effective_from: newPol.from, shift_min: Math.round(newPol.shift * 60), threshold_min: Math.round(newPol.thr * 60),
+      short_break_min: Math.round(newPol.sbrk), long_break_min: Math.round(newPol.lbrk),
+    });
     setHoursBusy(false);
-    if (r.ok) { setNewPol({ from: "", shift: 9, brk: 60 }); try { setHoursCfg(await api.getHoursConfig()); } catch { /* keep */ } }
+    if (r.ok) { setNewPol({ from: "", shift: 9, thr: 6, sbrk: 30, lbrk: 60 }); try { setHoursCfg(await api.getHoursConfig()); } catch { /* keep */ } }
     else alert("Save failed: " + (r.detail || r.reason));
   }
   async function delPolicy(eff: string) {
@@ -1828,18 +1831,18 @@ export default function CommandCenter({
               {hoursCfg && (() => {
                 const curNet = hoursCfg.current ? Math.round((hoursCfg.current.net_min / 60) * 100) / 100 : 8;
                 const fmt = (s?: string) => (s ? fmtDate(s) : "—");
-                const addNet = Math.max(0, Math.round(newPol.shift * 60) - Math.round(newPol.brk));
+                const addNet = Math.max(0, Math.round(newPol.shift * 60) - Math.round(newPol.lbrk));
                 return (
                   <div className="wh-card">
                     <div className="wh-head">
-                      <div><b>Working-hours policy</b><span>Office-hours capacity per present day = shift − break. Changes apply by date, so each period uses its own break.</span></div>
-                      <span className="wh-net">{curNet}h<i>net / day now</i></span>
+                      <div><b>Working-hours policy</b><span>Office-hours capacity per present day. Break is tiered by hours worked, and changes apply by date.</span></div>
+                      <span className="wh-net">{curNet}h<i>full-day net now</i></span>
                     </div>
                     <div className="wh-list">
                       {[...hoursCfg.policies].reverse().map((p) => (
                         <div className="wh-item" key={p.effective_from}>
                           <span className="wh-date">From {fmt(p.effective_from)}</span>
-                          <span className="wh-calc">{p.shift_hours}h shift − {p.break_min}m break</span>
+                          <span className="wh-calc">{p.shift_hours}h shift · break {p.short_break_min}m if ≤{p.threshold_hours}h, else {p.long_break_min}m</span>
                           <span className="wh-pill">{p.net_hours}h net</span>
                           {hoursCfg.write && hoursCfg.policies.length > 1 && (
                             <button className="wh-del" title="Remove this policy" disabled={hoursBusy} onClick={() => delPolicy(p.effective_from)}><X size={12} /></button>
@@ -1857,16 +1860,21 @@ export default function CommandCenter({
                           <label className="wh-fld">Shift hours
                             <input type="number" step="0.5" min={1} max={24} value={newPol.shift} onChange={(e) => setNewPol({ ...newPol, shift: Number(e.target.value) })} />
                           </label>
-                          <label className="wh-fld">Break minutes
-                            <input type="number" step="5" min={0} value={newPol.brk} onChange={(e) => setNewPol({ ...newPol, brk: Number(e.target.value) })} />
+                          <label className="wh-fld">Break ≤ thr (min)
+                            <input type="number" step="5" min={0} value={newPol.sbrk} onChange={(e) => setNewPol({ ...newPol, sbrk: Number(e.target.value) })} />
                           </label>
-                          <span className="wh-op">=</span>
+                          <label className="wh-fld">Threshold hrs
+                            <input type="number" step="0.5" min={0} max={24} value={newPol.thr} onChange={(e) => setNewPol({ ...newPol, thr: Number(e.target.value) })} />
+                          </label>
+                          <label className="wh-fld">Break &gt; thr (min)
+                            <input type="number" step="5" min={0} value={newPol.lbrk} onChange={(e) => setNewPol({ ...newPol, lbrk: Number(e.target.value) })} />
+                          </label>
                           <div className="wh-eq">{Math.round((addNet / 60) * 100) / 100}h net</div>
                           <button className="bgt-go" disabled={hoursBusy || !newPol.from} onClick={addPolicy}>{hoursBusy ? "Saving…" : "Add"}</button>
                         </div>
                       </div>
                     )}
-                    <div className="wh-hint">e.g. 9h − 60m (30m lunch + 30m evening) = 8h. Later set break to 30m from a date → 8.5h net for days after it. Full days cap at net; short days keep actual hours.</div>
+                    <div className="wh-hint">Per present day: worked ≤ threshold → short break, else long break, deducted from worked hours (capped at shift). e.g. 6h day → −30m = 5.5h; 9h day → −60m = 8h. Changes apply only to dates on/after their effective-from.</div>
                   </div>
                 );
               })()}
