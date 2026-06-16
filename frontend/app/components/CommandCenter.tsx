@@ -47,9 +47,9 @@ function hrBadge(s?: string) {
   const m = HR_BADGE[s || ""];
   return m ? <span className={`hrb ${m[1]}`}>{m[0]}</span> : null;
 }
-const AI_SUGGESTIONS = ["Top performers", "Lowest utilization team", "Billable mix", "At-risk clients", "Busiest department"];
+const AI_SUGGESTIONS = ["Top clients by hours", "Clients over budget", "Synergy team hours", "Most overtime this month", "At-risk clients"];
 type AiMsg = {
-  role: "user" | "ai"; text: string; kind?: "bar" | "donut" | "none";
+  role: "user" | "ai"; text: string; insight?: string; kind?: "bar" | "donut" | "none";
   bars?: { label: string; value: number; color?: string }[];
   donut?: { data: { name: string; value: number }[]; colors: string[]; center?: { value: string; label: string } };
 };
@@ -486,7 +486,7 @@ export default function CommandCenter({
     setAiQ(""); setMessages((m) => [...m, { role: "user", text: question }]); setAiBusy(true);
     try {
       const r = await askAI(question, draft);
-      setMessages((m) => [...m, { role: "ai", text: r.ok && r.text ? r.text : "Sorry, I couldn't answer that. Try rephrasing — e.g. 'top performers', 'lowest utilization team', 'billable mix', 'at-risk clients'.", kind: r.kind, bars: r.bars, donut: r.donut }]);
+      setMessages((m) => [...m, { role: "ai", text: r.ok && r.text ? r.text : "Sorry, I couldn't answer that. Try rephrasing — e.g. 'Aashima's hours this month', 'clients over budget', 'Synergy team tracked hours', 'top performers'.", insight: r.insight, kind: r.kind, bars: r.bars, donut: r.donut }]);
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "AI is unavailable right now. Please try again." }]);
     } finally { setAiBusy(false); }
@@ -1945,7 +1945,7 @@ export default function CommandCenter({
             {messages.length === 0 && (
               <div className="ai-welcome">
                 <span className="ai-welcome-ic"><Sparkles size={22} /></span>
-                <p>Hi! Main aapka operations assistant hoon — teams, clients, hours, performance pe koi bhi sawaal poochho. Chart ke saath jawab dunga.</p>
+                <p>Hi! Main Pulse AI hoon — poore database se live jawab deta hoon. Kisi bhi employee, client, team, budget, attendance ya trend pe sawaal poochho — chart aur insight ke saath jawab milega.</p>
                 <div className="chipsai">{AI_SUGGESTIONS.map((s) => <span key={s} className="aichip" onClick={() => ask(s)}>{s}</span>)}</div>
               </div>
             )}
@@ -1963,6 +1963,7 @@ export default function CommandCenter({
                       <div className="legend">{m.donut.data.map((d, j) => <div className="li" key={d.name + j}><span className="dot" style={{ background: m.donut!.colors[j % m.donut!.colors.length] }} /><span className="nm">{d.name}</span><span className="vl">{n0(d.value)}</span></div>)}</div>
                     </div>
                   )}
+                  {m.insight && <div className="msg-insight"><Sparkles size={12} /><span>{m.insight}</span></div>}
                 </div>
               </div>
             )))}

@@ -2948,6 +2948,63 @@ def _ai_context(f: dict) -> dict:
     }
 
 
+# --- AI text-to-SQL guardrails -------------------------------------------------
+# The assistant may run ONLY read-only SELECTs over these business tables. App
+# secrets (app_users password hashes, app_settings SMTP creds, sessions) are NOT
+# whitelisted, so they can never be reached even if a prompt tries.
+_AI_TABLES = {
+    "hubstaff_activities", "hubstaff_tasks", "hubstaff_members", "hubstaff_projects",
+    "clickup_tasks", "keka_attendance", "employee_mapping", "team_history", "client_budgets",
+    "xero_invoices", "xero_customers", "stripe_charges", "zoho_invoices", "missive_records",
+}
+_AI_FORBID = re.compile(
+    r"\b(insert|update|delete|drop|alter|create|grant|revoke|truncate|copy|merge|call|do|set|"
+    r"vacuum|analyze|reindex|cluster|comment|lock|listen|notify|prepare|execute|begin|commit|"
+    r"rollback|savepoint|into|returning)\b", re.I)
+_AI_BLOCK = re.compile(r"app_users|app_settings|sessions|pg_catalog|pg_|information_schema|"
+                       r"password|secret|token|smtp|jwt", re.I)
+
+
+def _ai_safe_sql(sql: str):
+    """Validate an AI-written query. Returns (safe_sql, error)."""
+    s = (sql or "").strip().rstrip(";").strip()
+    if not s:
+        return None, "empty query"
+    if ";" in s:
+        return None, "only a single statement is allowed"
+    low = s.lower()
+    if not (low.startswith("select") or low.startswith("with")):
+        return None, "only SELECT/WITH queries are allowed"
+    if _AI_FORBID.search(s):
+        return None, "query contains a forbidden keyword"
+    if _AI_BLOCK.search(s):
+        return None, "query references a blocked object"
+    refs = {t.split(".")[-1] for t in re.findall(r"(?:from|join)\s+([a-zA-Z_][\w\.]*)", low)}
+    ctes = set(re.findall(r"(?:with|,)\s+([a-zA-Z_]\w*)\s+as\s*\(", low))  # CTE names are not tables
+    real = refs - ctes
+    bad = real - _AI_TABLES
+    if not real:
+        return None, "no recognizable table"
+    if bad:
+        return None, f"table not allowed: {', '.join(sorted(bad))}"
+    if not re.search(r"\blimit\s+\d+", low):
+        s += " LIMIT 200"
+    return s, None
+
+
+def _ai_run_sql(sql: str) -> dict:
+    safe, err = _ai_safe_sql(sql)
+    if err:
+        return {"error": err}
+    try:
+        df = db.q_readonly(safe, 8000)
+    except Exception as e:  # noqa: BLE001
+        return {"error": str(e)[:200]}
+    return {"sql": safe, "row_count": int(len(df)),
+            "columns": [str(c) for c in df.columns],
+            "rows": clean(df.head(100).to_dict("records"))}
+
+
 @app.post("/api/ask")
 def ask(payload: dict):
     question = (payload or {}).get("question", "").strip()
@@ -2960,7 +3017,8 @@ def ask(payload: dict):
         ctx = _ai_context(f)
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "reason": "context", "detail": str(e)[:200]}
-    res = ai.answer(question, clean(ctx))
+    runner = _ai_run_sql if db.has_db() else None
+    res = ai.answer(question, clean(ctx), sql_runner=runner)
     return clean(res)
 
 

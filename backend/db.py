@@ -63,6 +63,23 @@ def q(sql: str, params: dict | None = None) -> pd.DataFrame:
         return pd.read_sql(text(sql), con, params=params or {})
 
 
+def q_readonly(sql: str, timeout_ms: int = 8000) -> pd.DataFrame:
+    """Run an UNTRUSTED SELECT in a READ ONLY transaction with a statement
+    timeout. Used by the AI assistant. SET LOCAL keeps the timeout scoped to the
+    transaction so the pooled connection is never left mutated; READ ONLY makes
+    any write fail at the database level even if validation is bypassed."""
+    from sqlalchemy import text
+    with _engine().connect() as con:
+        trans = con.begin()
+        try:
+            con.execute(text("SET TRANSACTION READ ONLY"))
+            con.execute(text(f"SET LOCAL statement_timeout = {int(timeout_ms)}"))
+            df = pd.read_sql(text(sql), con)
+            return df
+        finally:
+            trans.rollback()
+
+
 def execute(sql: str, params: dict | None = None):
     """Run a write statement (INSERT/UPDATE/DDL) on the write connection."""
     if not has_write():

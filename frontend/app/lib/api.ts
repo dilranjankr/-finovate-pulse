@@ -197,6 +197,8 @@ export interface AskResult {
   ok: boolean;
   reason?: string;
   text?: string;
+  insight?: string;
+  sql?: string;
   kind?: "bar" | "donut" | "none";
   bars?: { label: string; value: number; color?: string }[];
   donut?: { data: { name: string; value: number }[]; colors: string[]; center?: { value: string; label: string } };
