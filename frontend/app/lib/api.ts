@@ -330,21 +330,28 @@ export async function getBudget(f: Filters): Promise<BudgetData> {
   return r.json();
 }
 
+export interface ClientTask { task: string; done: boolean; est: number; actual: number; variance: number | null; variance_pct: number | null; worker: string; }
+export interface ClientTaskSummary { total: number; open: number; done: number; over: number; under: number; est_total: number; actual_total: number; }
 export interface ClientProfile {
   found: boolean;
   profile?: {
     client: string; team: string; department: string; type: string;
     total: number; billable: number; non_billable: number; billable_pct: number;
-    budget: number | null; variance: number | null; over: boolean | null;
-    people: number; days: number; last_worked: string;
+    budget: number | null; used_pct: number | null; variance: number | null; over: boolean | null;
+    people: number; days: number; last_worked: string; health: number; health_grade: string; on_estimate_pct: number | null;
   };
-  people?: { name: string; hours: number; billable: number; days: number }[];
+  people?: { name: string; hours: number; billable: number; days: number; billable_pct: number; activity_pct: number; tasks: number; efficiency: number | null }[];
   daily?: { date: string; billable: number; non_billable: number }[];
+  tasks?: ClientTask[];
+  task_summary?: ClientTaskSummary;
 }
 export async function getClient(name: string, f: Filters): Promise<ClientProfile> {
   const qs = new URLSearchParams({ name });
   if (f.date_from) qs.set("date_from", f.date_from);
   if (f.date_to) qs.set("date_to", f.date_to);
+  if (f.employee) qs.set("employee", f.employee);
+  if (f.atl) qs.set("atl", f.atl);
+  if (f.billable) qs.set("billable", f.billable);
   const r = await authedFetch(`${API}/api/client?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("client failed");
   return r.json();
