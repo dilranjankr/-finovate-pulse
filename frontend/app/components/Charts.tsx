@@ -7,7 +7,7 @@ import {
   RadialBarChart, RadialBar, PolarAngleAxis,
   ScatterChart, Scatter, ZAxis,
   Sankey, Layer, Rectangle,
-  ComposedChart, Line,
+  ComposedChart, Line, ReferenceLine,
   RadarChart, Radar, PolarGrid, PolarRadiusAxis,
 } from "recharts";
 
@@ -567,6 +567,161 @@ export function Bubble({ points, height = 290 }: { points: BubblePt[]; height?: 
           <YAxis type="number" dataKey="y" name="Productivity" unit="%" domain={[0, 100]} tick={AX} tickLine={false} axisLine={false} width={34} />
           <ZAxis type="number" dataKey="z" range={[50, 430]} name="Billable" />
           <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<BubbleTip />} />
+          <Scatter data={points} isAnimationActive={false}>
+            {points.map((p, i) => <Cell key={i} fill={p.color} fillOpacity={0.7} stroke={p.color} />)}
+          </Scatter>
+        </ScatterChart>
+      )}
+    </Sized>
+  );
+}
+
+// Single-subject performance radar — Utilization / Activity / Billable% / On-estimate / Completion.
+export function SkillRadar({ axes, color = "#2f6fbf", height = 250 }: {
+  axes: { label: string; value: number | null }[]; color?: string; height?: number;
+}) {
+  const data = axes.map((a) => ({ metric: a.label, v: a.value == null ? 0 : Math.round(Math.max(0, Math.min(100, a.value))) }));
+  const avg = Math.round(data.reduce((s, d) => s + d.v, 0) / Math.max(1, data.length));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const vlabel = (p: any) => {
+    if (p.x == null || p.y == null) return null;
+    const cx = p.cx ?? 0, cy = p.cy ?? 0;
+    const ox = p.x + (p.x - cx) * 0.12, oy = p.y + (p.y - cy) * 0.12;
+    return <text x={ox} y={oy} textAnchor="middle" dominantBaseline="middle" fontSize={11} fontWeight={800} fill={color}>{p.value}</text>;
+  };
+  return (
+    <div style={{ position: "relative" }}>
+      <Sized height={height} defaultWidth={320}>
+        {(w, h) => (
+          <RadarChart width={w} height={h} data={data} margin={{ top: 18, right: 42, bottom: 14, left: 42 }} outerRadius="64%">
+            <defs>
+              <radialGradient id="radFill" cx="50%" cy="50%" r="50%">
+                <stop offset="0%" stopColor={color} stopOpacity={0.30} />
+                <stop offset="100%" stopColor={color} stopOpacity={0.08} />
+              </radialGradient>
+            </defs>
+            <PolarGrid stroke="#e3e7ef" gridType="polygon" />
+            <PolarAngleAxis dataKey="metric" tick={{ fontSize: 11, fill: "#46506180", fontWeight: 700 }} />
+            <PolarRadiusAxis domain={[0, 100]} tick={{ fontSize: 8.5, fill: "#c2c9d6" }} axisLine={false} tickCount={5} stroke="#eceff5" />
+            <Radar dataKey="v" stroke={color} fill="url(#radFill)" strokeWidth={2.4} isAnimationActive={false}
+              dot={{ r: 3.5, fill: "#fff", stroke: color, strokeWidth: 2 }} label={vlabel} />
+            {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+            <Tooltip contentStyle={box} formatter={(v: any) => [`${Math.round(Number(v))}%`, ""]} />
+          </RadarChart>
+        )}
+      </Sized>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 6, textAlign: "center", pointerEvents: "none" }}>
+        <span style={{ fontSize: 10.5, color: "#8b919e", fontWeight: 600 }}>Overall balance</span>
+        <span style={{ fontSize: 14, fontWeight: 800, color, marginLeft: 7 }}>{avg}%</span>
+      </div>
+    </div>
+  );
+}
+
+type ScatPt = { name: string; x: number; y: number; z: number };
+function ScatTip({ active, payload }: { active?: boolean; payload?: { payload: ScatPt }[] }) {
+  if (!active || !payload || !payload.length) return null;
+  const p = payload[0].payload;
+  return (
+    <div style={{ ...box }}>
+      <div style={{ fontWeight: 700, marginBottom: 3 }}>{p.name}</div>
+      <div style={{ color: "#565d6b" }}>Utilization: <b>{Math.round(p.x)}%</b></div>
+      <div style={{ color: "#565d6b" }}>On estimate: <b>{Math.round(p.y)}%</b></div>
+      <div style={{ color: "#565d6b" }}>Hours: <b>{Math.round(p.z)}h</b></div>
+    </div>
+  );
+}
+// Quadrant scatter — utilization (X) vs on-estimate (Y), bubble = hours.
+export function EffScatter({ points, height = 300, xRef = 70, yRef = 80 }: {
+  points: ScatPt[]; height?: number; xRef?: number; yRef?: number;
+}) {
+  if (!points.length) return <div className="empty-s">No member task data in scope</div>;
+  return (
+    <Sized height={height} defaultWidth={520}>
+      {(w, h) => (
+        <ScatterChart width={w} height={h} margin={{ top: 14, right: 22, left: 2, bottom: 20 }}>
+          <CartesianGrid stroke={GRID} strokeDasharray="2 4" />
+          <XAxis type="number" dataKey="x" name="Utilization" unit="%" domain={[0, 100]} tick={AX} tickLine={false} axisLine={false}
+            label={{ value: "Utilization →", position: "insideBottom", offset: -10, fontSize: 10.5, fill: "#8b95a9" }} />
+          <YAxis type="number" dataKey="y" name="On estimate" unit="%" domain={[0, 100]} tick={AX} tickLine={false} axisLine={false} width={38}
+            label={{ value: "On estimate ↑", angle: -90, position: "insideLeft", offset: 16, fontSize: 10.5, fill: "#8b95a9" }} />
+          <ZAxis type="number" dataKey="z" range={[70, 460]} name="Hours" />
+          <ReferenceLine x={xRef} stroke="#cbd5e1" strokeDasharray="4 4" />
+          <ReferenceLine y={yRef} stroke="#cbd5e1" strokeDasharray="4 4" />
+          <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<ScatTip />} />
+          <Scatter data={points} isAnimationActive={false}>
+            {points.map((p, i) => {
+              const col = p.x >= xRef && p.y >= yRef ? "#16a34a" : p.x >= xRef ? "#e8930c" : p.y >= yRef ? "#2f6fbf" : "#ef4444";
+              return <Cell key={i} fill={col} fillOpacity={0.62} stroke={col} />;
+            })}
+          </Scatter>
+        </ScatterChart>
+      )}
+    </Sized>
+  );
+}
+
+// Budget burn-up — cumulative tracked vs an even-pace ideal line, with the budget cap.
+export function BurnupChart({ series, budget, height = 260 }: {
+  series: { date: string; cum: number }[]; budget: number | null; height?: number;
+}) {
+  if (series.length < 2) return <div className="empty-s">Not enough days to chart the burn-up</div>;
+  const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const fmt = (s: string) => { const p = String(s).split("-"); return p.length === 3 ? `${p[2]} ${MM[+p[1] - 1]}` : String(s); };
+  const n = series.length;
+  const data = series.map((d, i) => ({ date: d.date, cum: d.cum, ideal: budget != null ? Math.round((budget * (i + 1)) / n) : null }));
+  const maxY = Math.max(budget ?? 0, ...series.map((s) => s.cum));
+  return (
+    <Sized height={height} defaultWidth={560}>
+      {(w, h) => (
+        <ComposedChart width={w} height={h} data={data} margin={{ top: 14, right: 18, left: -4, bottom: 0 }}>
+          <defs>
+            <linearGradient id="buA" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#2f6fbf" stopOpacity={0.20} /><stop offset="95%" stopColor="#2f6fbf" stopOpacity={0.02} /></linearGradient>
+          </defs>
+          <CartesianGrid stroke={GRID} strokeDasharray="3 4" vertical={false} />
+          <XAxis dataKey="date" tickFormatter={fmt} tick={AX} tickLine={false} axisLine={false} minTickGap={36} tickMargin={8} />
+          <YAxis tick={AX} tickLine={false} axisLine={false} width={40} domain={[0, Math.ceil(maxY * 1.1)]} tickFormatter={(v) => `${Math.round(Number(v))}`} />
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          <Tooltip contentStyle={box} labelFormatter={(l) => fmt(String(l))} formatter={(v: any, nm: any) => [`${Math.round(Number(v))} h`, nm === "cum" ? "Tracked (cumulative)" : "Even pace"]} />
+          {budget != null && <ReferenceLine y={budget} stroke="#dc2626" strokeDasharray="5 4" label={{ value: `Budget ${Math.round(budget)}h`, position: "insideTopRight", fontSize: 10, fill: "#dc2626", fontWeight: 700 }} />}
+          <Area isAnimationActive={false} type="monotone" dataKey="cum" stroke="#2f6fbf" strokeWidth={2.6} fill="url(#buA)" dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+          {budget != null && <Line isAnimationActive={false} type="monotone" dataKey="ideal" stroke="#94a3b8" strokeWidth={1.6} strokeDasharray="4 4" dot={false} />}
+        </ComposedChart>
+      )}
+    </Sized>
+  );
+}
+
+// Positioning map for comparison — entities plotted on two 0–100 axes, bubble = hours.
+type CmpScatPt = { name: string; x: number; y: number; z: number; color: string };
+export function CompareScatter({ points, xName, yName, height = 280 }: {
+  points: CmpScatPt[]; xName: string; yName: string; height?: number;
+}) {
+  if (points.length < 2) return <div className="empty-s">Need 2+ to position</div>;
+  const Tip = ({ active, payload }: { active?: boolean; payload?: { payload: CmpScatPt }[] }) => {
+    if (!active || !payload || !payload.length) return null;
+    const p = payload[0].payload;
+    return (
+      <div style={{ ...box }}>
+        <div style={{ fontWeight: 700, marginBottom: 3 }}>{p.name}</div>
+        <div style={{ color: "#565d6b" }}>{xName}: <b>{Math.round(p.x)}%</b></div>
+        <div style={{ color: "#565d6b" }}>{yName}: <b>{Math.round(p.y)}%</b></div>
+        <div style={{ color: "#565d6b" }}>Hours: <b>{Math.round(p.z)}h</b></div>
+      </div>
+    );
+  };
+  return (
+    <Sized height={height} defaultWidth={520}>
+      {(w, h) => (
+        <ScatterChart width={w} height={h} margin={{ top: 16, right: 24, left: 2, bottom: 22 }}>
+          <CartesianGrid stroke={GRID} strokeDasharray="2 4" />
+          <XAxis type="number" dataKey="x" name={xName} unit="%" domain={[0, 100]} tick={AX} tickLine={false} axisLine={false}
+            label={{ value: `${xName} →`, position: "insideBottom", offset: -10, fontSize: 10.5, fill: "#8b95a9" }} />
+          <YAxis type="number" dataKey="y" name={yName} unit="%" domain={[0, 100]} tick={AX} tickLine={false} axisLine={false} width={38}
+            label={{ value: `${yName} ↑`, angle: -90, position: "insideLeft", offset: 16, fontSize: 10.5, fill: "#8b95a9" }} />
+          <ZAxis type="number" dataKey="z" range={[90, 480]} name="Hours" />
+          <ReferenceLine x={50} stroke="#e7ebf2" /><ReferenceLine y={50} stroke="#e7ebf2" />
+          <Tooltip cursor={{ strokeDasharray: "3 3" }} content={<Tip />} />
           <Scatter data={points} isAnimationActive={false}>
             {points.map((p, i) => <Cell key={i} fill={p.color} fillOpacity={0.7} stroke={p.color} />)}
           </Scatter>

@@ -9,8 +9,8 @@ import {
   Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getTeam, getClientsList,
-  login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, changePassword, getToken,
+  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getFocus, getTeam, getClientsList, getClientMessages, getDataHealth,
+  login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, resetUserPassword, getAuditLog, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
   getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData,
   getBudgets, saveBudget, deleteBudget, type ClientBudgetRow,
@@ -18,10 +18,17 @@ import {
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
   type AppUser, type AppRole, type AdminUser,
 } from "../lib/api";
-import { TrendLines, HoursTrend, Donut, Bubble, BarList } from "./Charts";
+import { TrendLines, HoursTrend, Donut, Bubble, BarList, SkillRadar, EffScatter, BurnupChart, CompareScatter } from "./Charts";
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
+const MONTHS_S = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const shortDate = (s?: string | null) => {
+  if (!s) return "—";
+  const [y, m, d] = s.split("-");
+  if (!y || !m || !d) return s;
+  return `${d} ${MONTHS_S[Number(m) - 1] || ""}`;
+};
 function gradeCls(g: string) {
   if (g.startsWith("A")) return "gA";
   if (g === "B+") return "gB";
@@ -161,13 +168,16 @@ export default function CommandCenter({
   const [draft, setDraft] = useState<Filters>(initialOpts ? currentMonth(initialOpts) : {});
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [dataHealth, setDataHealth] = useState<import("../lib/api").DataHealth["sources"] | null>(null);
+  const [dataVer, setDataVer] = useState(0);   // bumps on every data refresh → re-fires the KPI entrance animation
   const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string; dayKey?: "utilization" | "activity" | "productivity" }>(null);
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
   const [clientTab, setClientTab] = useState<"top" | "bottom">("top");
   const [perfTab, setPerfTab] = useState<"top" | "bottom">("top");
   const [emp, setEmp] = useState<{ name: string; data: EmployeeDetail | null } | null>(null);
-  const [clientProf, setClientProf] = useState<{ name: string; data: import("../lib/api").ClientProfile | null } | null>(null);
+  const [clientProf, setClientProf] = useState<{ name: string; data: import("../lib/api").FocusData | null } | null>(null);
   const [teamProf, setTeamProf] = useState<{ name: string; data: import("../lib/api").TeamProfile | null } | null>(null);
   const [tdList, setTdList] = useState<{ bucket: string; label: string; color: string; rows: TaskDeliveryItem[] | null } | null>(null);
   async function openTaskList(bucket: "on_time" | "late" | "open", label: string, color: string) {
@@ -185,30 +195,52 @@ export default function CommandCenter({
   }
   async function openClient(name: string) {
     setClientProf({ name, data: null });
-    try { setClientProf({ name, data: await getClient(name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
+    try { setClientProf({ name, data: await getFocus("client", name, draft) }); } catch { setClientProf({ name, data: { found: false } }); }
   }
-  // ===== In-dashboard Client view: when ONE client is filtered, the dashboard shows
-  // a client-best view and hides the capacity/HR cards. Driven by the existing filters.
-  const [cpData, setCpData] = useState<import("../lib/api").ClientProfile | null>(null);
-  const [cpStatus, setCpStatus] = useState<"all" | "open" | "done" | "over">("all");
-  const cpClientName = (draft.client || "").split(",").map((s) => s.trim()).filter(Boolean);
-  const clientMode = cpClientName.length === 1;
+  // ===== Context-aware focus: adapt the dashboard in-place to a single entity =====
+  const sp1 = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const fClient = sp1(draft.client).length === 1 ? sp1(draft.client)[0] : null;
+  const fTeam = sp1(draft.atl).length === 1 ? sp1(draft.atl)[0] : null;
+  const fEmp = sp1(draft.employee).length === 1 ? sp1(draft.employee)[0] : null;
+  const fType = sp1(draft.client_type).length === 1 ? sp1(draft.client_type)[0] : null;
+  // context priority: employee+client > client > employee > team > type
+  const ctx: "employee-client" | "client" | "employee" | "team" | "type" | null =
+    (fEmp && fClient) ? "employee-client" : fClient ? "client" : fEmp ? "employee" : fTeam ? "team" : fType ? "type" : null;
+  const focusKind = ctx === "team" ? "team" : ctx === "employee" ? "employee" : ctx === "type" ? "type" : ctx ? "client" : null;
+  const isClientCtx = ctx === "client" || ctx === "employee-client";
+  const [focusData, setFocusData] = useState<import("../lib/api").FocusData | null>(null);
+  const [focusTab, setFocusTab] = useState<"all" | "open" | "done" | "over" | "overdue" | "duesoon">("all");
+  const [priFilter, setPriFilter] = useState<string | null>(null);
+  const [focusMetric, setFocusMetric] = useState<"est" | "budget" | null>(null);
+  function showCard(card: string): boolean {
+    if (!ctx) return true;   // company / multi → unchanged
+    const hide: Record<string, string[]> = {
+      byteam: ["team", "employee", "employee-client", "client", "type"], // By Dept + By Team
+      burnPerf: ["employee", "employee-client", "client"],            // Budget Burn-up + Performers (client uses focus burn-up)
+      matrix: ["employee-client", "client"],                          // keep the Hours Trend for employee; hide bubble matrix elsewhere
+      empclients: ["employee", "employee-client"],                   // Employees & Clients
+      workforce: ["employee-client"],                                // Workforce funnel
+      assigned: ["employee", "employee-client"],                     // Assigned tasks (focus Tasks panel covers it)
+    };
+    return !(hide[card] || []).includes(ctx);
+  }
   useEffect(() => {
-    const cl = (draft.client || "").split(",").map((s) => s.trim()).filter(Boolean);
-    if (cl.length !== 1) { setCpData(null); return; }
+    if (!ctx || !focusKind) { setFocusData(null); return; }
     let cancelled = false;
-    setCpData(null); setCpStatus("all");
-    getClient(cl[0], draft).then((d) => { if (!cancelled) setCpData(d); }).catch(() => { if (!cancelled) setCpData({ found: false }); });
+    setFocusData(null); setFocusTab("all"); setPriFilter(null);
+    const nm = focusKind === "team" ? fTeam! : focusKind === "employee" ? fEmp! : focusKind === "type" ? fType! : fClient!;
+    const cl = ctx === "employee-client" ? fClient! : undefined;
+    getFocus(focusKind, nm, draft, cl).then((d) => { if (!cancelled) setFocusData(d); }).catch(() => { if (!cancelled) setFocusData({ found: false }); });
     return () => { cancelled = true; };
-  }, [draft.client, draft.date_from, draft.date_to, draft.employee, draft.atl, draft.billable]);
-  function exportClientCsv() {
-    if (!cpData?.tasks) return;
-    const head = ["Task", "Status", "Top employee", "Estimate (h)", "Tracked (h)", "Variance (h)", "Variance %"];
+  }, [draft.client, draft.atl, draft.employee, draft.client_type, draft.date_from, draft.date_to]);
+  function exportFocusTasks() {
+    const ts = focusData?.rows?.tasks; if (!ts) return;
+    const head = ["Task", "Client", "Status", "Due", "Top employee", "Estimate (h)", "Tracked (h)", "Variance (h)"];
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const rows = cpData.tasks.map((t) => [t.task, t.done ? "Done" : "Open", t.worker, t.est, t.actual, t.variance ?? "", t.variance_pct ?? ""].map(esc).join(","));
+    const rows = ts.map((t) => [t.task, t.client ?? "", t.status ?? (t.done ? "Done" : "Open"), t.due ?? "", t.worker, t.est, t.actual, t.variance ?? ""].map(esc).join(","));
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([[head.join(","), ...rows].join("\n")], { type: "text/csv" }));
-    a.download = `${cpClientName[0] || "client"}-tasks.csv`; a.click();
+    a.download = `${focusData?.name || "focus"}-tasks.csv`; a.click();
   }
   async function openTeam(name: string) {
     setTeamProf({ name, data: null });
@@ -338,7 +370,13 @@ export default function CommandCenter({
     try { await setUserStatus(id, active); loadUsers(); } catch (e) { alert((e as Error).message); }
   }
   // ---- email (SMTP) settings, editable in-app (overrides Coolify env) ----
-  const [usersTab, setUsersTab] = useState<"users" | "email">("users");
+  const [usersTab, setUsersTab] = useState<"users" | "email" | "audit">("users");
+  const [auditRows, setAuditRows] = useState<import("../lib/api").AuditRow[] | null>(null);
+  async function doReset(id: number) {
+    if (!confirm("Issue a password-reset link for this user? Their current password stops working until they set a new one.")) return;
+    try { const r = await resetUserPassword(id); setUMsg({ link: r.invite_link, sent: r.email_sent }); loadUsers(); }
+    catch (e) { alert((e as Error).message); }
+  }
   const [emailCfg, setEmailCfg] = useState<EmailSettings | null>(null);
   const [emailForm, setEmailForm] = useState({ smtp_host: "", smtp_port: "587", smtp_user: "", smtp_pass: "", smtp_from: "", public_app_url: "" });
   const [emailBusy, setEmailBusy] = useState("");
@@ -354,6 +392,7 @@ export default function CommandCenter({
     } catch { /* owner-only */ }
   }
   useEffect(() => { if (usersModal && usersTab === "email") loadEmailCfg(); }, [usersModal, usersTab]);
+  useEffect(() => { if (usersModal && usersTab === "audit") { setAuditRows(null); getAuditLog().then((r) => setAuditRows(r.rows)).catch(() => setAuditRows([])); } }, [usersModal, usersTab]);
   async function saveEmailCfg() {
     setEmailBusy("save"); setEmailMsg(null);
     try { await saveEmailSettings(emailForm); setEmailMsg({ ok: "Settings saved." }); loadEmailCfg(); }
@@ -370,12 +409,20 @@ export default function CommandCenter({
   const [showSettings, setShowSettings] = useState(false);
   const [acctOpen, setAcctOpen] = useState(false);
   const acctRef = useRef<HTMLDivElement>(null);
+  const [dhOpen, setDhOpen] = useState(false);
+  const dhRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!acctOpen) return;
     const h = (e: MouseEvent) => { if (acctRef.current && !acctRef.current.contains(e.target as Node)) setAcctOpen(false); };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [acctOpen]);
+  useEffect(() => {
+    if (!dhOpen) return;
+    const h = (e: MouseEvent) => { if (dhRef.current && !dhRef.current.contains(e.target as Node)) setDhOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [dhOpen]);
   const [rawModal, setRawModal] = useState(false);
   const [rawData, setRawData] = useState<RawData | null>(null);
   const [unaModal, setUnaModal] = useState(false);
@@ -385,6 +432,20 @@ export default function CommandCenter({
   const [hoursSearch, setHoursSearch] = useState("");
   const [gradeModal, setGradeModal] = useState(false);
   const [cmpTrend, setCmpTrend] = useState<CompareTrendData | null>(null);
+  const [clientCmp, setClientCmp] = useState<{ name: string; data: import("../lib/api").FocusData }[] | null>(null);
+  const [clientMsgs, setClientMsgs] = useState<{ title: string; filter?: string; rows: import("../lib/api").ClientMessage[] | null } | null>(null);
+  async function openMessages(title: string, o: { client?: string; labels?: string[]; sentiment?: string; bucket?: string; filter?: string; allTime?: boolean }) {
+    setClientMsgs({ title, filter: o.filter, rows: null });
+    const q: Parameters<typeof getClientMessages>[0] = { client: o.client, labels: o.labels, sentiment: o.sentiment, bucket: o.bucket };
+    if (!o.allTime) { q.date_from = draft.date_from; q.date_to = draft.date_to; }
+    try { setClientMsgs({ title, filter: o.filter, rows: (await getClientMessages(q)).rows }); }
+    catch { setClientMsgs({ title, filter: o.filter, rows: [] }); }
+  }
+  // single-client convenience (scorecard drawer + client click)
+  function openClientMessages(name: string, sentiment?: string, allTime?: boolean) {
+    return openMessages(name + (sentiment ? ` · ${sentiment}` : ""), { client: name, sentiment, filter: sentiment, allTime });
+  }
+  const [sourcesModal, setSourcesModal] = useState(false);
   const [taskDel, setTaskDel] = useState<import("../lib/api").TaskDelivery | null>(null);
   const [budget, setBudget] = useState<import("../lib/api").BudgetData | null>(null);
   const [workforce, setWorkforce] = useState<WorkforceData | null>(null);
@@ -479,6 +540,17 @@ export default function CommandCenter({
     getCompareTrend(kind, names, draft).then((d) => { if (!cancelled) setCmpTrend(d); }).catch(() => { if (!cancelled) setCmpTrend(null); });
     return () => { cancelled = true; };
   }, [draft.employee, draft.atl, draft.department, draft.date_from, draft.date_to]);
+  // Client comparison — 2+ clients selected → fetch per-client focus and compare.
+  useEffect(() => {
+    const cls = (draft.client || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (cls.length < 2) { setClientCmp(null); return; }
+    let cancelled = false;
+    Promise.all(cls.slice(0, 4).map((nm) => getFocus("client", nm, draft).then((d) => ({ name: nm, data: d })).catch(() => null)))
+      .then((rs) => { if (!cancelled) setClientCmp(rs.filter((r): r is { name: string; data: import("../lib/api").FocusData } => !!r && !!r.data?.found)); });
+    return () => { cancelled = true; };
+  }, [draft.client, draft.date_from, draft.date_to]);
+  // Re-fire the KPI entrance animation whenever fresh data lands (filter applied).
+  useEffect(() => { setDataVer((v) => v + 1); }, [data]);
   function mapRole(r: AppRole): Role {
     return r === "owner" ? "owner" : r === "employee" ? "user" : "admin";
   }
@@ -567,20 +639,28 @@ export default function CommandCenter({
         getWorkforce(r).then((wf) => { if (!cancelled) setWorkforce(wf); }).catch(() => {});
         const cmd = await getCommand(r);
         if (cancelled) return;
-        setData(cmd);
-      } catch { /* retry on next interaction */ }
+        setData(cmd); setLoadErr(null);
+      } catch { if (!cancelled) setLoadErr("Couldn't load dashboard data. Check your connection and retry."); }
     })();
     return () => { cancelled = true; };
   }, [initialData, initialOpts]);
+  // data-source freshness (production status strip)
+  useEffect(() => {
+    let off = false;
+    getDataHealth().then((h) => { if (!off) setDataHealth(h.sources); }).catch(() => {});
+    return () => { off = true; };
+  }, []);
 
   async function apply(f: Filters) {
     setLoading(true);
     // keep the dropdowns scoped to the active period + drill scope
-    refetchOpts({ department: f.department, atl: f.atl, date_from: f.date_from, date_to: f.date_to });
+    refetchOpts({ department: f.department, atl: f.atl, date_from: f.date_from, date_to: f.date_to, client: f.client, employee: f.employee });
     getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
     getBudget(f).then(setBudget).catch(() => setBudget(null));
     getWorkforce(f).then(setWorkforce).catch(() => setWorkforce(null));
-    try { setData(await getCommand(f)); } finally { setLoading(false); }
+    try { setData(await getCommand(f)); setLoadErr(null); }
+    catch { setLoadErr("Couldn't load dashboard data. Check your connection and retry."); }
+    finally { setLoading(false); }
   }
   // date range helpers (used by quick presets in the period bar)
   function setRange(from: string, to: string) { const next = { ...draft, date_from: from, date_to: to }; setDraft(next); apply(next); }
@@ -603,7 +683,7 @@ export default function CommandCenter({
     }
     return "";
   })();
-  async function refetchOpts(scope: { department?: string; atl?: string; date_from?: string; date_to?: string }) {
+  async function refetchOpts(scope: { department?: string; atl?: string; date_from?: string; date_to?: string; client?: string; employee?: string }) {
     try { setOpts(await getFilters(scope)); } catch { /* keep */ }
   }
   function setField(key: keyof Filters, v: string) { const next = { ...draft, [key]: v || undefined }; setDraft(next); apply(next); }
@@ -670,7 +750,14 @@ export default function CommandCenter({
 
   if (!roleReady) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
   if (!authUser) return <LoginScreen onLogin={onLogin} />;
-  if (!data) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
+  if (!data) return (
+    <div className="page"><div className="loading" style={{ flexDirection: "column", gap: 12 }}>
+      {loadErr ? <>
+        <div style={{ color: "#b91c1c", fontWeight: 600, textAlign: "center" }}><ShieldAlert size={18} style={{ verticalAlign: -3, marginRight: 6 }} />{loadErr}</div>
+        <button className="retry-btn" onClick={() => apply(draft)}><RotateCcw size={14} />Retry</button>
+      </> : <><span className="spin" /> Loading…</>}
+    </div></div>
+  );
 
   const live = data.source === "supabase";
   const sm = data.summary;
@@ -706,6 +793,8 @@ export default function CommandCenter({
     const c = KPICOL[colorKey];
     const t = deltaKey ? (data.kpis[deltaKey]?.trend ?? null) : null;
     const hasDelta = cmp && t !== null;
+    const sparkData = deltaKey ? (data.kpis[deltaKey]?.spark ?? []) : [];
+    const hasSpark = !prog && Array.isArray(sparkData) && sparkData.length >= 2;
     const tcol = tone === "ok" ? "#16a34a" : tone === "warn" ? "#e8930c" : tone === "bad" ? "#ef4444" : c.badge;
     return (
       <div className={`kc3${onClick ? " kclk" : ""}${tone ? " t-" + tone : ""}`} key={key} onClick={onClick}>
@@ -723,8 +812,11 @@ export default function CommandCenter({
           </div>
         )}
         <div className="kc3-foot">
-          {hasDelta && <span className={`kc3-delta ${t! >= 0 ? "up" : "down"}`}>{t! > 0 ? "+" : ""}{t}%</span>}
-          <span className="kc3-sub">{hasDelta ? `vs last ${pv?.days ?? 30}d` : (foot || "this month")}</span>
+          <span className="kc3-foot-l">
+            {hasDelta && <span className={`kc3-delta ${t! >= 0 ? "up" : "down"}`}>{t! > 0 ? "+" : ""}{t}%</span>}
+            <span className="kc3-sub">{hasDelta ? `vs last ${pv?.days ?? 30}d` : (foot || "this month")}</span>
+          </span>
+          {hasSpark && <span className="kc3-spark"><Sparkline data={sparkData as number[]} color={c.badge} id={key} /></span>}
         </div>
       </div>
     );
@@ -809,22 +901,32 @@ export default function CommandCenter({
   // ---- multi-select comparison: 2+ employees / teams / departments side by side ----
   const selOf = (v?: string) => (v || "").split(",").map((s) => s.trim()).filter(Boolean);
   const selEmp = selOf(draft.employee), selTeam = selOf(draft.atl), selDept = selOf(draft.department);
-  type CmpEnt = { name: string; total: number; billable: number; non_billable: number; utilization: number; productivity: number; activity: number; grade: string };
+  type CmpEnt = { name: string; total: number; billable: number; non_billable: number; utilization: number; productivity: number; activity: number; grade: string; efficiency: number | null; on_estimate: number | null };
+  // weighted-average efficiency / on-estimate across a set of employees (by billable hrs)
+  const aggEff = (members: EmployeeRow[]) => {
+    let es = 0, ew = 0, os = 0, ow = 0;
+    members.forEach((m) => {
+      const w = Math.max(1, m.billable);
+      if (m.efficiency != null) { es += m.efficiency * w; ew += w; }
+      if (m.on_estimate != null) { os += m.on_estimate * w; ow += w; }
+    });
+    return { efficiency: ew ? Math.round(es / ew) : null, on_estimate: ow ? Math.round(os / ow) : null };
+  };
   const compare: { kind: "employee" | "team" | "department"; noun: string; ents: CmpEnt[] } | null = (() => {
-    const pick = (names: string[], rows: { name: string; total: number; billable: number; non_billable: number; utilization: number; productivity: number; activity: number; grade: string }[]) =>
+    const pick = (names: string[], rows: CmpEnt[]) =>
       names.map((nm) => rows.find((r) => r.name === nm)).filter(Boolean) as CmpEnt[];
     if (selEmp.length >= 2) {
-      const rows = data.employees.map((e) => ({ name: e.name, total: e.billable + e.non_billable, billable: e.billable, non_billable: e.non_billable, utilization: e.utilization, productivity: e.productivity, activity: e.activity, grade: e.grade }));
+      const rows: CmpEnt[] = data.employees.map((e) => ({ name: e.name, total: e.billable + e.non_billable, billable: e.billable, non_billable: e.non_billable, utilization: e.utilization, productivity: e.productivity, activity: e.activity, grade: e.grade, efficiency: e.efficiency ?? null, on_estimate: e.on_estimate ?? null }));
       const ents = pick(selEmp, rows);
       if (ents.length >= 2) return { kind: "employee", noun: "Employees", ents };
     }
     if (selTeam.length >= 2) {
-      const rows = (data.teams || []).map((t) => ({ name: t.team, total: t.total, billable: t.billable, non_billable: t.non_billable, utilization: t.utilization, productivity: t.productivity, activity: t.activity ?? 0, grade: t.grade }));
+      const rows: CmpEnt[] = (data.teams || []).map((t) => ({ name: t.team, total: t.total, billable: t.billable, non_billable: t.non_billable, utilization: t.utilization, productivity: t.productivity, activity: t.activity ?? 0, grade: t.grade, ...aggEff(data.employees.filter((e) => e.team === t.team)) }));
       const ents = pick(selTeam, rows);
       if (ents.length >= 2) return { kind: "team", noun: "Teams", ents };
     }
     if (selDept.length >= 2) {
-      const rows = (data.departments || []).map((t) => ({ name: t.team, total: t.total, billable: t.billable, non_billable: t.non_billable, utilization: t.utilization, productivity: t.productivity, activity: t.activity ?? 0, grade: t.grade }));
+      const rows: CmpEnt[] = (data.departments || []).map((t) => ({ name: t.team, total: t.total, billable: t.billable, non_billable: t.non_billable, utilization: t.utilization, productivity: t.productivity, activity: t.activity ?? 0, grade: t.grade, efficiency: null, on_estimate: null }));
       const ents = pick(selDept, rows);
       if (ents.length >= 2) return { kind: "department", noun: "Departments", ents };
     }
@@ -856,20 +958,52 @@ export default function CommandCenter({
   const anyScope = activeCount > 0;
 
   return (
-    <div className={"page" + (clientMode ? " cmode" : "")}>
+    <div className={`page${loading ? " is-syncing" : ""}`}>
+      {loading && <div className="loadbar"><span /></div>}
       {/* HEADER */}
       <div className="topbar">
         <div className="tb-l">
           <img src="/finovate-logo.png" alt="Finovate" className="brandlogo" />
           <div className="title">
-            <h2><span className="pulse">Insight</span> · Operations Intelligence</h2>
-            <div className="s">
-              <b>{sm.employees}</b> employees · <b>{sm.departments}</b> depts · <b>{sm.teams}</b> teams · <b>{sm.clients}</b> clients · <b>{sm.active_days}</b> days
+            <div className="title-kicker">Insight</div>
+            <h2>Operations Intelligence</h2>
+            <div className="hstats">
+              <span className="hstat"><b>{n0(sm.employees)}</b><i>Employees</i></span>
+              <span className="hstat"><b>{n0(sm.departments)}</b><i>Departments</i></span>
+              <span className="hstat"><b>{n0(sm.teams)}</b><i>Teams</i></span>
+              <span className="hstat"><b>{n0(sm.clients)}</b><i>Clients</i></span>
+              <span className="hstat"><b>{n0(sm.active_days)}</b><i>Days tracked</i></span>
               {!caps.self && <button type="button" className="unassigned-link" onClick={openUnassigned} title="Employees not mapped to a department/team/client"><ShieldAlert size={12} />Unassigned</button>}
             </div>
           </div>
         </div>
         <div className="tb-r">
+          {dataHealth && dataHealth.length > 0 && (() => {
+            const today = new Date().toISOString().slice(0, 10);
+            const daysAgo = (d: string | null) => d ? Math.round((Date.parse(today) - Date.parse(d)) / 86400000) : null;
+            const rated = dataHealth.map((s) => { const da = daysAgo(s.last); return { ...s, da, cls: s.rows === 0 || da == null ? "none" : da <= 7 ? "ok" : da <= 30 ? "warn" : "stale" }; });
+            const stale = rated.filter((r) => r.cls === "stale" || r.cls === "none").length;
+            const warn = rated.filter((r) => r.cls === "warn").length;
+            const agg = stale ? "stale" : warn ? "warn" : "ok";
+            const lbl = stale ? `${stale} stale` : warn ? `${warn} ageing` : "All synced";
+            return (
+              <div className="dh-wrap" ref={dhRef}>
+                <button className={`dh-chip ${agg}`} onClick={() => setDhOpen((o) => !o)} title="Data source freshness"><span className="d" />{lbl}<ChevronDown size={12} /></button>
+                {dhOpen && (
+                  <div className="dh-pop">
+                    <div className="dh-pop-h">Data freshness</div>
+                    {rated.map((r) => (
+                      <div className="dh-pop-row" key={r.source}>
+                        <i className={r.cls} /><b>{r.source}</b>
+                        <span>{r.last ? shortDate(r.last) : "no data"}</span>
+                        <em>{r.da != null ? (r.da === 0 ? "today" : `${r.da}d ago`) : ""}</em>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
           <span className="tb-sep" />
           {(() => {
@@ -891,16 +1025,13 @@ export default function CommandCenter({
                       <span className="acct-badge" style={{ color: rd.color, background: rd.color + "1a" }}>{rd.label.toUpperCase()}</span>
                     </div>
                     <div className="acct-items">
-                      <button className="acct-item" onClick={() => { setAcctOpen(false); if (caps.self) openEmployee(name); else setShowSettings(true); }}><UserIcon size={16} />Your profile</button>
-                      {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); setShowSettings(true); }}><Settings size={16} />Settings</button>}
-                      {caps.export && <button className="acct-item" onClick={() => { setAcctOpen(false); exportCsv(); }}><Download size={16} />Export to CSV</button>}
-                      {caps.raw && <button className="acct-item" onClick={() => { setAcctOpen(false); openRaw(); }}><Code2 size={16} />Raw data</button>}
+                      {(caps.settings || authUser?.role === "owner") && <div className="acct-sec">Administration</div>}
                       {caps.settings && <button className="acct-item" onClick={() => { setAcctOpen(false); openMapping(); }}><Users size={16} />Employee mapping</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openKeka(); }}><Clock size={16} />Keka attendance (office hours)</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); openBudgets(); }}><Briefcase size={16} />Client budgets</button>}
                       {authUser?.role === "owner" && <button className="acct-item" onClick={() => { setAcctOpen(false); setUsersModal(true); }}><ShieldCheck size={16} />Users &amp; access</button>}
-                      <button className="acct-item" onClick={() => { setAcctOpen(false); setPwModal(true); }}><Lock size={16} />Change password</button>
-                      <button className="acct-item" onClick={() => { setAcctOpen(false); setChatOpen(true); }}><Sparkles size={16} />AI assistant</button>
+                      <div className="acct-sec">Resources</div>
+                      <button className="acct-item" onClick={() => { setAcctOpen(false); setSourcesModal(true); }}><Network size={16} />Data sources</button>
                       <button className="acct-item" onClick={() => { setAcctOpen(false); window.open("https://github.com/dilranjankr/-finovate-pulse#readme", "_blank"); }}><BookOpen size={16} />Documentation</button>
                     </div>
                     <div className="acct-foot">
@@ -913,6 +1044,13 @@ export default function CommandCenter({
           })()}
         </div>
       </div>
+
+      {loadErr && data && (
+        <div className="load-err">
+          <span><ShieldAlert size={14} style={{ verticalAlign: -2, marginRight: 6 }} />Couldn&apos;t refresh — showing last loaded data.</span>
+          <button onClick={() => apply(draft)}><RotateCcw size={13} />Retry</button>
+        </div>
+      )}
 
       {/* FILTERS */}
       {caps.filters && showFilters && (() => {
@@ -994,127 +1132,26 @@ export default function CommandCenter({
       </div>
       )}
 
-      {/* ===== CLIENT VIEW — shown in-dashboard when ONE client is filtered ===== */}
-      {clientMode && (
-        <div className="cv-wrap">
-          {!cpData ? <div className="loading" style={{ height: 200 }}><span className="spin" /> Loading client…</div>
-            : !cpData.found ? <div className="empty-s" style={{ padding: 30, textAlign: "center" }}>No tracked time for this client / filter.</div> : (() => {
-              const p = cpData.profile!; const people = cpData.people || []; const allTasks = cpData.tasks || []; const ts = cpData.task_summary;
-              const remaining = p.budget != null ? Math.max(0, p.budget - p.total) : null;
-              const tasks = allTasks.filter((t) => cpStatus === "all" ? true : cpStatus === "open" ? !t.done : cpStatus === "done" ? t.done : (t.variance != null && t.variance > 0));
-              const effCls = (e: number | null) => e == null ? "mid" : e >= 100 ? "good" : e >= 85 ? "mid" : "weak";
-              return (
-                <>
-                  <div className="cpage-hero">
-                    <span className="avatar lg" style={{ background: avatarColor(p.client) }}><Briefcase size={20} /></span>
-                    <div className="cpage-hero-t"><div className="nm">{p.client}</div><div className="tm">{p.team} · {p.department}{p.type ? ` · ${p.type}` : ""} · last worked {p.last_worked}</div></div>
-                    <span className={`grade ${gradeCls(p.health_grade)}`} title="Client health score">{p.health_grade} · {p.health}</span>
-                  </div>
-                  <div className="cpage-kpis">
-                    {[["Total Hours", `${n0(p.total)}h`, ""], ["Billable", `${n0(p.billable)}h`, "ok"], ["Non-Billable", `${n0(p.non_billable)}h`, "warn"],
-                      ["Billable %", `${n0(p.billable_pct)}%`, ""], ["Budget Used", p.used_pct != null ? `${n0(p.used_pct)}%` : "—", p.over ? "bad" : "ok"],
-                      ["Tasks", `${ts?.total ?? 0}`, ""], ["On Estimate", p.on_estimate_pct != null ? `${p.on_estimate_pct}%` : "—", p.on_estimate_pct != null && p.on_estimate_pct < 60 ? "bad" : "ok"], ["Health", `${p.health}/100`, ""]].map(([l, v, tone]) => (
-                      <div className="cpage-kpi" key={l as string}><div className="l">{l}</div><div className={`v num ${tone}`}>{v}</div></div>
-                    ))}
-                  </div>
-                  <div className="cpage-grid2">
-                    <div className="panel">
-                      <div className="ph"><h3>Budget vs Actual</h3></div>
-                      {p.budget == null ? <div className="empty-s" style={{ padding: 18 }}>No budget set for this client.</div> : (
-                        <>
-                          <div className="cpage-bnums">
-                            <div><span>Budget</span><b>{n0(p.budget)}h</b></div>
-                            <div><span>Used</span><b style={{ color: p.over ? "#dc2626" : "var(--accent)" }}>{n0(p.total)}h</b></div>
-                            <div><span>Remaining</span><b>{remaining != null ? n0(remaining) : "—"}h</b></div>
-                          </div>
-                          <div className="cpage-bar"><div className={`cpage-bar-f${p.over ? " over" : ""}`} style={{ width: `${Math.min(100, p.used_pct ?? 0)}%` }} /></div>
-                          <div className="cpage-bar-x"><span>0</span><span>{n0(p.used_pct ?? 0)}% used</span><span>{n0(p.budget)}h</span></div>
-                        </>
-                      )}
-                    </div>
-                    <div className="panel">
-                      <div className="ph"><h3>Billable vs Non-Billable</h3></div>
-                      <div className="donut-wrap" style={{ gap: 16 }}>
-                        <div style={{ width: 130 }}><Donut data={[{ name: "Billable", value: p.billable }, { name: "Non-Billable", value: p.non_billable }]} colors={["#2f6fbf", "#cbd5e1"]} height={150} center={{ value: `${n0(p.billable_pct)}%`, label: "Billable" }} /></div>
-                        <div className="legend">
-                          <div className="li"><span className="dot" style={{ background: "#2f6fbf" }} /><span className="nm">Billable</span><span className="vl">{n0(p.billable)}h</span></div>
-                          <div className="li"><span className="dot" style={{ background: "#cbd5e1" }} /><span className="nm">Non-Billable</span><span className="vl">{n0(p.non_billable)}h</span></div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="panel">
-                    <div className="ph">
-                      <h3>Tasks — Estimate vs Tracked <span className="hl">ClickUp estimate vs Hubstaff tracked</span></h3>
-                      <button className="cpage-exp" onClick={exportClientCsv} title="Export tasks to CSV"><Download size={13} />Export</button>
-                    </div>
-                    {ts && <div className="cpage-tsum">
-                      {([["all", `${ts.total}`, "tasks", ""], ["open", `${ts.open}`, "open", ""], ["done", `${ts.done}`, "done", "okk"], ["over", `${ts.over}`, "over est.", "bad"]] as const).map(([k, v, lbl, tone]) => (
-                        <button key={k} className={`cpage-tchip click ${tone}${cpStatus === k ? " on" : ""}`} onClick={() => setCpStatus(k)}><b>{v}</b><span>{lbl}</span></button>
-                      ))}
-                      <div className="cpage-tchip"><b>{n0(ts.est_total)}h</b><span>estimated</span></div>
-                      <div className="cpage-tchip"><b>{n0(ts.actual_total)}h</b><span>tracked</span></div>
-                    </div>}
-                    <div className="scrollwrap" style={{ maxHeight: 340 }}>
-                      <table className="cpage-tbl">
-                        <thead><tr><th className="l">Task</th><th className="l">Top employee</th><th>Estimate</th><th>Tracked</th><th>Variance</th></tr></thead>
-                        <tbody>
-                          {tasks.map((t, i) => (
-                            <tr key={t.task + i}>
-                              <td className="l"><span className="cpage-tk"><span className={`cpage-st ${t.done ? "done" : "open"}`} />{t.task}</span></td>
-                              <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
-                              <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? `${n1(t.est)}h` : "—"}</td>
-                              <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
-                              <td className="num">{t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={`cpage-var ${t.variance > 0 ? "over" : "under"}`}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h{t.variance_pct != null ? ` (${t.variance_pct > 0 ? "+" : ""}${t.variance_pct}%)` : ""}</span>}</td>
-                            </tr>
-                          ))}
-                          {tasks.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks match.</td></tr>}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                  <div className="panel">
-                    <div className="ph"><h3>Employee Efficiency <span className="hl">estimate vs actual on their tasks</span></h3></div>
-                    <div className="scrollwrap" style={{ maxHeight: 320 }}>
-                      <table className="cpage-tbl">
-                        <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable %</th><th>Tasks</th><th>Efficiency</th><th className="l">Rating</th></tr></thead>
-                        <tbody>
-                          {people.map((e, i) => (
-                            <tr key={e.name + i} className="click" onClick={() => openEmployee(e.name)}>
-                              <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
-                              <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
-                              <td className="num">{n0(e.billable_pct)}%</td>
-                              <td className="num">{e.tasks}</td>
-                              <td className="num">{e.efficiency != null ? `${e.efficiency}%` : "—"}</td>
-                              <td className="l"><span className={`cpage-flag ${effCls(e.efficiency)}`}>{e.efficiency == null ? "—" : e.efficiency >= 100 ? "Efficient" : e.efficiency >= 85 ? "On track" : "Slow"}</span></td>
-                            </tr>
-                          ))}
-                          {people.length === 0 && <tr><td colSpan={6} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No data</td></tr>}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="cpage-note">Efficiency = task estimate ÷ tracked on tasks they lead. ≥100% = within estimate (efficient); &lt;85% = over estimate.</div>
-                  </div>
-                </>
-              );
-            })()}
-        </div>
-      )}
-
       {/* KPI — 8 clean cards (label + big value + icon badge + delta) */}
-      <div className="kpi-grid">
+      <div className="kpi-grid kpi-anim" key={dataVer}>
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
           openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ REAL office hours (Keka attendance; 8h/day if no attendance) × 100, capped at 100%. Target 80%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"), kTone(util, 80, 60), "of office hours")}
-        {kpiCard("k-bill", "Billable", n0(billable) + "h", "green", Receipt, undefined,
+        {kpiCard("k-bill", "Billable", n0(billable) + "h", "green", Receipt, "billable_hours",
           openMetric("Billable", "#16a34a", "Billable hours and their share of total tracked time.", (e) => e.billable, (v) => n0(v) + "h"), undefined, n1(billablePct) + "% of total")}
         {kpiCard("k-act", "Activity", n1(act) + "%", "teal", Activity, "activity",
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ tracked hours × 100 — the share of tracked time that is billable.", (e) => e.productivity, (v) => n1(v) + "%", "productivity"), undefined, "billable share")}
-        {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, undefined,
+        {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, "active_employees",
           openMetric("Active Staff", "#2f6fbf", "Employees who tracked time in this period, by total hours.", (e) => e.billable + e.non_billable, (v) => n1(v) + "h"), undefined, `of ${peopleN} tracked`)}
-        {kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, openClients, undefined, "worked this period")}
-        {kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
+        {isClientCtx && focusData?.found
+          ? kpiCard("k-est", "Est vs Actual", `${n0(focusData.summary!.actual_total)}/${n0(focusData.summary!.est_total)}h`, "teal", Tag, undefined, () => setFocusMetric("est"),
+              (focusData.summary!.on_estimate_pct ?? 100) < 60 ? "warn" : "ok", `${focusData.summary!.on_estimate_pct ?? "—"}% within estimate`)
+          : kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, openClients, undefined, "worked this period")}
+        {isClientCtx && focusData?.found
+          ? kpiCard("k-used", "Budget Used", focusData.summary!.used_pct != null ? n0(focusData.summary!.used_pct) + "%" : "—", "purple", Briefcase, undefined, () => setFocusMetric("budget"),
+              focusData.summary!.over ? "bad" : "ok", focusData.summary!.budget != null ? `of ${n0(focusData.summary!.budget)}h budget` : "no budget set")
+          : kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
         {budget && budget.count > 0
           ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
               () => setBudgetModal(true),
@@ -1122,6 +1159,63 @@ export default function CommandCenter({
               `${n0(budget.total_actual)}h used vs ${n0(budget.total_budget)}h budget`)
           : kpiCard("k-budget", "Over Budget", "—", "rose", Briefcase, undefined, undefined, undefined, "no budget match")}
       </div>
+
+      {/* TEAM TRANSFER — journey timeline right after the KPIs (employee focus) */}
+      {ctx === "employee" && focusData?.transfer && (focusData.transfer.segments.length > 0) && (() => {
+        const xf = focusData.transfer!;
+        const segs = xf.segments;
+        const XC = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a"];
+        const D = (s: string) => new Date(s + "T00:00:00").getTime();
+        const DAY = 86400000;
+        const start = Math.min(...segs.map((s) => D(s.from)));
+        const end = Math.max(...segs.map((s) => D(s.to)));
+        const span = Math.max(DAY, end - start);
+        const pos = (s: string) => Math.max(0, Math.min(100, ((D(s) - start) / span) * 100));
+        const days = (a: string, b: string) => Math.round((D(b) - D(a)) / DAY) + 1;
+        const totH = Math.max(1, segs.reduce((x, s) => x + s.hours, 0));
+        const ev = xf.events[0];
+        return (
+          <div className="panel tj-panel" style={{ marginBottom: 14 }}>
+            <div className="tj-head">
+              <span className="tj-ttl"><RotateCcw size={14} />Team journey</span>
+              <span className="tj-sum">
+                {ev ? <>Moved from <b>{ev.from}</b> to <b style={{ color: "#0f6e56" }}>{ev.to}</b> on <b>{shortDate(ev.on)}</b></> : <>Worked across <b>{segs.length}</b> teams this period</>}
+              </span>
+            </div>
+            <div className="tj-bar">
+              {segs.map((s, i) => {
+                const l = pos(s.from), w = Math.max(4, pos(s.to) - pos(s.from));
+                const c = XC[i % XC.length];
+                return (
+                  <div className="tj-seg" key={s.team + i} style={{ left: `${l}%`, width: `${w}%`, background: c + "22", boxShadow: `inset 0 0 0 1px ${c}55` }} title={`${s.team}: ${n0(s.hours)}h · ${shortDate(s.from)}–${shortDate(s.to)}`}>
+                    <span className="tj-dot" style={{ background: c }} /><span className="tj-nm" style={{ color: c }}>{s.team}</span>
+                    {w > 22 && <span className="tj-seg-h" style={{ color: c }}>{n0(s.hours)}h</span>}
+                  </div>
+                );
+              })}
+              {xf.events.map((e, i) => <span className="tj-mark" key={"m" + i} style={{ left: `${pos(e.on)}%` }}><span className="tj-flag">transfer</span></span>)}
+            </div>
+            <div className="tj-axis">
+              <span style={{ left: 0 }}>{shortDate(segs[0].from)}</span>
+              {xf.events.map((e, i) => <span className="tj-axis-x" key={"x" + i} style={{ left: `${pos(e.on)}%` }}>{shortDate(e.on)}</span>)}
+              <span style={{ right: 0 }}>{shortDate(segs[segs.length - 1].to)}</span>
+            </div>
+            <div className="tj-cards">
+              {segs.map((s, i) => {
+                const c = XC[i % XC.length]; const isCur = i === segs.length - 1;
+                return (
+                  <div className="tj-card" key={s.team + i} style={{ borderTopColor: c }}>
+                    <div className="tj-card-h"><span className="tj-dot" style={{ background: c }} /><b title={s.team}>{s.team}</b>{isCur && <span className="tj-cur">Current</span>}</div>
+                    <div className="tj-card-v">{n0(s.hours)}<span>h</span> <em>· {Math.round((s.hours / totH) * 100)}%</em></div>
+                    <div className="tj-card-sub">{shortDate(s.from)} – {shortDate(s.to)} · {days(s.from, s.to)} days · {n0(s.billable_pct)}% billable</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
 
       {/* Total Hours + Task Delivery — two donuts, one row */}
       <div className="donut-row">
@@ -1146,7 +1240,7 @@ export default function CommandCenter({
               </div>
             </div>
           );
-        })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No tasks worked this period</div></div>}
+        })() : <div className="dcard"><div className="dcard-h"><h3>Task Delivery</h3></div><div className="empty-s" style={{ padding: 40 }}>No task deadlines in scope<br /><span style={{ fontSize: 11.5 }}>time may be tracked on projects (no ClickUp tasks)</span></div></div>}
         {(() => {
           const kd = data.kpi_daily || [];
           const MM = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -1176,35 +1270,45 @@ export default function CommandCenter({
       </div>
 
       {/* BY DEPARTMENT + BY TEAM — horizontal bar charts, one row */}
-      {(((data.departments && data.departments.length) || data.teams.length) > 0) && (() => {
+      {showCard("byteam") && (((data.departments && data.departments.length) || data.teams.length) > 0) && (() => {
         const colors = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4"];
         const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
         const hpanel = (title: string, rows: TeamRow[], vertical = false, onPick?: (n: string) => void) => {
           const sorted = [...rows].filter((r) => Math.round(r.total) >= 1).sort((a, b) => b.total - a.total).slice(0, 8);
           const max = Math.max(1, ...sorted.map((r) => r.total));
           return (
-            <div className="panel">
-              <div className="ph"><h3>{title} <span className="hl">hours · top {sorted.length}{onPick ? " · click to drill" : ""}</span></h3></div>
+            <div className={"panel" + (vertical ? " vfill" : "")}>
+              <div className="ph"><h3>{title} <span className="hl">hours · util% · bill% · top {sorted.length}{onPick ? " · click to drill" : ""}</span></h3></div>
               {!sorted.length ? <div className="empty-s">No data in scope</div>
                 : vertical ? (
                   <div className="vbar-chart">
-                    {sorted.map((r, i) => (
-                      <div className={`vbar-col${onPick ? " click" : ""}`} key={r.team} title={`${r.team}: ${n0(r.total)}h`} onClick={onPick ? () => onPick(r.team) : undefined}>
+                    {sorted.map((r, i) => {
+                      const bp = r.total ? Math.round((r.billable / r.total) * 100) : 0;
+                      return (
+                      <div className={`vbar-col${onPick ? " click" : ""}`} key={r.team} title={`${r.team}: ${n0(r.total)}h · ${n0(r.utilization)}% util · ${bp}% billable`} onClick={onPick ? () => onPick(r.team) : undefined}>
                         <span className="vbar-v num">{fk(r.total)}</span>
                         <div className="vbar-track"><div className="vbar-fill" style={{ height: `${Math.max(4, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></div>
                         <span className="vbar-x">{r.team}</span>
+                        <span className="vbar-sub num">{n0(r.utilization)}% · {bp}%</span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="hbar-list">
-                    {sorted.map((r, i) => (
+                    {sorted.map((r, i) => {
+                      const bp = r.total ? Math.round((r.billable / r.total) * 100) : 0;
+                      return (
                       <div className={`hbar-row${onPick ? " click" : ""}`} key={r.team} onClick={onPick ? () => onPick(r.team) : undefined}>
                         <span className="hbar-lbl" title={r.team}>{r.team}</span>
                         <span className="hbar-track"><span className="hbar-fill" style={{ width: `${Math.max(2, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></span>
-                        <b className="hbar-v num">{n0(r.total)}h</b>
+                        <span className="hbar-v">
+                          <b className="num">{n0(r.total)}h</b>
+                          <i className="hbar-sub num">{n0(r.utilization)}% util · {bp}% bill</i>
+                        </span>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
             </div>
@@ -1226,7 +1330,7 @@ export default function CommandCenter({
 
 
       {/* WORKFORCE + OFFICE→TRACKED→BILLABLE FUNNEL */}
-      {workforce && (workforce.has_keka || workforce.total_tracked_h > 0) && (
+      {showCard("workforce") && workforce && (workforce.has_keka || workforce.total_tracked_h > 0) && (
         <div className="row2" style={{ marginBottom: 14 }}>
           <div className="panel">
             <div className="ph"><h3>Workforce <span className="hl">attendance &amp; effort, this period</span></h3></div>
@@ -1259,7 +1363,392 @@ export default function CommandCenter({
         </div>
       )}
 
+      {/* ===== CONTEXT FOCUS — inserted when ONE entity is filtered ===== */}
+      {ctx && focusData && !focusData.found && <div className="empty-s" style={{ padding: 16, marginBottom: 14 }}>No tracked time for this {ctx} / filter.</div>}
+      {ctx && focusData?.found && (() => {
+        const ins = focusData.insight || { best: null as string | null, watch: null as string | null }; const rows = focusData.rows!;
+        const all = rows.tasks || [];
+        const _today = new Date().toISOString().slice(0, 10);
+        const _wk = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+        const isOverdue = (t: import("../lib/api").FocusTask) => !!t.due && !t.done && t.due < _today;
+        const isDueSoon = (t: import("../lib/api").FocusTask) => !!t.due && !t.done && t.due >= _today && t.due <= _wk;
+        const priOf = (t: import("../lib/api").FocusTask) => (t.priority || "").toLowerCase();
+        const matchTab = (t: import("../lib/api").FocusTask) => focusTab === "all" ? true : focusTab === "open" ? !t.done : focusTab === "done" ? t.done : focusTab === "overdue" ? isOverdue(t) : focusTab === "duesoon" ? isDueSoon(t) : (t.variance != null && t.variance > 0);
+        const tasks = all.filter((t) => matchTab(t) && (!priFilter || priOf(t) === priFilter));
+        const counts = { all: all.length, open: all.filter((t) => !t.done).length, done: all.filter((t) => t.done).length, over: all.filter((t) => t.variance != null && t.variance > 0).length };
+        const dl = { overdue: all.filter(isOverdue).length, duesoon: all.filter(isDueSoon).length };
+        const priCounts: Record<string, number> = { urgent: 0, high: 0, normal: 0, low: 0 };
+        all.forEach((t) => { const p = priOf(t); if (p in priCounts && !t.done) priCounts[p]++; });
+        const flag = (e: number | null) => e == null ? <span className="fv-flag mid">—</span> : <span className={"fv-flag " + (e >= 100 ? "good" : e >= 85 ? "mid" : "weak")}>{e >= 100 ? "Efficient" : e >= 85 ? "On track" : "Slow"}</span>;
+        const showClients = (ctx === "team" || ctx === "employee" || ctx === "type") && rows.clients.length > 0;
+        const showMembers = (ctx === "team" || ctx === "client" || ctx === "type") && rows.members.length > 0;
+        const showWorkmix = ctx === "employee";   // right slot for single-employee (no members)
+        const showBudget = ctx === "client";       // right slot for single-client (budget & delivery)
+        return (
+          <div className="fv-focus">
+            {(ins.best || ins.watch) && (
+              <div className="fv-insight">
+                {ins.best && <span className="fv-ins fv-best"><Award size={13} />Best: {ins.best}</span>}
+                {ins.watch && <span className="fv-ins fv-watch"><ShieldAlert size={13} />{ins.watch}</span>}
+              </div>
+            )}
+            {(showClients || showMembers || showWorkmix || showBudget) && (
+              <div className="fv-grid2">
+                {showClients && (
+                  <div className="panel">
+                    <div className="ph"><h3>Clients handled <span className="hl">{rows.clients.length} · click to drill · best by efficiency</span></h3></div>
+                    <div className="scrollwrap" style={{ maxHeight: 300 }}>
+                      <table className="ec-table">
+                        <thead><tr><th className="l">Client</th><th>Tracked</th><th>Billable</th><th>Non-Bill</th><th>Budget</th><th>Used%</th><th>Tasks</th><th>Effic.</th></tr></thead>
+                        <tbody>{rows.clients.map((c, i) => (
+                          <tr key={c.client + i} className="click" onClick={() => openClient(c.client)}>
+                            <td className="l tname">{c.client}</td><td className="num" style={{ fontWeight: 700 }}>{n1(c.hours)}h</td>
+                            <td className="num" style={{ color: "#16a34a" }}>{n1(c.billable)}h</td>
+                            <td className="num" style={{ color: "var(--muted)" }}>{n1(c.non_billable)}h</td>
+                            <td className="num" style={{ color: "var(--muted)" }}>{c.budget != null ? n1(c.budget) + "h" : "—"}</td>
+                            <td className="num">{c.used_pct != null ? <span style={{ color: c.used_pct > 100 ? "#dc2626" : undefined }} title={c.used_pct > 100 ? `${n0(c.used_pct)}% — over budget` : undefined}>{n0(Math.min(100, c.used_pct))}%</span> : "—"}</td>
+                            <td className="num"><span className="ct-tasks">{c.tasks}{c.tasks > 0 && <i className="ct-st"><b style={{ color: "#16a34a" }}>{c.tasks_done}✓</b> · {c.tasks_open} open</i>}</span></td>
+                            <td className="num">{c.efficiency != null ? c.efficiency + "%" : "—"}</td>
+                          </tr>))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {showMembers && (
+                  <div className="panel">
+                    <div className="ph"><h3>{ctx === "client" ? "Who works this client" : ctx === "type" ? "Who handles these" : "Team members"} <span className="hl">best by efficiency</span></h3></div>
+                    <div className="scrollwrap" style={{ maxHeight: 300 }}>
+                      <table className="ec-table">
+                        <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable</th><th>Non-Bill</th><th>Act%</th><th>Tasks (done/open)</th><th className="l">Rating</th></tr></thead>
+                        <tbody>{rows.members.map((m, i) => (
+                          <tr key={m.name + i} className="click" onClick={() => openEmployee(m.name)}>
+                            <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(m.name) }}>{initials(m.name)}</span><span className="tname">{m.name}</span></span></td>
+                            <td className="num" style={{ fontWeight: 700 }}>{n1(m.hours)}h</td>
+                            <td className="num" style={{ color: "#16a34a" }}>{n1(m.billable)}h</td>
+                            <td className="num" style={{ color: "var(--muted)" }}>{n1(m.non_billable)}h</td>
+                            <td className="num">{n0(m.activity_pct)}%</td>
+                            <td className="num"><span className="ct-tasks">{m.tasks}{m.tasks > 0 && <i className="ct-st"><b style={{ color: "#16a34a" }}>{m.tasks_done ?? 0}✓</b> · {m.tasks_open ?? 0} open</i>}</span></td>
+                            <td className="l">{flag(m.efficiency)}</td>
+                          </tr>))}</tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+                {showWorkmix && (() => {
+                  const sm2 = focusData.summary!;
+                  const bp = Math.max(0, Math.min(100, sm2.billable_pct));
+                  const oe = sm2.on_estimate_pct;
+                  const donePct = sm2.tasks ? Math.round((sm2.tasks_done / sm2.tasks) * 100) : 0;
+                  const rate = (v: number | null, hi: number, mid: number): { tag: string; col: string } =>
+                    v == null ? { tag: "—", col: "#94a3b8" } : v >= hi ? { tag: "Strong", col: "#16a34a" } : v >= mid ? { tag: "Fair", col: "#e8930c" } : { tag: "Low", col: "#ef4444" };
+                  const qrow = (label: string, valTxt: string, pct: number, r: { tag: string; col: string }) => (
+                    <div className="fv-qr">
+                      <div className="fv-qr-top">
+                        <span className="fv-qr-l">{label}</span>
+                        <span className="fv-qr-r"><b className="fv-qr-v">{valTxt}</b><span className="fv-qr-tag" style={{ color: r.col, background: r.col + "1a" }}>{r.tag}</span></span>
+                      </div>
+                      <div className="fv-meter"><i style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: r.col }} /></div>
+                    </div>
+                  );
+                  return (
+                    <div className="panel">
+                      <div className="ph"><h3>Work mix <span className="hl">time split &amp; quality</span></h3></div>
+                      <div className="fv-wm">
+                        <div className="fv-tsplit">
+                          <div className="fv-tsplit-h"><span>Time split</span><b className="num">{n0(sm2.total)}h total</b></div>
+                          <div className="fv-splitbar big">
+                            <span className="seg" style={{ width: `${bp}%`, background: "#2f6fbf" }} title={`Billable ${n0(sm2.billable)}h`}>{bp >= 16 && <em>{n0(sm2.billable)}h</em>}</span>
+                            <span className="seg" style={{ width: `${100 - bp}%`, background: "#cbd5e1" }} title={`Non-billable ${n0(sm2.non_billable)}h`}>{100 - bp >= 16 && <em style={{ color: "#475569" }}>{n0(sm2.non_billable)}h</em>}</span>
+                          </div>
+                          <div className="fv-splitleg">
+                            <span><i className="fv-dot" style={{ background: "#2f6fbf" }} />Billable · {n0(bp)}%</span>
+                            <span><i className="fv-dot" style={{ background: "#cbd5e1" }} />Non-billable · {n0(100 - bp)}%</span>
+                          </div>
+                        </div>
+                        <div className="fv-qrows">
+                          {qrow("Activity", n0(sm2.activity_pct) + "%", sm2.activity_pct, rate(sm2.activity_pct, 80, 60))}
+                          {qrow("On estimate", oe != null ? oe + "%" : "—", oe ?? 0, rate(oe, 80, 60))}
+                          {qrow("Tasks completed", `${sm2.tasks_done}/${sm2.tasks}`, donePct, rate(donePct, 80, 50))}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+                {showBudget && (() => {
+                  const sm2 = focusData.summary!;
+                  const remaining = sm2.budget != null ? Math.max(0, sm2.budget - sm2.total) : null;
+                  const up = sm2.used_pct ?? 0;
+                  const fp = sm2.forecast_pct ?? null; const projOver = fp != null && fp > 100;
+                  const oe = sm2.on_estimate_pct;
+                  const donePct = sm2.tasks ? Math.round((sm2.tasks_done / sm2.tasks) * 100) : 0;
+                  const qcol = (v: number | null, hi: number, mid: number) => v == null ? "#cbd5e1" : v >= hi ? "#16a34a" : v >= mid ? "#e8930c" : "#ef4444";
+                  return (
+                    <div className="panel">
+                      <div className="ph"><h3>Budget &amp; delivery <span className="hl">budget vs tracked &amp; quality</span></h3></div>
+                      <div className="fv-wm">
+                        {sm2.budget != null ? (
+                          <>
+                            <div className="fv-bhead">
+                              <div><div className="fv-bhead-v num">{n0(sm2.total)}<span className="u">h</span></div><div className="fv-bhead-s">of {n0(sm2.budget)}h budget · {remaining != null ? n0(remaining) + "h left" : ""}</div></div>
+                              <div className={"fv-bpill " + (sm2.over ? "over" : up >= 85 ? "warn" : "ok")}>{n0(up)}%</div>
+                            </div>
+                            <div className="cpf-bar">
+                              <div className={"cpf-bar-f" + (sm2.over ? " over" : "")} style={{ width: `${Math.min(100, up)}%` }} />
+                              {fp != null && !sm2.over && <span className="cpf-bar-proj" style={{ left: `${Math.min(100, fp)}%`, background: projOver ? "#dc2626" : "#94a3b8" }} title={`Projected ${fp}%`} />}
+                            </div>
+                            {fp != null && (
+                              <div className="fv-splitleg" style={{ marginTop: 7 }}>
+                                <span><i className="fv-dot" style={{ background: projOver ? "#dc2626" : "#16a34a" }} />Projected <b>{n0(sm2.forecast ?? 0)}h</b> by period end</span>
+                                <span style={{ color: projOver ? "#dc2626" : "#16a34a", fontWeight: 700 }}>{fp}% {projOver ? "over pace" : "on pace"}</span>
+                              </div>
+                            )}
+                          </>
+                        ) : <div className="fv-nobudget">No budget set for this client</div>}
+                        <div className="fv-qgrid" style={{ marginTop: 14 }}>
+                          <div className="fv-q"><div className="fv-q-top"><span>On estimate</span><b style={{ color: qcol(oe, 80, 60) }}>{oe != null ? oe + "%" : "—"}</b></div><div className="fv-meter"><i style={{ width: `${oe != null ? Math.min(100, oe) : 0}%`, background: qcol(oe, 80, 60) }} /></div></div>
+                          <div className="fv-q"><div className="fv-q-top"><span>Tasks done</span><b>{sm2.tasks_done}/{sm2.tasks}</b></div><div className="fv-meter"><i style={{ width: `${donePct}%`, background: "#16a34a" }} /></div></div>
+                          <div className="fv-q"><div className="fv-q-top"><span>Billable</span><b>{n0(sm2.billable_pct)}%</b></div><div className="fv-meter"><i style={{ width: `${Math.min(100, sm2.billable_pct)}%`, background: "#2f6fbf" }} /></div></div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+            {focusData?.found && (() => {
+              const fr = focusData.rows; const fs = focusData.summary!;
+              const DCOL = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4"];
+              const clientDonut = (fr?.clients || []).filter((c) => c.hours > 0).slice(0, 8).map((c) => ({ name: c.client, value: c.hours }));
+              const memberDonut = (fr?.members || []).filter((m) => m.hours > 0).slice(0, 8).map((m) => ({ name: m.name, value: m.hours }));
+              const donutPanel = (title: string, sub: string, data: { name: string; value: number }[], centerVal: string, centerLbl: string) => (
+                <div className="panel"><div className="ph"><h3>{title} <span className="hl">{sub}</span></h3></div>
+                  {data.length ? <div className="donut-wrap" style={{ justifyContent: "center", padding: "10px 0" }}><div style={{ width: 210 }}><Donut data={data} colors={DCOL} height={210} center={{ value: centerVal, label: centerLbl }} /></div></div> : <div className="empty-s">No data in scope</div>}
+                </div>
+              );
+              if (ctx === "employee") {
+                const axes = [
+                  { label: "Utilization", value: fs.utilization },
+                  { label: "Activity", value: fs.activity_pct },
+                  { label: "Billable %", value: fs.billable_pct },
+                  { label: "On estimate", value: fs.on_estimate_pct },
+                  { label: "Completion", value: fs.tasks ? Math.round((fs.tasks_done / fs.tasks) * 100) : 0 },
+                ];
+                const clientBars = (fr?.clients || []).filter((c) => c.hours > 0).slice(0, 8)
+                  .map((c, i) => ({ label: c.client, value: c.hours, color: DCOL[i % DCOL.length] }));
+                return (
+                  <div className="fv-grid2" style={{ marginTop: 14 }}>
+                    <div className="panel"><div className="ph"><h3>Performance radar <span className="hl">5-metric balance · 0–100</span></h3></div><SkillRadar axes={axes} height={270} /></div>
+                    <div className="panel"><div className="ph"><h3>Client allocation <span className="hl">hours by client · {clientBars.length}</span></h3></div>
+                      {clientBars.length ? <div style={{ padding: "10px 2px 4px" }}><BarList items={clientBars} unit="h" /></div> : <div className="empty-s">No client split in scope</div>}
+                    </div>
+                  </div>
+                );
+              }
+              if (ctx === "client") {
+                const memPts = (fr?.members || []).filter((m) => m.utilization != null && m.on_estimate != null).map((m) => ({ name: m.name, x: m.utilization!, y: m.on_estimate!, z: Math.max(1, m.hours) }));
+                const memPts2 = (fr?.members || []).filter((m) => m.utilization != null).map((m, i) => ({ name: m.name, x: m.utilization!, y: m.activity_pct, z: Math.max(1, m.hours), color: DCOL[i % DCOL.length] }));
+                const memRows = [...(fr?.members || [])].sort((a, b) => (b.efficiency ?? -1) - (a.efficiency ?? -1));
+                const effFlag = (e: number | null) => e == null ? <span className="fv-flag mid">—</span> : <span className={"fv-flag " + (e >= 100 ? "good" : e >= 85 ? "mid" : "weak")}>{e >= 100 ? "Efficient" : e >= 85 ? "On track" : "Slow"}</span>;
+                return (
+                  <div className="fv-grid2" style={{ marginTop: 14 }}>
+                    <div className="panel"><div className="ph"><h3>Budget burn-up <span className="hl">cumulative tracked vs even pace</span></h3></div><BurnupChart series={fr?.burnup || []} budget={fs.budget} height={260} /></div>
+                    <div className="panel">
+                      <div className="ph"><h3>Employee performance <span className="hl">who works this client · {memRows.length}</span></h3></div>
+                      {memPts.length >= 2 ? (<>
+                        <EffScatter points={memPts} height={232} />
+                        <div className="fv-quad-legend"><span><i style={{ background: "#16a34a" }} />Stars</span><span><i style={{ background: "#e8930c" }} />Overrun</span><span><i style={{ background: "#2f6fbf" }} />Coasting</span><span><i style={{ background: "#ef4444" }} />At risk</span></div>
+                      </>) : memPts2.length >= 2 ? (<>
+                        <CompareScatter points={memPts2} xName="Utilization" yName="Activity" height={250} />
+                        <div className="fv-quad-legend" style={{ color: "var(--faint)" }}><span>No task estimates here — showing utilization × activity</span></div>
+                      </>) : (
+                        <div className="scrollwrap" style={{ maxHeight: 272 }}>
+                          <table className="ec-table">
+                            <thead><tr><th className="l">Employee</th><th>Hours</th><th>Util</th><th>Billable</th><th>Non-Bill</th><th className="l">Rating</th></tr></thead>
+                            <tbody>
+                              {memRows.map((e, i) => (
+                                <tr key={e.name + i} className="click" onClick={() => openEmployee(e.name)}>
+                                  <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
+                                  <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
+                                  <td className="num">{e.utilization != null ? n0(e.utilization) + "%" : "—"}</td>
+                                  <td className="num" style={{ color: "#16a34a" }}>{n1(e.billable)}h</td>
+                                  <td className="num" style={{ color: "var(--muted)" }}>{n1(e.non_billable)}h</td>
+                                  <td className="l">{effFlag(e.efficiency)}</td>
+                                </tr>
+                              ))}
+                              {memRows.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No data</td></tr>}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              }
+              if (ctx === "team") {
+                const pts = (fr?.members || []).filter((m) => m.utilization != null && m.on_estimate != null).map((m) => ({ name: m.name, x: m.utilization!, y: m.on_estimate!, z: Math.max(1, m.hours) }));
+                const mixBars = (fr?.clients || []).filter((c) => c.hours > 0).slice(0, 8).map((c, i) => ({ label: c.client, value: c.hours, color: DCOL[i % DCOL.length] }));
+                const mixTot = mixBars.reduce((a, b) => a + b.value, 0) || 1;
+                return (
+                  <div className="fv-grid2" style={{ marginTop: 14 }}>
+                    <div className="panel"><div className="ph"><h3>Efficiency map <span className="hl">utilization × on-estimate · size = hours</span></h3></div>
+                      <EffScatter points={pts} height={300} />
+                      <div className="fv-quad-legend"><span><i style={{ background: "#16a34a" }} />Stars</span><span><i style={{ background: "#e8930c" }} />Overrun</span><span><i style={{ background: "#2f6fbf" }} />Coasting</span><span><i style={{ background: "#ef4444" }} />At risk</span></div>
+                    </div>
+                    <div className="panel"><div className="ph"><h3>Client mix <span className="hl">team hours by client · {mixBars.length}</span></h3></div>
+                      {mixBars.length ? <div style={{ padding: "10px 2px 4px" }}>
+                        {mixBars.map((b) => (
+                          <div className="cmix-row" key={b.label}>
+                            <span className="cmix-nm" title={b.label}>{b.label}</span>
+                            <span className="cmix-track"><span style={{ width: `${(b.value / mixTot) * 100}%`, background: b.color }} /></span>
+                            <span className="cmix-v">{n0(b.value)}h</span>
+                            <span className="cmix-pct">{Math.round((b.value / mixTot) * 100)}%</span>
+                          </div>
+                        ))}
+                      </div> : <div className="empty-s">No client split in scope</div>}
+                    </div>
+                  </div>
+                );
+              }
+              if (ctx === "employee-client") {
+                const oe = fs.on_estimate_pct;
+                const donePct = fs.tasks ? Math.round((fs.tasks_done / fs.tasks) * 100) : 0;
+                const estPct = fs.est_total > 0 ? Math.min(100, Math.round((fs.actual_total / fs.est_total) * 100)) : 0;
+                const qcol = (v: number | null, hi: number, mid: number) => v == null ? "#cbd5e1" : v >= hi ? "#16a34a" : v >= mid ? "#e8930c" : "#ef4444";
+                return (
+                  <div className="fv-grid2" style={{ marginTop: 14 }}>
+                    <div className="panel">
+                      <div className="ph"><h3>Work on this client <span className="hl">{fEmp} · {fClient}</span></h3></div>
+                      <div className="mini-kpis">
+                        <div className="mini-k"><div className="l">Hours</div><div className="v num">{n1(fs.total)}h</div></div>
+                        <div className="mini-k"><div className="l">Billable</div><div className="v num" style={{ color: "#16a34a" }}>{n1(fs.billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Non-Bill</div><div className="v num">{n1(fs.non_billable)}h</div></div>
+                        <div className="mini-k"><div className="l">Activity</div><div className="v num">{n0(fs.activity_pct)}%</div></div>
+                        <div className="mini-k"><div className="l">On Estimate</div><div className="v num" style={{ color: qcol(oe, 80, 60) }}>{oe != null ? oe + "%" : "—"}</div></div>
+                        <div className="mini-k"><div className="l">Tasks</div><div className="v num">{fs.tasks_done}/{fs.tasks}</div></div>
+                      </div>
+                    </div>
+                    <div className="panel">
+                      <div className="ph"><h3>Estimate vs Tracked <span className="hl">on this client</span></h3></div>
+                      <div className="fv-wm">
+                        {fs.est_total > 0 ? (<>
+                          <div className="fv-tsplit-h"><span>Tracked vs estimate</span><b className="num">{n1(fs.actual_total)}h / {n1(fs.est_total)}h</b></div>
+                          <div className="fv-meter" style={{ height: 8 }}><i style={{ width: `${estPct}%`, background: fs.actual_total > fs.est_total ? "#dc2626" : "#2f6fbf" }} /></div>
+                          <div className="fv-splitleg" style={{ marginTop: 6 }}><span>{fs.actual_total > fs.est_total ? `${n1(fs.actual_total - fs.est_total)}h over estimate` : `${n1(fs.est_total - fs.actual_total)}h under estimate`}</span></div>
+                        </>) : <div className="fv-nobudget">No task estimates on this client</div>}
+                        <div className="fv-qgrid" style={{ marginTop: 14 }}>
+                          <div className="fv-q"><div className="fv-q-top"><span>On estimate</span><b style={{ color: qcol(oe, 80, 60) }}>{oe != null ? oe + "%" : "—"}</b></div><div className="fv-meter"><i style={{ width: `${oe != null ? Math.min(100, oe) : 0}%`, background: qcol(oe, 80, 60) }} /></div></div>
+                          <div className="fv-q"><div className="fv-q-top"><span>Tasks done</span><b>{fs.tasks_done}/{fs.tasks}</b></div><div className="fv-meter"><i style={{ width: `${donePct}%`, background: "#16a34a" }} /></div></div>
+                          <div className="fv-q"><div className="fv-q-top"><span>Billable</span><b>{n0(fs.billable_pct)}%</b></div><div className="fv-meter"><i style={{ width: `${Math.min(100, fs.billable_pct)}%`, background: "#2f6fbf" }} /></div></div>
+                        </div>
+                        {fs.budget != null && <div className="cpf-forecast" style={{ marginTop: 12 }}><span className="cpf-fc-dot" style={{ background: "#5b6fd6" }} />Contributed <b className="num">{n0(fs.total)}h</b> of the client&apos;s <b className="num">{n0(fs.budget)}h</b> budget<span className="cpf-fc-tag">{fs.used_pct != null ? n0(fs.used_pct) + "%" : ""}</span></div>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+            {ctx && focusData?.found && focusData.sentiment && focusData.sentiment.comms > 0 && (() => {
+              const sn = focusData.sentiment!; const tot = sn.comms || 1; const risk = sn.concerned > 0 || sn.complaints > 0;
+              const ttl = ctx === "client" ? "Client sentiment & comms" : ctx === "employee" ? "Client sentiment · their clients" : "Client sentiment · in-scope clients";
+              const scopeNm = ctx === "client" ? fClient! : ctx === "employee" ? fEmp! : ctx === "team" ? fTeam! : (fType || "Clients");
+              const base: { client?: string; labels?: string[] } = ctx === "client" ? { client: fClient! } : { labels: sn.client_keys };
+              const openS = (key: string, label: string) => openMessages(`${scopeNm} · ${label}`, { ...base, sentiment: key, filter: label, allTime: sn.all_time });
+              const openB = (b: string, label: string) => openMessages(`${scopeNm} · ${label}`, { ...base, bucket: b, filter: label, allTime: sn.all_time });
+              const tile = (key: string, label: string, count: number, color: string) => (
+                <button className="snt-tile click" style={{ borderTopColor: color }} onClick={() => openS(key, label)} title={`Read ${label.toLowerCase()} messages`}>
+                  <b style={{ color }}>{count}</b><span>{label}</span><i style={{ width: `${(count / tot) * 100}%`, background: color }} />
+                </button>
+              );
+              return (
+                <div className="panel sent-panel" style={{ marginBottom: 14 }}>
+                  <div className="ph"><h3>{ttl} <span className="hl">{sn.comms} messages{sn.all_time ? " · all-time (none in this period)" : " this period"}{sn.last ? ` · last ${shortDate(sn.last)}` : ""} · click any chip to read</span></h3></div>
+                  <div className="snt-tiles">
+                    {tile("positive", "Positive", sn.positive, "#16a34a")}
+                    {tile("neutral", "Neutral", sn.neutral, "#94a3b8")}
+                    {tile("concerned", "Concerned", sn.concerned, "#dc2626")}
+                  </div>
+                  <div className="sent-flags" style={{ marginTop: 12 }}>
+                    <button className={"sent-flag click " + (sn.complaints > 0 ? "bad" : "ok")} disabled={sn.complaints === 0} onClick={() => openB("complaints", "Complaints")}><ShieldAlert size={12} />{sn.complaints} complaint{sn.complaints === 1 ? "" : "s"}</button>
+                    <button className={"sent-flag click " + (sn.followups > 0 ? "warn" : "ok")} disabled={sn.followups === 0} onClick={() => openB("followups", "Follow-ups")}>{sn.followups} follow-up{sn.followups === 1 ? "" : "s"} pending</button>
+                    {risk && <span className="sent-flag bad">⚠ Churn-risk signal</span>}
+                  </div>
+                </div>
+              );
+            })()}
+            {(ctx === "team" || ctx === "type") && (rows.pairs?.length ?? 0) > 0 && (
+              <div className="panel">
+                <div className="ph"><h3>Who handles which client <span className="hl">{rows.pairs!.length} employee → client pairs · by hours</span></h3></div>
+                <div className="scrollwrap" style={{ maxHeight: 320 }}>
+                  <table className="ec-table">
+                    <thead><tr><th className="l">Employee</th><th className="l">Client</th><th>Hours</th><th>Bill%</th></tr></thead>
+                    <tbody>{rows.pairs!.map((p, i) => (
+                      <tr key={p.name + p.client + i} className="click" onClick={() => openClient(p.client)}>
+                        <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(p.name) }}>{initials(p.name)}</span><span className="tname">{p.name}</span></span></td>
+                        <td className="l">{p.client}</td>
+                        <td className="num" style={{ fontWeight: 700 }}>{n1(p.hours)}h</td>
+                        <td className="num">{n0(p.billable_pct)}%</td>
+                      </tr>))}</tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            {all.length > 0 && (
+              <div className="panel dlb-panel" style={{ marginBottom: 14 }}>
+                <div className="ph"><h3>Deadlines &amp; Priority <span className="hl">click a chip to filter the task list below</span></h3></div>
+                <div className="dlb-row">
+                  <button className={"dlb-seg od" + (focusTab === "overdue" ? " on" : "")} onClick={() => setFocusTab(focusTab === "overdue" ? "all" : "overdue")} title="Past due & not done">
+                    <b>{dl.overdue}</b><span>Overdue</span></button>
+                  <button className={"dlb-seg ds" + (focusTab === "duesoon" ? " on" : "")} onClick={() => setFocusTab(focusTab === "duesoon" ? "all" : "duesoon")} title="Due within 7 days">
+                    <b>{dl.duesoon}</b><span>Due this week</span></button>
+                  <span className="dlb-div" />
+                  {(["urgent", "high", "normal", "low"] as const).map((p) => (
+                    <button key={p} className={"dlb-seg pri-" + p + (priFilter === p ? " on" : "")} onClick={() => setPriFilter(priFilter === p ? null : p)} title={`${p} priority · open tasks`}>
+                      <b>{priCounts[p]}</b><span>{p}</span></button>
+                  ))}
+                  {(focusTab === "overdue" || focusTab === "duesoon" || priFilter) && (
+                    <button className="dlb-clear" onClick={() => { setFocusTab("all"); setPriFilter(null); }}>Clear</button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div className="panel">
+              <div className="ph">
+                <h3>Tasks — Estimate vs Tracked <span className="hl">ClickUp estimate vs Hubstaff tracked{priFilter ? ` · ${priFilter} priority` : focusTab === "overdue" ? " · overdue" : focusTab === "duesoon" ? " · due this week" : ""}</span></h3>
+                <button className="fv-exp" onClick={exportFocusTasks}><Download size={13} />Export</button>
+              </div>
+              <div className="fv-tabs">
+                {([["all", "tasks"], ["open", "open"], ["done", "done"], ["over", "over est."]] as const).map(([k, lbl]) => (
+                  <button key={k} className={focusTab === k ? "on" : ""} onClick={() => setFocusTab(k)}>{counts[k]} {lbl}</button>
+                ))}
+              </div>
+              <div className="scrollwrap" style={{ maxHeight: 340 }}>
+                <table className="ec-table">
+                  <thead><tr><th className="l">Task</th>{!isClientCtx && <th className="l">Client</th>}<th className="l">Top employee</th><th className="l">Status</th><th className="l">Due</th><th>Estimate</th><th>Tracked</th><th>Variance</th></tr></thead>
+                  <tbody>
+                    {tasks.map((t, i) => (
+                      <tr key={t.task + i}>
+                        <td className="l tname"><span className={"fv-st " + (t.done ? "done" : "open")} />{t.task}{t.priority && ["urgent", "high"].includes(priOf(t)) && <span className={"pri-tag pri-" + priOf(t)}>{priOf(t)}</span>}</td>
+                        {!isClientCtx && <td className="l" style={{ color: "var(--muted)" }}>{t.client || "—"}</td>}
+                        <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
+                        <td className="l"><span className={"fv-tstat " + (t.done ? "done" : "open")}>{t.status || (t.done ? "Done" : "Open")}</span></td>
+                        <td className="l" style={{ whiteSpace: "nowrap", color: isOverdue(t) ? "#dc2626" : "var(--muted)", fontWeight: isOverdue(t) ? 700 : 400 }}>{t.due ? new Date(t.due + "T00:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "—"}{isOverdue(t) && " ⚠"}</td>
+                        <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? n1(t.est) + "h" : "—"}</td>
+                        <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
+                        <td className="num">{t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={"fv-var " + (t.variance > 0 ? "over" : "under")}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h</span>}</td>
+                      </tr>
+                    ))}
+                    {tasks.length === 0 && <tr><td colSpan={isClientCtx ? 7 : 8} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks match.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* BUDGET BURN-UP + PERFORMERS — one row, half / half */}
+      {showCard("burnPerf") && (
       <div className="row2" style={{ marginBottom: 14 }}>
         {(() => {
           const daily = data.hours_trend || [];
@@ -1307,6 +1796,7 @@ export default function CommandCenter({
           </div>
         </div>
       </div>
+      )}
 
       {/* MULTI-SELECT COMPARISON — 2+ employees / teams / departments side by side */}
       {compare && (() => {
@@ -1316,17 +1806,35 @@ export default function CommandCenter({
           compare.ents.forEach((e, i) => { const v = Number(e[key]); if (v > bv) { bv = v; bi = i; } });
           return bi;
         };
+        const score = (e: CmpEnt) => Math.round(Math.max(0, Math.min(100, 0.4 * e.utilization + 0.3 * e.productivity + 0.3 * e.activity)));
+        const scores = compare.ents.map(score);
+        const leaderIdx = scores.indexOf(Math.max(...scores));
+        const winsOf = (idx: number) => cmpMetrics.filter((mt) => bestIdx(mt.key) === idx).length;
+        const ranks = scores.map((s) => 1 + scores.filter((o) => o > s).length);
+        const avgOf = (sel: (e: CmpEnt) => number) => compare!.ents.reduce((a, e) => a + sel(e), 0) / compare!.ents.length;
+        const avgScore = Math.round(avgOf(score));
+        const multi = compare.ents.length > 1;
         return (
           <>
-            <div className="panel cmp-panel" style={{ marginBottom: 14 }}>
-              <div className="ph"><h3>Side-by-side <span className="hl">selected {compare.noun.toLowerCase()} · best value highlighted</span></h3></div>
+            <div className="panel cmp-panel cmp-zone" style={{ marginBottom: 14 }}>
+              <div className="cmp-head">
+                <span className="cmp-tag"><BarChart3 size={13} />Comparison</span>
+                <span className="cmp-head-ttl">{compare.noun} side-by-side</span>
+                <span className="cmp-head-sub">{compare.ents.length} selected · ranked by performance score</span>
+              </div>
+              <div className="cmp-winner">
+                <Crown size={15} />
+                <span><b>{compare.ents[leaderIdx].name}</b> leads — top on {winsOf(leaderIdx)} of {cmpMetrics.length} metrics</span>
+                <span className="cmp-winner-score">Score {scores[leaderIdx]}/100</span>
+              </div>
               {/* entity header cards */}
               <div className="cmp-cards" style={{ gridTemplateColumns: `repeat(${compare.ents.length}, 1fr)` }}>
                 {compare.ents.map((e, i) => {
                   const col = CMP_COLORS[i % CMP_COLORS.length];
                   const bilPct = e.total ? (e.billable / e.total) * 100 : 0;
                   return (
-                    <div className="cmp-card" key={e.name + i} style={{ borderTopColor: col }}>
+                    <div className={`cmp-card${i === leaderIdx ? " leader" : ""}`} key={e.name + i} style={{ borderTopColor: col }}>
+                      <span className="cmp-rank">{i === leaderIdx ? <><Crown size={11} /> #1</> : `#${ranks[i]}`}</span>
                       <div className="cmp-card-h">
                         {compare.kind === "employee"
                           ? <span className="avatar sm" style={{ background: col }}>{initials(e.name)}</span>
@@ -1338,6 +1846,11 @@ export default function CommandCenter({
                       <div className="cmp-bar"><span style={{ width: `${(e.total / maxTotal) * 100}%`, background: col }} /></div>
                       <div className="cmp-split"><i className="bil" style={{ width: `${bilPct}%` }} /><i className="nbil" style={{ width: `${100 - bilPct}%` }} /></div>
                       <div className="cmp-split-l"><span>Billable {n0(e.billable)}h</span><span>NB {n0(e.non_billable)}h</span></div>
+                      <div className="cmp-score" title="Performance score (util 40% · productivity 30% · activity 30%)">
+                        <span className="cmp-score-bar"><i style={{ width: `${scores[i]}%`, background: col }} /></span>
+                        <span className="cmp-score-v">{scores[i]}</span>
+                        {multi && <span className={`cmp-dlt ${scores[i] >= avgScore ? "up" : "down"}`}>{scores[i] >= avgScore ? "+" : ""}{scores[i] - avgScore} vs avg</span>}
+                      </div>
                       <div className="cmp-kpis">
                         {([["Utilization", e.utilization], ["Activity", e.activity], ["Productivity", e.productivity]] as const).map(([lbl, val]) => (
                           <div className="cmp-kpi" key={lbl}><span className="ck-l">{lbl}</span><b className="ck-v num" style={{ color: i === bestIdx(lbl === "Utilization" ? "utilization" : lbl === "Activity" ? "activity" : "productivity") && compare.ents.length > 1 ? "#0f7a3d" : undefined }}>{n0(val)}%</b></div>
@@ -1347,8 +1860,15 @@ export default function CommandCenter({
                   );
                 })}
               </div>
-              {/* grouped bars + radar — key metrics side by side */}
-              <div className="cmp-viz">
+              {/* head-to-head: metrics won per entity */}
+              <div className="cmp-wins">
+                <span className="cmp-wins-l">Metrics won</span>
+                {compare.ents.map((e, i) => (
+                  <span className={`cmp-win-chip${i === leaderIdx ? " lead" : ""}`} key={e.name + i}><i style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}<b>{winsOf(i)}/{cmpMetrics.length}</b></span>
+                ))}
+              </div>
+              {/* grouped bars + positioning scatter */}
+              <div className="cmp-viz" style={{ gridTemplateColumns: "1fr 1fr" }}>
                 <div className="cmp-chart">
                   <div className="cmp-legend">
                     {compare.ents.map((e, i) => (
@@ -1374,18 +1894,26 @@ export default function CommandCenter({
                     ))}
                   </div>
                 </div>
-                <div className="cmp-radar">
-                  <div className="cmp-radar-h"><span>All metrics · radar</span><DownloadBtn name="comparison-radar" /></div>
-                  <RadarChart axes={["Utilization", "Activity", "Productivity", "Billable %"]} series={compare.ents.map((e, i) => ({ name: e.name, color: CMP_COLORS[i % CMP_COLORS.length], values: [e.utilization, e.activity, e.productivity, e.total ? (e.billable / e.total) * 100 : 0] }))} />
+                <div className="cmp-scatter-w">
+                  <div className="cmp-sub-h">Positioning · utilization × productivity · size = hours</div>
+                  <CompareScatter xName="Utilization" yName="Productivity" height={250}
+                    points={compare.ents.map((e, i) => ({ name: compare!.kind === "employee" ? e.name.split(" ")[0] : e.name, x: e.utilization, y: e.productivity, z: Math.max(1, e.total), color: CMP_COLORS[i % CMP_COLORS.length] }))} />
                 </div>
               </div>
               {/* metric comparison table */}
               <div className="cmp-table-wrap">
                 <table className="cmp-table">
                   <thead>
-                    <tr><th className="l">Metric</th>{compare.ents.map((e, i) => <th key={e.name + i}><span className="cmp-dot" style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}</th>)}</tr>
+                    <tr><th className="l">Metric</th>{compare.ents.map((e, i) => <th key={e.name + i}><span className="cmp-dot" style={{ background: CMP_COLORS[i % CMP_COLORS.length] }} />{compare.kind === "employee" ? e.name.split(" ")[0] : e.name}</th>)}<th className="cmp-avg-h">Avg</th></tr>
                   </thead>
                   <tbody>
+                    <tr className="cmp-score-row">
+                      <td className="l cmp-mlbl">Performance score</td>
+                      {compare.ents.map((e, i) => (
+                        <td key={e.name + i} className={`num${i === leaderIdx && compare.ents.length > 1 ? " cmp-best" : ""}`}>{scores[i]}{i === leaderIdx && compare.ents.length > 1 && <span className="cmp-win">▲</span>}</td>
+                      ))}
+                      <td className="num cmp-avg">{n0(avgOf(score))}</td>
+                    </tr>
                     {cmpMetrics.map((mt) => {
                       const bi = bestIdx(mt.key);
                       return (
@@ -1397,25 +1925,152 @@ export default function CommandCenter({
                               {i === bi && compare.ents.length > 1 && <span className="cmp-win">▲</span>}
                             </td>
                           ))}
+                          <td className="num cmp-avg">{mt.fmt(avgOf((e) => Number(e[mt.key])))}</td>
+                        </tr>
+                      );
+                    })}
+                    {([["Efficiency", (e: CmpEnt) => e.efficiency], ["On estimate %", (e: CmpEnt) => e.on_estimate]] as const).map(([label, sel]) => {
+                      const present = compare!.ents.map(sel).filter((v): v is number => v != null);
+                      if (!present.length) return null;
+                      let bi = -1, bv = -Infinity;
+                      compare!.ents.forEach((e, i) => { const v = sel(e); if (v != null && v > bv) { bv = v; bi = i; } });
+                      const avg = Math.round(present.reduce((a, b) => a + b, 0) / present.length);
+                      return (
+                        <tr key={label}>
+                          <td className="l cmp-mlbl">{label}</td>
+                          {compare!.ents.map((e, i) => { const v = sel(e); return (
+                            <td key={e.name + i} className={`num${i === bi && present.length > 1 ? " cmp-best" : ""}`}>{v == null ? "—" : v + "%"}{i === bi && present.length > 1 && <span className="cmp-win">▲</span>}</td>
+                          ); })}
+                          <td className="num cmp-avg">{avg}%</td>
                         </tr>
                       );
                     })}
                   </tbody>
                 </table>
               </div>
-              {cmpTrend && cmpTrend.dates.length > 1 && (
-                <div className="cmp-trend">
-                  <div className="cmp-radar-h"><span>Hours over time · trend</span><DownloadBtn name="comparison-trend" /></div>
-                  <TrendOverlay dates={cmpTrend.dates} series={cmpTrend.series.map((s, i) => ({ ...s, color: CMP_COLORS[i % CMP_COLORS.length] }))} />
-                </div>
-              )}
             </div>
           </>
         );
       })()}
 
+      {/* CLIENT COMPARISON — 2+ clients selected, side by side */}
+      {clientCmp && clientCmp.length >= 2 && (() => {
+        type CS = NonNullable<import("../lib/api").FocusData["summary"]>;
+        const ents = clientCmp.map((c) => ({ name: c.name, s: c.data.summary as CS })).filter((e) => e.s);
+        if (ents.length < 2) return null;
+        const COL = CMP_COLORS;
+        const maxTotal = Math.max(1, ...ents.map((e) => e.s.total));
+        const bestIdx = (sel: (s: CS) => number, high = true) => {
+          let bi = 0, bv = high ? -Infinity : Infinity;
+          ents.forEach((e, i) => { const v = sel(e.s); if (high ? v > bv : v < bv) { bv = v; bi = i; } });
+          return bi;
+        };
+        const metrics: { label: string; sel: (s: CS) => number; fmt: (v: number) => string; high: boolean }[] = [
+          { label: "Total hours", sel: (s) => s.total, fmt: (v) => n0(v) + "h", high: true },
+          { label: "Billable %", sel: (s) => s.billable_pct, fmt: (v) => n0(v) + "%", high: true },
+          { label: "Budget used %", sel: (s) => s.used_pct ?? 0, fmt: (v) => v ? n0(v) + "%" : "—", high: false },
+          { label: "On estimate %", sel: (s) => s.on_estimate_pct ?? 0, fmt: (v) => v ? n0(v) + "%" : "—", high: true },
+          { label: "Tasks done", sel: (s) => s.tasks_done, fmt: (v) => n0(v), high: true },
+        ];
+        const cscore = (s: CS) => s.health ?? Math.round(0.5 * s.billable_pct + 0.5 * (s.on_estimate_pct ?? 70));
+        const scores = ents.map((e) => cscore(e.s));
+        const leaderIdx = scores.indexOf(Math.max(...scores));
+        const ranks = scores.map((sc) => 1 + scores.filter((o) => o > sc).length);
+        const winsOf = (idx: number) => metrics.filter((mt) => bestIdx(mt.sel, mt.high) === idx).length;
+        const avgOf = (sel: (s: CS) => number) => ents.reduce((a, e) => a + sel(e.s), 0) / ents.length;
+        const avgScore = Math.round(avgOf(cscore));
+        return (
+          <div className="panel cmp-panel cmp-zone" style={{ marginBottom: 14 }}>
+            <div className="cmp-head">
+              <span className="cmp-tag"><BarChart3 size={13} />Comparison</span>
+              <span className="cmp-head-ttl">Clients side-by-side</span>
+              <span className="cmp-head-sub">{ents.length} selected · ranked by health score</span>
+            </div>
+            <div className="cmp-winner">
+              <Crown size={15} />
+              <span><b>{ents[leaderIdx].name}</b> leads — top on {winsOf(leaderIdx)} of {metrics.length} metrics</span>
+              <span className="cmp-winner-score">Health {scores[leaderIdx]}/100</span>
+            </div>
+            <div className="cmp-cards" style={{ gridTemplateColumns: `repeat(${ents.length}, 1fr)` }}>
+              {ents.map((e, i) => {
+                const s = e.s; const col = COL[i % COL.length];
+                const used = Math.min(100, s.used_pct ?? 0);
+                return (
+                  <div className={`cmp-card click${i === leaderIdx ? " leader" : ""}`} key={e.name + i} style={{ borderTopColor: col }} onClick={() => openClient(e.name)}>
+                    <span className="cmp-rank">{i === leaderIdx ? <><Crown size={11} /> #1</> : `#${ranks[i]}`}</span>
+                    <div className="cmp-card-h">
+                      <span className="rank-ic" style={{ background: col, width: 26, height: 26 }}><Briefcase size={13} /></span>
+                      <span className="cmp-nm" title={e.name}>{e.name}</span>
+                      {s.health_grade && <span className={`grade ${gradeCls(s.health_grade)}`}>{s.health_grade}</span>}
+                    </div>
+                    <div className="cmp-tot num">{n0(s.total)}<span>h</span></div>
+                    <div className="cmp-bar"><span style={{ width: `${(s.total / maxTotal) * 100}%`, background: col }} /></div>
+                    {s.budget != null ? (<>
+                      <div className="cmp-split"><i className="bil" style={{ width: `${used}%`, background: s.over ? "#dc2626" : undefined }} /><i className="nbil" style={{ width: `${100 - used}%` }} /></div>
+                      <div className="cmp-split-l"><span style={{ color: s.over ? "#dc2626" : undefined }}>Used {n0(s.used_pct ?? 0)}%</span><span>of {n0(s.budget)}h</span></div>
+                    </>) : <div className="cmp-split-l" style={{ justifyContent: "center", color: "var(--faint)" }}>No budget set</div>}
+                    <div className="cmp-score" title="Client health score">
+                      <span className="cmp-score-bar"><i style={{ width: `${scores[i]}%`, background: col }} /></span>
+                      <span className="cmp-score-v">{scores[i]}</span>
+                      <span className={`cmp-dlt ${scores[i] >= avgScore ? "up" : "down"}`}>{scores[i] >= avgScore ? "+" : ""}{scores[i] - avgScore} vs avg</span>
+                    </div>
+                    <div className="cmp-kpis">
+                      <div className="cmp-kpi"><span className="ck-l">Billable</span><b className="ck-v num">{n0(s.billable_pct)}%</b></div>
+                      <div className="cmp-kpi"><span className="ck-l">On est.</span><b className="ck-v num">{s.on_estimate_pct != null ? s.on_estimate_pct + "%" : "—"}</b></div>
+                      <div className="cmp-kpi"><span className="ck-l">Tasks</span><b className="ck-v num">{s.tasks_done}/{s.tasks}</b></div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="cmp-wins">
+              <span className="cmp-wins-l">Metrics won</span>
+              {ents.map((e, i) => (
+                <span className={`cmp-win-chip${i === leaderIdx ? " lead" : ""}`} key={e.name + i}><i style={{ background: COL[i % COL.length] }} />{e.name}<b>{winsOf(i)}/{metrics.length}</b></span>
+              ))}
+            </div>
+            <div className="cmp-scatter-w" style={{ marginBottom: 16 }}>
+              <div className="cmp-sub-h">Positioning · billable × on-estimate · size = hours</div>
+              <CompareScatter xName="Billable" yName="On estimate" height={260}
+                points={ents.map((e, i) => ({ name: e.name, x: e.s.billable_pct, y: e.s.on_estimate_pct ?? 0, z: Math.max(1, e.s.total), color: COL[i % COL.length] }))} />
+            </div>
+            <div className="cmp-table-wrap">
+              <table className="cmp-table">
+                <thead>
+                  <tr><th className="l">Metric</th>{ents.map((e, i) => <th key={e.name + i}><span className="cmp-dot" style={{ background: COL[i % COL.length] }} />{e.name}</th>)}<th className="cmp-avg-h">Avg</th></tr>
+                </thead>
+                <tbody>
+                  <tr className="cmp-score-row">
+                    <td className="l cmp-mlbl">Health score</td>
+                    {ents.map((e, i) => (
+                      <td key={e.name + i} className={`num${i === leaderIdx && ents.length > 1 ? " cmp-best" : ""}`}>{scores[i]}{i === leaderIdx && ents.length > 1 && <span className="cmp-win">▲</span>}</td>
+                    ))}
+                    <td className="num cmp-avg">{n0(avgOf(cscore))}</td>
+                  </tr>
+                  {metrics.map((mt) => {
+                    const bi = bestIdx(mt.sel, mt.high);
+                    return (
+                      <tr key={mt.label}>
+                        <td className="l cmp-mlbl">{mt.label}</td>
+                        {ents.map((e, i) => (
+                          <td key={e.name + i} className={`num${i === bi && ents.length > 1 ? " cmp-best" : ""}`}>
+                            {mt.fmt(mt.sel(e.s))}
+                            {i === bi && ents.length > 1 && <span className="cmp-win">▲</span>}
+                          </td>
+                        ))}
+                        <td className="num cmp-avg">{mt.fmt(avgOf(mt.sel))}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* HOURS TREND + PERFORMANCE — one row */}
-      {(data.hours_trend.length > 1 || showPeople) && (<>
+      {showCard("matrix") && (data.hours_trend.length > 1 || showPeople) && (<>
         {showPeople ? (
           <div className="row2 hp-row">
             <div className="panel">
@@ -1461,21 +2116,28 @@ export default function CommandCenter({
       )}
 
       {/* EMPLOYEE → CLIENTS — only when there are multiple people to map */}
-      {showPeople && (<>
+      {showCard("empclients") && showPeople && (<>
       <div className="sec"><h4>Employees &amp; Clients</h4></div>
       <div className="panel" style={{ marginBottom: 14 }}>
         <div className="ph"><h3>Which employee works on which clients <span className="hl">all clients each person handles · billable hours</span></h3></div>
         <div className="scrollwrap" style={{ maxHeight: 460 }}>
           <table className="ec-table">
-            <thead><tr><th className="l">Employee</th><th>Grade</th><th>Billable</th><th className="l">Clients</th></tr></thead>
+            <thead><tr><th className="l">Employee</th><th>Grade</th><th>Billable</th><th>Efficiency</th><th>On-Est.</th><th>Overdue</th><th>Last active</th><th className="l">Clients</th></tr></thead>
             <tbody>
               {empClients.map((e, i) => {
                 const cls = e.clients || [];
+                const eff = e.efficiency; const oe = e.on_estimate; const od = e.overdue || 0;
+                const effCol = eff == null ? "var(--faint)" : eff >= 95 ? "#16a34a" : eff >= 75 ? "#e8930c" : "#ef4444";
+                const oeCol = oe == null ? "var(--faint)" : oe >= 80 ? "#16a34a" : oe >= 60 ? "#e8930c" : "#ef4444";
                 return (
                   <tr key={e.name + i} className="click" onClick={() => openEmployee(e.name)}>
                     <td className="l"><span className="emp-c"><span className="avatar" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span><span className="tname">{e.name} {hrBadge(e.hr_status)}</span><span className="ec-team">{e.team}</span></span></span></td>
                     <td><span className={`grade ${gradeCls(e.grade)}`}>{e.grade}</span></td>
                     <td className="num">{n0(e.billable)}h</td>
+                    <td className="num" style={{ color: effCol, fontWeight: 700 }} title="Estimate ÷ tracked on estimated tasks">{eff == null ? "—" : eff + "%"}</td>
+                    <td className="num" style={{ color: oeCol, fontWeight: 700 }} title="Share of estimated tasks finished within estimate">{oe == null ? "—" : oe + "%"}</td>
+                    <td className="num" style={{ color: od > 0 ? "#ef4444" : "var(--faint)", fontWeight: od > 0 ? 700 : 400 }}>{od || "—"}</td>
+                    <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{shortDate(e.last_active)}</td>
                     <td className="l">
                       <div className="chips">
                         {cls.slice(0, 8).map((c) => <span className="chip" key={c} title={c}>{c}</span>)}
@@ -1486,7 +2148,7 @@ export default function CommandCenter({
                   </tr>
                 );
               })}
-              {empClients.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
+              {empClients.length === 0 && <tr><td colSpan={8} style={{ textAlign: "center", padding: 24, color: "var(--muted)" }}>No data in scope</td></tr>}
             </tbody>
           </table>
         </div>
@@ -1494,7 +2156,7 @@ export default function CommandCenter({
       </>)}
 
       {/* EMPLOYEE FOCUS — single person: their tasks list */}
-      {isEmp && empTasks.length > 0 && (<>
+      {showCard("assigned") && isEmp && empTasks.length > 0 && (<>
         <div className="sec"><h4>Tasks · {data.context.label}</h4></div>
         <div className="panel" style={{ marginBottom: 14 }}>
           <div className="ph"><h3>Assigned tasks <span className="hl">{empTasks.length} tasks · estimated vs tracked</span></h3></div>
@@ -1521,6 +2183,41 @@ export default function CommandCenter({
           </div>
         </div>
       </>)}
+
+      {/* CLIENT MESSAGES — Missive conversations behind the sentiment panel */}
+      {clientMsgs && (
+        <div className="modal-bg" onClick={() => setClientMsgs(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 760 }}>
+            <div className="modal-h">
+              <div><h3>Messages · {clientMsgs.title}</h3><div className="sub">{clientMsgs.rows ? `${clientMsgs.rows.length} message${clientMsgs.rows.length === 1 ? "" : "s"} from Missive` : "loading…"}</div></div>
+              <div className="modal-x" onClick={() => setClientMsgs(null)}><X size={16} /></div>
+            </div>
+            <div className="modal-b" style={{ maxHeight: 460, overflow: "auto" }}>
+              {!clientMsgs.rows ? <div className="loading" style={{ height: 100 }}><span className="spin" /> Loading…</div>
+                : clientMsgs.rows.length === 0 ? <div className="empty-s" style={{ padding: 24 }}>No messages tagged to this client in Missive</div>
+                  : <div className="msg-list">
+                    {clientMsgs.rows.map((m, i) => {
+                      const sc = m.sentiment === "Positive" ? "pos" : /concern|negativ/i.test(m.sentiment) ? "neg" : "neu";
+                      return (
+                        <div className="msg-item" key={i}>
+                          <div className="msg-top">
+                            <span className="msg-from">{m.from_who}</span>
+                            {m.sentiment && <span className={"msg-sent " + sc}>{m.sentiment}</span>}
+                            <span className="msg-date">{m.date ? shortDate(m.date) : ""}</span>
+                          </div>
+                          <div className="msg-subj">{m.subject}</div>
+                          {m.summary && <div className="msg-sum">{m.summary}</div>}
+                          {m.complaining && <div className="msg-tag bad"><ShieldAlert size={11} /> Complaint: {m.complaining}</div>}
+                          {m.following_up && <div className="msg-tag warn">Follow-up: {m.following_up}</div>}
+                          {m.url && <a className="msg-link" href={m.url} target="_blank" rel="noopener noreferrer">Open in Missive →</a>}
+                        </div>
+                      );
+                    })}
+                  </div>}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
 
@@ -1641,54 +2338,119 @@ export default function CommandCenter({
       {clientProf && (
         <div className="drawer-bg" onClick={() => setClientProf(null)}>
           <div className="drawer" onClick={(e) => e.stopPropagation()}>
-            {!clientProf.data ? <div className="loading" style={{ height: "100%" }}><span className="spin" /> Loading…</div> :
+            {!clientProf.data ? <div className="loading" style={{ height: "100%" }}><span className="spin" /> Loading scorecard…</div> :
               !clientProf.data.found ? <div className="loading" style={{ height: "100%" }}>No tracked time for this client in scope</div> : (() => {
-                const p = clientProf.data.profile!;
-                const people = clientProf.data.people || [];
-                const daily = clientProf.data.daily || [];
+                const s = clientProf.data.summary!; const ins = clientProf.data.insight || { best: null as string | null, watch: null as string | null };
+                const members = clientProf.data.rows?.members || []; const tasks = clientProf.data.rows?.tasks || [];
+                const remaining = s.budget != null ? Math.max(0, s.budget - s.total) : null;
+                const effFlag = (e: number | null) => e == null ? <span className="fv-flag mid">—</span> : <span className={"fv-flag " + (e >= 100 ? "good" : e >= 85 ? "mid" : "weak")}>{e >= 100 ? "Efficient" : e >= 85 ? "On track" : "Slow"}</span>;
                 return (
                   <>
                     <div className="drawer-h">
                       <div className="emp-hero">
-                        <span className="avatar lg" style={{ background: avatarColor(p.client) }}><Briefcase size={20} /></span>
-                        <div><div className="nm">{p.client}</div><div className="tm">{p.team} · {p.department}{p.type ? ` · ${p.type}` : ""}</div></div>
+                        <span className="avatar lg" style={{ background: avatarColor(clientProf.name) }}><Briefcase size={20} /></span>
+                        <div><div className="nm">{clientProf.name}</div><div className="tm">{s.team}{s.department ? ` · ${s.department}` : ""} · {s.members} people · {n0(s.total)}h{s.last_worked ? ` · last worked ${shortDate(s.last_worked)}` : ""}</div></div>
                       </div>
-                      <div className="modal-x" onClick={() => setClientProf(null)}><X size={16} /></div>
+                      <div className="dh-right">
+                        {s.health != null && <span className={`grade ${gradeCls(s.health_grade || "C")}`} title="Client health">{s.health_grade} · {s.health}</span>}
+                        <div className="modal-x" onClick={() => setClientProf(null)}><X size={16} /></div>
+                      </div>
                     </div>
                     <div className="drawer-b">
-                      {p.budget !== null && (
-                        <div className={`bv-banner ${p.over ? "over" : "ok"}`}>
-                          <div className="bv-banner-l">
-                            <span className="bv-banner-lbl">{p.over ? "Over budget" : "Within budget"}</span>
-                            <span className="bv-banner-val">{n0(p.total)}h <i>used</i> / {n0(p.budget)}h <i>budget</i></span>
+                      {s.budget != null && (() => {
+                        const fp = s.forecast_pct ?? null; const projOver = fp != null && fp > 100;
+                        return (
+                        <>
+                          <div className="cpf-bar">
+                            <div className={"cpf-bar-f" + (s.over ? " over" : "")} style={{ width: `${Math.min(100, s.used_pct ?? 0)}%` }} />
+                            {fp != null && !s.over && <span className="cpf-bar-proj" style={{ left: `${Math.min(100, fp)}%`, background: projOver ? "#dc2626" : "#94a3b8" }} title={`Projected ${fp}% of budget`} />}
                           </div>
-                          <span className={`bv-banner-var ${p.over ? "bad" : "good"}`}>{(p.variance ?? 0) > 0 ? "+" : ""}{n0(p.variance ?? 0)}h</span>
+                          <div className="cpage-bar-x" style={{ marginBottom: s.forecast != null ? 6 : 12 }}><span>Budget {n0(s.budget)}h</span><span style={{ color: s.over ? "#dc2626" : "var(--accent)" }}>{n0(s.total)}h used ({n0(s.used_pct ?? 0)}%)</span><span>{remaining != null ? n0(remaining) + "h left" : ""}</span></div>
+                          {s.forecast != null && fp != null && (
+                            <div className="cpf-forecast" style={{ marginBottom: 12 }}>
+                              <span className="cpf-fc-dot" style={{ background: projOver ? "#dc2626" : "#16a34a" }} />
+                              Projected <b className="num">{n0(s.forecast)}h</b> by period end · <b className="num" style={{ color: projOver ? "#dc2626" : "#16a34a" }}>{fp}% of budget</b>
+                              <span className="cpf-fc-tag">{projOver ? `trending over by ${fp - 100}%` : "on pace"}</span>
+                            </div>
+                          )}
+                        </>
+                        );
+                      })()}
+                      <div className="mini-kpis">
+                        <div className="mini-k"><div className="l">Total</div><div className="v num">{n0(s.total)}h</div></div>
+                        <div className="mini-k"><div className="l">Billable %</div><div className="v num">{n0(s.billable_pct)}%</div></div>
+                        <div className="mini-k"><div className="l">Budget Used</div><div className="v num" style={{ color: s.over ? "#dc2626" : undefined }}>{s.used_pct != null ? n0(s.used_pct) + "%" : "—"}</div></div>
+                        <div className="mini-k"><div className="l">On Estimate</div><div className="v num">{s.on_estimate_pct != null ? s.on_estimate_pct + "%" : "—"}</div></div>
+                        <div className="mini-k"><div className="l">Tasks</div><div className="v num">{s.tasks}</div></div>
+                        <div className="mini-k"><div className="l">Health</div><div className="v num">{s.health ?? "—"}</div></div>
+                      </div>
+                      {(ins.best || ins.watch) && (
+                        <div className="fv-insight" style={{ marginTop: 12 }}>
+                          {ins.best && <span className="fv-ins fv-best"><Award size={13} />Best: {ins.best}</span>}
+                          {ins.watch && <span className="fv-ins fv-watch"><ShieldAlert size={13} />{ins.watch}</span>}
                         </div>
                       )}
-                      <div className="mini-kpis">
-                        <div className="mini-k"><div className="l">Total</div><div className="v num">{n0(p.total)}h</div></div>
-                        <div className="mini-k"><div className="l">Billable</div><div className="v num">{n0(p.billable)}h</div></div>
-                        <div className="mini-k"><div className="l">Non-Bill</div><div className="v num">{n0(p.non_billable)}h</div></div>
-                        <div className="mini-k"><div className="l">Billable %</div><div className="v num">{n0(p.billable_pct)}%</div></div>
-                        <div className="mini-k"><div className="l">People</div><div className="v num">{p.people}</div></div>
-                        <div className="mini-k"><div className="l">Active Days</div><div className="v num">{p.days}</div></div>
-                      </div>
-                      <div className="drawer-sec">Daily Hours Trend</div>
-                      <TrendLines data={daily.map((d) => ({ date: d.date, billable: d.billable, non_billable: d.non_billable }))} height={180} />
-                      <div className="drawer-sec">Who worked on this client ({people.length})</div>
-                      <div className="scrollwrap" style={{ maxHeight: 280 }}>
-                        <table>
-                          <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable</th><th>Days</th></tr></thead>
+                      {(() => {
+                        const sm = clientProf.data!.sentiment;
+                        if (!sm || sm.comms === 0) return null;
+                        const tot = sm.comms || 1;
+                        const risk = sm.concerned > 0 || sm.complaints > 0;
+                        const tile = (key: string, label: string, count: number, color: string) => (
+                          <button className="snt-tile click" style={{ borderTopColor: color }} onClick={() => openClientMessages(clientProf!.name, key, sm.all_time)} title={`Read ${label.toLowerCase()} messages`}>
+                            <b style={{ color }}>{count}</b><span>{label}</span><i style={{ width: `${(count / tot) * 100}%`, background: color }} />
+                          </button>
+                        );
+                        return (
+                          <>
+                            <div className="drawer-sec">Client sentiment &amp; comms <span style={{ fontWeight: 500, color: "var(--muted)" }}>· {sm.comms} messages{sm.all_time ? " · all-time (none in this period)" : " this period"}{sm.last ? ` · last ${shortDate(sm.last)}` : ""} · click to read</span></div>
+                            <div className="snt-tiles">
+                              {tile("positive", "Positive", sm.positive, "#16a34a")}
+                              {tile("neutral", "Neutral", sm.neutral, "#94a3b8")}
+                              {tile("concerned", "Concerned", sm.concerned, "#dc2626")}
+                            </div>
+                            <div className="sent-flags" style={{ marginTop: 11 }}>
+                              <button className={"sent-flag click " + (sm.complaints > 0 ? "bad" : "ok")} disabled={sm.complaints === 0} onClick={() => openMessages(`${clientProf!.name} · Complaints`, { client: clientProf!.name, bucket: "complaints", filter: "Complaints", allTime: sm.all_time })}><ShieldAlert size={12} />{sm.complaints} complaint{sm.complaints === 1 ? "" : "s"}</button>
+                              <button className={"sent-flag click " + (sm.followups > 0 ? "warn" : "ok")} disabled={sm.followups === 0} onClick={() => openMessages(`${clientProf!.name} · Follow-ups`, { client: clientProf!.name, bucket: "followups", filter: "Follow-ups", allTime: sm.all_time })}>{sm.followups} follow-up{sm.followups === 1 ? "" : "s"} pending</button>
+                              {risk && <span className="sent-flag bad">⚠ Churn-risk signal</span>}
+                            </div>
+                          </>
+                        );
+                      })()}
+                      <div className="drawer-sec">Who works this client ({members.length}) · best by efficiency</div>
+                      <div className="scrollwrap" style={{ maxHeight: 240 }}>
+                        <table className="ec-table">
+                          <thead><tr><th className="l">Employee</th><th>Hours</th><th>Billable</th><th>Non-Bill</th><th>Act%</th><th>Tasks</th><th className="l">Rating</th></tr></thead>
                           <tbody>
-                            {people.map((e, i) => (
+                            {members.map((e, i) => (
                               <tr key={e.name + i} className="click" onClick={() => { setClientProf(null); openEmployee(e.name); }}>
                                 <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(e.name) }}>{initials(e.name)}</span><span className="tname">{e.name}</span></span></td>
                                 <td className="num" style={{ fontWeight: 700 }}>{n1(e.hours)}h</td>
-                                <td className="num" style={{ color: "var(--muted)" }}>{n1(e.billable)}h</td>
-                                <td className="num" style={{ color: "var(--muted)" }}>{e.days}</td>
+                                <td className="num" style={{ color: "#16a34a" }}>{n1(e.billable)}h</td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{n1(e.non_billable)}h</td>
+                                <td className="num">{n0(e.activity_pct)}%</td>
+                                <td className="num">{e.tasks}</td>
+                                <td className="l">{effFlag(e.efficiency)}</td>
                               </tr>
                             ))}
-                            {people.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No data</td></tr>}
+                            {members.length === 0 && <tr><td colSpan={7} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No data</td></tr>}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="drawer-sec">Tasks — Estimate vs Tracked ({tasks.length})</div>
+                      <div className="scrollwrap" style={{ maxHeight: 300 }}>
+                        <table className="ec-table">
+                          <thead><tr><th className="l">Task</th><th className="l">Status</th><th>Est</th><th>Tracked</th><th>Var</th></tr></thead>
+                          <tbody>
+                            {tasks.slice(0, 60).map((t, i) => (
+                              <tr key={t.task + i}>
+                                <td className="l tname"><span className={"fv-st " + (t.done ? "done" : "open")} />{t.task}</td>
+                                <td className="l"><span className={"fv-tstat " + (t.done ? "done" : "open")}>{t.status || (t.done ? "Done" : "Open")}</span></td>
+                                <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? n1(t.est) + "h" : "—"}</td>
+                                <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
+                                <td className="num">{t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={"fv-var " + (t.variance > 0 ? "over" : "under")}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h</span>}</td>
+                              </tr>
+                            ))}
+                            {tasks.length === 0 && <tr><td colSpan={5} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No tasks</td></tr>}
                           </tbody>
                         </table>
                       </div>
@@ -1809,6 +2571,82 @@ export default function CommandCenter({
       )}
 
       {/* USERS & ACCESS (owner) — invite, resend, enable/disable */}
+      {sourcesModal && (() => {
+        const SRC: Record<string, string> = { hub: "Hubstaff", cu: "ClickUp", keka: "Keka", int: "Internal" };
+        const tag = (s: string) => <span className={`ds-tag ${s}`} key={s}>{SRC[s]}</span>;
+        const groups: { title: string; icon: React.ReactNode; rows: { field: string; how: string; src: string[] }[] }[] = [
+          { title: "Time & activity", icon: <Clock size={14} />, rows: [
+            { field: "Tracked hours", how: "Time tracked in Hubstaff (per activity)", src: ["hub"] },
+            { field: "Activity %", how: "Keyboard + mouse activity ÷ tracked time", src: ["hub"] },
+            { field: "Billable / Non-billable", how: "Hubstaff task marked “NB” = non-billable, else billable", src: ["hub"] },
+          ] },
+          { title: "Tasks & delivery", icon: <Check size={14} />, rows: [
+            { field: "Task", how: "ClickUp task name; falls back to the Hubstaff task summary", src: ["cu", "hub"] },
+            { field: "Estimate (Est)", how: "ClickUp “time estimate” on the task", src: ["cu"] },
+            { field: "Status · Due · Priority", how: "Directly from the ClickUp task", src: ["cu"] },
+            { field: "Completion", how: "ClickUp status (done/closed) or done-date", src: ["cu"] },
+          ] },
+          { title: "Team · client · project", icon: <Network size={14} />, rows: [
+            { field: "Team", how: "ClickUp space; fallback = project name before the “ / ”", src: ["cu", "hub"] },
+            { field: "Client", how: "ClickUp folder; fallback = project name after the “ / ”", src: ["cu", "hub"] },
+            { field: "Project", how: "Hubstaff project name, formatted “Team / Client”", src: ["hub"] },
+          ] },
+          { title: "Budget", icon: <Briefcase size={14} />, rows: [
+            { field: "Client budget", how: "Set by admin in Client budgets (monthly hours)", src: ["int"] },
+            { field: "Budget used %", how: "Tracked hours ÷ client budget (period-scaled)", src: ["int"] },
+          ] },
+          { title: "People & capacity", icon: <Users size={14} />, rows: [
+            { field: "Office hours / capacity", how: "Keka attendance — present days only, capped at shift − break", src: ["keka"] },
+            { field: "Attendance · Overtime · Late", how: "Keka daily Performance Report", src: ["keka"] },
+            { field: "Department · Team · Transfers", how: "Employee mapping + dated team history", src: ["int"] },
+            { field: "Revenue", how: "Billable hours × pay rate (Hubstaff member)", src: ["hub", "int"] },
+          ] },
+        ];
+        return (
+          <div className="modal-bg" onClick={() => setSourcesModal(false)}>
+            <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-h">
+                <div>
+                  <h3><Network size={15} style={{ verticalAlign: -2 }} /> Data Sources</h3>
+                  <div className="sub">where every number comes from · how the systems connect</div>
+                </div>
+                <div className="modal-x" onClick={() => setSourcesModal(false)}><X size={16} /></div>
+              </div>
+              <div className="modal-b">
+                <div className="ds-flow">
+                  <span className="ds-sys hub">Hubstaff</span>
+                  <span className="ds-plus">+</span>
+                  <span className="ds-sys cu">ClickUp</span>
+                  <span className="ds-plus">+</span>
+                  <span className="ds-sys keka">Keka</span>
+                  <ArrowRight size={16} className="ds-arrow" />
+                  <span className="ds-sys app">Finovate Insight</span>
+                </div>
+                <div className="ds-bridges">
+                  <div className="ds-bridge"><b>Hubstaff task ↔ ClickUp task</b><span>linked by <code>remote_id = task_id</code></span></div>
+                  <div className="ds-bridge"><b>Employee ↔ ClickUp / Keka</b><span>matched via Employee mapping (name &amp; IDs)</span></div>
+                </div>
+                {groups.map((g) => (
+                  <div className="ds-group" key={g.title}>
+                    <div className="ds-group-h">{g.icon}{g.title}</div>
+                    <div className="ds-rows">
+                      {g.rows.map((r) => (
+                        <div className="ds-row" key={r.field}>
+                          <div className="ds-field">{r.field}</div>
+                          <div className="ds-how">{r.how}</div>
+                          <div className="ds-srcs">{r.src.map(tag)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                <div className="ds-note">Static reference · nothing here changes your data. Updated whenever Hubstaff, ClickUp or Keka sync.</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {usersModal && (
         <div className="modal-bg" onClick={() => { setUsersModal(false); setUMsg(null); }}>
           <div className="modal wide" onClick={(e) => e.stopPropagation()}>
@@ -1821,6 +2659,7 @@ export default function CommandCenter({
                 <div className="seg-toggle">
                   <button className={usersTab === "users" ? "on" : ""} onClick={() => setUsersTab("users")}>Users</button>
                   <button className={usersTab === "email" ? "on" : ""} onClick={() => setUsersTab("email")}>Email settings</button>
+                  <button className={usersTab === "audit" ? "on" : ""} onClick={() => setUsersTab("audit")}>Activity log</button>
                 </div>
                 <div className="modal-x" onClick={() => { setUsersModal(false); setUMsg(null); }}><X size={16} /></div>
               </div>
@@ -1878,6 +2717,7 @@ export default function CommandCenter({
                             {u.role !== "owner" && (
                               <div className="usr-acts">
                                 {u.status !== "active" && <button onClick={() => doResend(u.id)} title="Resend invite">Resend</button>}
+                                {u.status === "active" && <button onClick={() => doReset(u.id)} title="Issue a password-reset link">Reset password</button>}
                                 {u.status === "disabled"
                                   ? <button onClick={() => toggleUser(u.id, true)} title="Enable">Enable</button>
                                   : <button className="danger" onClick={() => toggleUser(u.id, false)} title="Disable">Disable</button>}
@@ -1919,6 +2759,35 @@ export default function CommandCenter({
                       </div>
                     </div>
                   </>
+                )}
+              </div>
+            )}
+            {usersTab === "audit" && (
+              <div className="email-cfg">
+                <div className="audit-head">
+                  <div><h4 style={{ margin: 0 }}>Activity log</h4><div className="sub">Recent account &amp; admin actions (most recent first)</div></div>
+                </div>
+                {auditRows === null ? (
+                  <div className="audit-empty"><span className="spin sm" /> Loading…</div>
+                ) : auditRows.length === 0 ? (
+                  <div className="audit-empty">No activity recorded yet.</div>
+                ) : (
+                  <div className="scrollwrap" style={{ maxHeight: 420 }}>
+                    <table className="hd-table audit-table">
+                      <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+                      <tbody>
+                        {auditRows.map((a, i) => (
+                          <tr key={i}>
+                            <td className="audit-ts">{a.ts}</td>
+                            <td>{a.actor_email || "—"}{a.actor_role ? <span className="audit-role">{a.actor_role}</span> : null}</td>
+                            <td><span className="audit-act">{a.action}</span></td>
+                            <td className="audit-tgt">{a.target || "—"}</td>
+                            <td className="audit-det">{a.detail || "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
             )}
@@ -2141,6 +3010,64 @@ export default function CommandCenter({
       {/* CHANGE PASSWORD */}
       {pwModal && <ChangePwModal onClose={() => setPwModal(false)} />}
 
+      {/* FOCUS METRIC DRILL — Est-vs-Actual / Budget detail modal */}
+      {focusMetric && focusData?.found && (() => {
+        const s = focusData.summary!; const tasks = focusData.rows?.tasks || [];
+        const isEst = focusMetric === "est";
+        const withEst = tasks.filter((t) => t.est > 0).sort((a, b) => (b.variance ?? -999) - (a.variance ?? -999));
+        const remaining = s.budget != null ? Math.max(0, s.budget - s.total) : null;
+        return (
+          <div className="modal-bg" onClick={() => setFocusMetric(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 820, width: "94vw" }}>
+              <div className="modal-h">
+                <div><h3>{isEst ? "Estimate vs Actual" : "Budget"} <span className="hl">{focusData.name}{focusData.client ? ` · ${focusData.client}` : ""}</span></h3>
+                  <div className="sub">{isEst ? "ClickUp estimate vs Hubstaff tracked, per task" : "client budget consumption this period"}</div></div>
+                <div className="modal-x" onClick={() => setFocusMetric(null)}><X size={16} /></div>
+              </div>
+              <div className="modal-b">
+                <div className="fm-stats">
+                  {isEst ? <>
+                    <div className="fm-stat"><b>{n0(s.est_total)}h</b><span>Estimated</span></div>
+                    <div className="fm-stat"><b className="acc">{n0(s.actual_total)}h</b><span>Tracked</span></div>
+                    <div className="fm-stat"><b className={s.actual_total > s.est_total ? "bad" : "ok"}>{s.est_total ? (s.actual_total > s.est_total ? "+" : "") + n0(s.actual_total - s.est_total) + "h" : "—"}</b><span>Variance</span></div>
+                    <div className="fm-stat"><b className={(s.on_estimate_pct ?? 100) < 60 ? "warn" : "ok"}>{s.on_estimate_pct ?? "—"}%</b><span>Within estimate</span></div>
+                  </> : <>
+                    <div className="fm-stat"><b>{s.budget != null ? n0(s.budget) + "h" : "—"}</b><span>Budget</span></div>
+                    <div className="fm-stat"><b className={s.over ? "bad" : "acc"}>{n0(s.total)}h</b><span>Used</span></div>
+                    <div className="fm-stat"><b>{remaining != null ? n0(remaining) + "h" : "—"}</b><span>Remaining</span></div>
+                    <div className="fm-stat"><b className={s.over ? "bad" : "ok"}>{s.used_pct != null ? n0(s.used_pct) + "%" : "—"}</b><span>Used</span></div>
+                  </>}
+                </div>
+                {!isEst && s.budget != null && (
+                  <div className="cpf-bar" title={`${n0(s.used_pct ?? 0)}% used`}>
+                    <div className={"cpf-bar-f" + (s.over ? " over" : "")} style={{ width: `${Math.min(100, s.used_pct ?? 0)}%` }} />
+                  </div>
+                )}
+                <div className="drawer-sec" style={{ marginTop: 14 }}>{isEst ? `Tasks with an estimate (${withEst.length})` : `Where the hours went (${tasks.length} tasks)`}</div>
+                <div className="scrollwrap" style={{ maxHeight: 360 }}>
+                  <table className="ec-table">
+                    <thead><tr><th className="l">Task</th><th className="l">Top employee</th><th>Estimate</th><th>Tracked</th><th>{isEst ? "Variance" : "% of used"}</th></tr></thead>
+                    <tbody>
+                      {(isEst ? withEst : tasks).map((t, i) => (
+                        <tr key={t.task + i}>
+                          <td className="l tname"><span className={"fv-st " + (t.done ? "done" : "open")} />{t.task}</td>
+                          <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
+                          <td className="num" style={{ color: "var(--muted)" }}>{t.est > 0 ? n1(t.est) + "h" : "—"}</td>
+                          <td className="num" style={{ fontWeight: 700 }}>{n1(t.actual)}h</td>
+                          <td className="num">{isEst
+                            ? (t.variance == null ? <span style={{ color: "var(--muted)" }}>—</span> : <span className={"fv-var " + (t.variance > 0 ? "over" : "under")}>{t.variance > 0 ? "+" : ""}{n1(t.variance)}h</span>)
+                            : <span style={{ color: "var(--muted)" }}>{s.total ? n0(t.actual / s.total * 100) + "%" : "—"}</span>}</td>
+                        </tr>
+                      ))}
+                      {(isEst ? withEst : tasks).length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks.</td></tr>}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* FLOATING AI CHAT */}
       <button className={`ai-fab${chatOpen ? " open" : ""}`} onClick={() => setChatOpen((o) => !o)} title="Ask Pulse AI" aria-label="Ask AI">

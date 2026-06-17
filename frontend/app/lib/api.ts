@@ -46,6 +46,7 @@ export interface EmployeeRow {
   utilization: number; activity: number; productivity: number; avg_day: number;
   days: number; grade: string; active_tasks: number; task_status: string; client: string;
   clients?: string[]; hr_status?: string;
+  efficiency?: number | null; on_estimate?: number | null; overdue?: number; last_active?: string | null;
 }
 
 export interface Summary {
@@ -182,12 +183,14 @@ export type Filters = {
   status?: string;
 };
 
-export async function getFilters(scope?: { department?: string; atl?: string; date_from?: string; date_to?: string }): Promise<FilterOptions> {
+export async function getFilters(scope?: { department?: string; atl?: string; date_from?: string; date_to?: string; client?: string; employee?: string }): Promise<FilterOptions> {
   const qs = new URLSearchParams();
   if (scope?.department) qs.set("department", scope.department);
   if (scope?.atl) qs.set("atl", scope.atl);
   if (scope?.date_from) qs.set("date_from", scope.date_from);
   if (scope?.date_to) qs.set("date_to", scope.date_to);
+  if (scope?.client) qs.set("client", scope.client);
+  if (scope?.employee) qs.set("employee", scope.employee);
   const r = await authedFetch(`${API}/api/filters?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("filters failed");
   return r.json();
@@ -330,30 +333,77 @@ export async function getBudget(f: Filters): Promise<BudgetData> {
   return r.json();
 }
 
-export interface ClientTask { task: string; done: boolean; est: number; actual: number; variance: number | null; variance_pct: number | null; worker: string; }
-export interface ClientTaskSummary { total: number; open: number; done: number; over: number; under: number; est_total: number; actual_total: number; }
 export interface ClientProfile {
   found: boolean;
   profile?: {
     client: string; team: string; department: string; type: string;
     total: number; billable: number; non_billable: number; billable_pct: number;
-    budget: number | null; used_pct: number | null; variance: number | null; over: boolean | null;
-    people: number; days: number; last_worked: string; health: number; health_grade: string; on_estimate_pct: number | null;
+    budget: number | null; variance: number | null; over: boolean | null;
+    people: number; days: number; last_worked: string;
   };
-  people?: { name: string; hours: number; billable: number; days: number; billable_pct: number; activity_pct: number; tasks: number; efficiency: number | null }[];
+  people?: { name: string; hours: number; billable: number; days: number }[];
   daily?: { date: string; billable: number; non_billable: number }[];
-  tasks?: ClientTask[];
-  task_summary?: ClientTaskSummary;
 }
 export async function getClient(name: string, f: Filters): Promise<ClientProfile> {
   const qs = new URLSearchParams({ name });
   if (f.date_from) qs.set("date_from", f.date_from);
   if (f.date_to) qs.set("date_to", f.date_to);
-  if (f.employee) qs.set("employee", f.employee);
-  if (f.atl) qs.set("atl", f.atl);
-  if (f.billable) qs.set("billable", f.billable);
   const r = await authedFetch(`${API}/api/client?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("client failed");
+  return r.json();
+}
+
+// ===== Context focus (client / team / employee, optionally employee+client) =====
+export interface FocusTask { task: string; client: string | null; done: boolean; status: string | null; due: string | null; priority: string | null; est: number; budget: number; actual: number; variance: number | null; variance_pct: number | null; worker: string; project_only?: boolean; }
+export interface FocusClientRow { client: string; hours: number; billable: number; non_billable: number; budget: number | null; billable_pct: number; tasks: number; tasks_done: number; tasks_open: number; efficiency: number | null; used_pct: number | null; }
+export interface FocusMemberRow { name: string; hours: number; billable: number; non_billable: number; billable_pct: number; activity_pct: number; efficiency: number | null; tasks: number; tasks_done?: number; tasks_open?: number; utilization?: number | null; on_estimate?: number | null; top_task?: string | null; top_status?: string | null; top_done?: boolean | null; }
+export interface FocusData {
+  found: boolean; kind?: "client" | "team" | "employee"; name?: string; client?: string | null;
+  summary?: {
+    total: number; billable: number; non_billable: number; billable_pct: number; activity_pct: number;
+    utilization: number | null; grade: string | null; on_estimate_pct: number | null;
+    tasks: number; tasks_done: number; est_total: number; budget_total: number; actual_total: number;
+    clients: number; members: number; budget: number | null; used_pct: number | null; over: boolean | null;
+    forecast?: number | null; forecast_pct?: number | null; last_worked?: string | null;
+    health: number | null; health_grade: string | null; team: string; department: string;
+  };
+  insight?: { best: string | null; watch: string | null };
+  transfer?: {
+    events: { from: string; to: string; on: string }[];
+    segments: { team: string; hours: number; billable_pct: number; from: string; to: string }[];
+    current?: string | null; previous?: string | null;
+  } | null;
+  sentiment?: { comms: number; positive: number; neutral: number; concerned: number; complaints: number; followups: number; last: string | null; all_time?: boolean; client_keys?: string[] } | null;
+  rows?: { tasks: FocusTask[]; clients: FocusClientRow[]; members: FocusMemberRow[]; pairs?: { name: string; client: string; hours: number; billable_pct: number }[]; burnup?: { date: string; cum: number }[] };
+}
+export async function getFocus(kind: string, name: string, f: Filters, client?: string): Promise<FocusData> {
+  const qs = new URLSearchParams({ kind, name });
+  if (client) qs.set("client", client);
+  if (f.date_from) qs.set("date_from", f.date_from);
+  if (f.date_to) qs.set("date_to", f.date_to);
+  const r = await authedFetch(`${API}/api/focus?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("focus failed");
+  return r.json();
+}
+
+export interface DataHealth { sources: { source: string; last: string | null; rows: number }[] }
+export async function getDataHealth(): Promise<DataHealth> {
+  const r = await authedFetch(`${API}/api/data_health`, { cache: "no-store" });
+  if (!r.ok) throw new Error("data_health failed");
+  return r.json();
+}
+
+export interface ClientMessage { date: string; from_who: string; subject: string; summary: string; sentiment: string; complaining: string; following_up: string; url: string; }
+export async function getClientMessages(opts: { client?: string; labels?: string[]; sentiment?: string; bucket?: string; date_from?: string; date_to?: string }): Promise<{ client: string; rows: ClientMessage[] }> {
+  const qs = new URLSearchParams();
+  if (opts.client) qs.set("client", opts.client);
+  if (opts.labels?.length) qs.set("labels", opts.labels.join(","));
+  if (opts.sentiment) qs.set("sentiment", opts.sentiment);
+  if (opts.bucket) qs.set("bucket", opts.bucket);
+  if (opts.date_from) qs.set("date_from", opts.date_from);
+  if (opts.date_to) qs.set("date_to", opts.date_to);
+  const r = await authedFetch(`${API}/api/client_messages?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("messages failed");
   return r.json();
 }
 
@@ -475,6 +525,17 @@ export async function resendInvite(id: number): Promise<{ invite_link: string; e
 export async function setUserStatus(id: number, active: boolean): Promise<void> {
   const r = await authedFetch(`${API}/api/users/${id}/status?active=${active}`, { method: "POST" });
   if (!r.ok) throw new Error(await asError(r));
+}
+export async function resetUserPassword(id: number): Promise<{ invite_link: string; email_sent: boolean }> {
+  const r = await postJson(`/api/users/${id}/reset`, {});
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
+}
+export interface AuditRow { ts: string; actor_email: string; actor_role: string; action: string; target: string; detail: string; }
+export async function getAuditLog(limit = 200): Promise<{ rows: AuditRow[] }> {
+  const r = await authedFetch(`${API}/api/audit_log?limit=${limit}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(await asError(r));
+  return r.json();
 }
 export interface AttendanceRow {
   name: string; department: string; effective_h: number; tracked_h: number; gap_h: number;
