@@ -6,13 +6,14 @@ import {
   Building2, Network, Users, Briefcase, Receipt, RotateCcw, Clock, X,
   Gauge, Activity, Zap, Award, Tag, Sparkles, Send, BarChart3, ShieldCheck, ShieldAlert,
   Crown, Wrench, Code2, User as UserIcon, LogOut, Download, Settings, Lock,
-  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot,
+  Check, ArrowRight, BookOpen, UploadCloud, FileSpreadsheet, Pencil, Bot, Info,
 } from "lucide-react";
 import {
-  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getFocus, getTeam, getClientsList, getClientMessages, getDataHealth,
+  getFilters, getCommand, getEmployee, getRaw, getUnassigned, getHoursDetail, getCompareTrend, askAI, currentMonth, getTaskDelivery, getBudget, getClient, getFocus, getTeam, getClientsList, getClientMessages, getDataHealth, refreshData, getFinancials, type Financials,
+  createReportLink, listReportLinks, revokeReportLink, type ReportLink,
   login, fetchMe, logout as apiLogout, listUsers, createUser, resendInvite, setUserStatus, resetUserPassword, getAuditLog, changePassword, getToken,
   getEmailSettings, saveEmailSettings, testEmail, type EmailSettings,
-  getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData,
+  getKekaStatus, uploadKeka, type KekaMonth, getWorkforce, type WorkforceData, getWorkforceDetail, type WorkforceDetailRow, getWorkforceDaily, type WorkforceDay,
   getBudgets, saveBudget, deleteBudget, type ClientBudgetRow,
   getTaskDeliveryList, type TaskDeliveryItem,
   type FilterOptions, type CommandData, type Filters, type EmployeeRow, type TeamRow, type EmployeeDetail, type RawData, type UnassignedData, type HoursDetailData, type CompareTrendData,
@@ -170,6 +171,31 @@ export default function CommandCenter({
   const [loading, setLoading] = useState(false);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [dataHealth, setDataHealth] = useState<import("../lib/api").DataHealth["sources"] | null>(null);
+  const [financials, setFinancials] = useState<Financials | null>(null);
+  const [financialsModal, setFinancialsModal] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [bdMetric, setBdMetric] = useState<"total" | "billable" | "nonbill">("total");
+  const [wfInfo, setWfInfo] = useState(false);
+  const [wfView, setWfView] = useState<"calc" | "day" | "person">("calc");
+  const [wfDetail, setWfDetail] = useState<{ rows: WorkforceDetailRow[] } | null | "err">(null);
+  const [wfDaily, setWfDaily] = useState<WorkforceDay[] | null | "err">(null);
+  const [leadersModal, setLeadersModal] = useState<"emp" | "client" | null>(null);
+  const [shareModal, setShareModal] = useState<{ client: string; links: ReportLink[]; newLink?: string } | null>(null);
+  async function openShare(client: string) {
+    setShareModal({ client, links: [] });
+    try { const r = await listReportLinks(client); setShareModal((s) => (s && s.client === client ? { ...s, links: r.links } : s)); } catch { /* */ }
+  }
+  async function doCreateLink(client: string) {
+    try {
+      const r = await createReportLink(client, draft.date_from, draft.date_to);
+      const full = (typeof window !== "undefined" ? window.location.origin : "") + r.link;
+      const l = await listReportLinks(client);
+      setShareModal((s) => (s ? { ...s, links: l.links, newLink: full } : s));
+    } catch (e) { alert((e as Error).message); }
+  }
+  async function doRevokeLink(token: string, client: string) {
+    try { await revokeReportLink(token); const l = await listReportLinks(client); setShareModal((s) => (s ? { ...s, links: l.links } : s)); } catch { /* */ }
+  }
   const [dataVer, setDataVer] = useState(0);   // bumps on every data refresh → re-fires the KPI entrance animation
   const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string; dayKey?: "utilization" | "activity" | "productivity" }>(null);
@@ -342,6 +368,9 @@ export default function CommandCenter({
   const [uForm, setUForm] = useState({ email: "", role: "employee", full_name: "", scope_team: "" });
   const [uBusy, setUBusy] = useState(false);
   const [uMsg, setUMsg] = useState<{ link?: string; sent?: boolean; err?: string } | null>(null);
+  const [usrQuery, setUsrQuery] = useState("");
+  const [usrFilter, setUsrFilter] = useState<"all" | "active" | "invited" | "disabled">("all");
+  const [usrRole, setUsrRole] = useState<string>("all");
   async function loadUsers() {
     setUsersData(null);
     try { setUsersData(await listUsers()); } catch { setUsersData({ users: [], smtp: false, owner_email: "" }); }
@@ -603,12 +632,36 @@ export default function CommandCenter({
     setEmp({ name, data: null });
     try { setEmp({ name, data: await getEmployee(name, draft) }); } catch { setEmp({ name, data: { found: false } }); }
   }
+  // NL → dashboard: pull filter intent (entity / billable / this-month) out of the
+  // question so Ask-AI also *drives* the view, not just answers. Deterministic match
+  // against the loaded options — works without any AI key.
+  function parseIntent(question: string): { filters: Partial<Filters>; labels: string[] } {
+    const ql = ` ${question.toLowerCase()} `;
+    const out: Partial<Filters> = {}; const labels: string[] = [];
+    if (opts && /\bthis month\b/.test(ql)) { const m = currentMonth(opts); out.date_from = m.date_from; out.date_to = m.date_to; labels.push("this month"); }
+    if (/non[-\s]?billable/.test(ql)) { out.billable = "Non-Billable"; labels.push("Non-Billable"); }
+    else if (/\bbillable\b/.test(ql)) { out.billable = "Billable"; labels.push("Billable"); }
+    const matchOne = (arr?: string[]) => { let best = ""; for (const v of arr || []) { if (v && v.length >= 3 && ql.includes(v.toLowerCase()) && v.length > best.length) best = v; } return best; };
+    const cl = matchOne(opts?.clients); if (cl) { out.client = cl; labels.push(cl); }
+    const tm = matchOne(opts?.atls); if (tm) { out.atl = tm; labels.push(tm); }
+    const emp = matchOne(opts?.employees); if (emp) { out.employee = emp; labels.push(emp); }
+    const dep = matchOne(opts?.departments); if (dep) { out.department = dep; labels.push(dep); }
+    const ty = matchOne(opts?.client_types); if (ty) { out.client_type = ty; labels.push(ty); }
+    return { filters: out, labels };
+  }
   async function ask(q: string) {
     const question = q.trim();
     if (!question || aiBusy) return;
     setAiQ(""); setMessages((m) => [...m, { role: "user", text: question }]); setAiBusy(true);
+    let qf = draft;
+    const intent = parseIntent(question);
+    if (Object.keys(intent.filters).length) {
+      qf = { ...draft, ...intent.filters };
+      setDraft(qf); apply(qf);
+      setMessages((m) => [...m, { role: "ai", text: `Filtered the dashboard → ${intent.labels.join(" · ")}.` }]);
+    }
     try {
-      const r = await askAI(question, draft);
+      const r = await askAI(question, qf);
       setMessages((m) => [...m, { role: "ai", text: r.ok && r.text ? r.text : "Sorry, I couldn't answer that. Try rephrasing — e.g. 'Aashima's hours this month', 'clients over budget', 'Synergy team tracked hours', 'top performers'.", insight: r.insight, kind: r.kind, bars: r.bars, donut: r.donut }]);
     } catch {
       setMessages((m) => [...m, { role: "ai", text: "AI is unavailable right now. Please try again." }]);
@@ -650,7 +703,44 @@ export default function CommandCenter({
     getDataHealth().then((h) => { if (!off) setDataHealth(h.sources); }).catch(() => {});
     return () => { off = true; };
   }, []);
+  // company financials (Xero + Stripe) — owner-only, opened from the profile menu.
+  // Period-scoped: re-fetches whenever the modal opens or the active period changes.
+  useEffect(() => {
+    if (!financialsModal || authUser?.role !== "owner") return;
+    let off = false;
+    setFinancials(null);
+    getFinancials(draft).then((f) => { if (!off) setFinancials(f); }).catch(() => { if (!off) setFinancials({ has_data: false } as Financials); });
+    return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [financialsModal, authUser?.role, draft.date_from, draft.date_to]);
 
+  // workforce modal sub-views — fetched ON DEMAND only while the modal is open and only
+  // for the active view, fully decoupled from the funnel section render.
+  useEffect(() => {
+    if (!wfInfo) { setWfView("calc"); return; }
+    if (wfView === "calc") return;
+    let off = false;
+    if (wfView === "person") {
+      setWfDetail(null);
+      getWorkforceDetail(draft).then((r) => { if (!off) setWfDetail({ rows: r.rows }); }).catch(() => { if (!off) setWfDetail("err"); });
+    } else if (wfView === "day") {
+      setWfDaily(null);
+      getWorkforceDaily(draft).then((r) => { if (!off) setWfDaily(r.days); }).catch(() => { if (!off) setWfDaily("err"); });
+    }
+    return () => { off = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wfInfo, wfView, draft.date_from, draft.date_to, draft.department, draft.atl, draft.employee, draft.client, draft.client_type, draft.status, draft.billable]);
+
+  async function doRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await refreshData();              // backend drops caches + reloads fresh from DB
+      await apply(draft);               // re-fetch dashboard from the now-warm cache
+      getDataHealth().then((h) => setDataHealth(h.sources)).catch(() => { /* */ });
+    } catch { /* failure surfaces via the load-error banner */ }
+    finally { setRefreshing(false); }
+  }
   async function apply(f: Filters) {
     setLoading(true);
     // keep the dropdowns scoped to the active period + drill scope
@@ -751,12 +841,21 @@ export default function CommandCenter({
   if (!roleReady) return <div className="page"><div className="loading"><span className="spin" /> Loading…</div></div>;
   if (!authUser) return <LoginScreen onLogin={onLogin} />;
   if (!data) return (
-    <div className="page"><div className="loading" style={{ flexDirection: "column", gap: 12 }}>
-      {loadErr ? <>
-        <div style={{ color: "#b91c1c", fontWeight: 600, textAlign: "center" }}><ShieldAlert size={18} style={{ verticalAlign: -3, marginRight: 6 }} />{loadErr}</div>
-        <button className="retry-btn" onClick={() => apply(draft)}><RotateCcw size={14} />Retry</button>
-      </> : <><span className="spin" /> Loading…</>}
-    </div></div>
+    <div className="page">
+      {loadErr ? (
+        <div className="loading" style={{ flexDirection: "column", gap: 12, minHeight: 320 }}>
+          <div style={{ color: "#b91c1c", fontWeight: 600, textAlign: "center" }}><ShieldAlert size={18} style={{ verticalAlign: -3, marginRight: 6 }} />{loadErr}</div>
+          <button className="retry-btn" onClick={() => apply(draft)}><RotateCcw size={14} />Retry</button>
+        </div>
+      ) : (
+        <div className="dash-skel" aria-busy="true" aria-label="Loading dashboard">
+          <div className="skel-head"><span className="skel skel-title" /><span className="skel skel-pill" /></div>
+          <div className="skel-kpi">{Array.from({ length: 8 }).map((_, i) => <span key={i} className="skel skel-card" />)}</div>
+          <div className="skel-row"><span className="skel skel-panel" /><span className="skel skel-panel" /></div>
+          <span className="skel skel-panel tall" />
+        </div>
+      )}
+    </div>
   );
 
   const live = data.source === "supabase";
@@ -1005,6 +1104,16 @@ export default function CommandCenter({
             );
           })()}
           <div className={`chip${live ? "" : " demo"}`}><span className="d" />{loading ? "Syncing…" : live ? "Live" : "Demo"}</div>
+          {caps.company && (
+            <button className={`refresh-btn${refreshing ? " spinning" : ""}`} onClick={doRefresh} disabled={refreshing} title="Refresh — pull the latest data now">
+              <RotateCcw size={14} />
+            </button>
+          )}
+          {authUser?.role === "owner" && (
+            <button className="fin-btn" onClick={() => setFinancialsModal(true)} title="Financials — revenue, collections & cash (this period)">
+              <Receipt size={14} /><span>Financials</span>
+            </button>
+          )}
           <span className="tb-sep" />
           {(() => {
             const rd = ROLE_DEF.find((r) => r.id === role)!;
@@ -1125,6 +1234,9 @@ export default function CommandCenter({
           {!caps.self && draft.billable && <span className="crumb-tag bil">{draft.billable}</span>}
         </div>
         <div className="scope-meta">
+          {authUser?.role === "owner" && fClient && (
+            <button className="share-btn" onClick={() => openShare(fClient)} title="Create a read-only public report link for this client"><Send size={12} />Share report</button>
+          )}
           {!caps.self && <span><b>{peopleN}</b> {peopleN === 1 ? "person" : "people"}</span>}
           <span><b>{n0(total)}</b>h tracked</span>
           {loading && <span className="scope-sync"><span className="spin sm" /> updating…</span>}
@@ -1142,17 +1254,26 @@ export default function CommandCenter({
           openMetric("Activity", "#0d9488", "Active time (keyboard + mouse) ÷ tracked time × 100.", (e) => e.activity, (v) => n1(v) + "%", "activity"), undefined, "of tracked time")}
         {kpiCard("k-prod", "Productivity", n1(prod) + "%", "amber", Zap, "productivity",
           openMetric("Productivity", "#e8930c", "Billable hours ÷ tracked hours × 100 — the share of tracked time that is billable.", (e) => e.productivity, (v) => n1(v) + "%", "productivity"), undefined, "billable share")}
-        {kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, "active_employees",
-          openMetric("Active Staff", "#2f6fbf", "Employees who tracked time in this period, by total hours.", (e) => e.billable + e.non_billable, (v) => n1(v) + "h"), undefined, `of ${peopleN} tracked`)}
+        {ctx === "employee" && focusData?.found
+          ? kpiCard("k-tasks", "Tasks Done", `${focusData.summary!.tasks_done}/${focusData.summary!.tasks}`, "blue", Check, undefined, () => setFocusMetric("est"), undefined, "tasks completed")
+          : kpiCard("k-staff", "Active Staff", String(activeStaff), "blue", Users, "active_employees",
+              openMetric("Active Staff", "#2f6fbf", "Employees who tracked time in this period, by total hours.", (e) => e.billable + e.non_billable, (v) => n1(v) + "h"), undefined, `of ${peopleN} tracked`)}
         {isClientCtx && focusData?.found
           ? kpiCard("k-est", "Est vs Actual", `${n0(focusData.summary!.actual_total)}/${n0(focusData.summary!.est_total)}h`, "teal", Tag, undefined, () => setFocusMetric("est"),
               (focusData.summary!.on_estimate_pct ?? 100) < 60 ? "warn" : "ok", `${focusData.summary!.on_estimate_pct ?? "—"}% within estimate`)
+          : ctx === "employee" && focusData?.found
+          ? kpiCard("k-myclients", "Clients", n0(focusData.summary!.clients), "teal", Building2, undefined, undefined, undefined, "you work with")
           : kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, openClients, undefined, "worked this period")}
         {isClientCtx && focusData?.found
           ? kpiCard("k-used", "Budget Used", focusData.summary!.used_pct != null ? n0(focusData.summary!.used_pct) + "%" : "—", "purple", Briefcase, undefined, () => setFocusMetric("budget"),
               focusData.summary!.over ? "bad" : "ok", focusData.summary!.budget != null ? `of ${n0(focusData.summary!.budget)}h budget` : "no budget set")
+          : ctx === "employee" && focusData?.found
+          ? kpiCard("k-onest", "On-estimate", focusData.summary!.on_estimate_pct != null ? n0(focusData.summary!.on_estimate_pct) + "%" : "—", "purple", Tag, undefined, () => setFocusMetric("est"),
+              (focusData.summary!.on_estimate_pct ?? 100) < 60 ? "warn" : "ok", "tasks within estimate")
           : kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
-        {budget && budget.count > 0
+        {ctx === "employee" && focusData?.found
+          ? kpiCard("k-myest", "Est vs Actual", `${n0(focusData.summary!.actual_total)}/${n0(focusData.summary!.est_total)}h`, "rose", Tag, undefined, () => setFocusMetric("est"), undefined, "tracked vs estimate")
+          : budget && budget.count > 0
           ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
               () => setBudgetModal(true),
               budget.over > budget.count * 0.5 ? "bad" : budget.over > budget.count * 0.25 ? "warn" : "ok",
@@ -1274,20 +1395,36 @@ export default function CommandCenter({
         const colors = ["#2f6fbf", "#0d9488", "#7b3fc0", "#e8930c", "#16a34a", "#d9568c", "#5b8def", "#0ea5a4"];
         const fk = (v: number) => (v >= 1000 ? (v / 1000).toFixed(v >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(Math.round(v)));
         const hpanel = (title: string, rows: TeamRow[], vertical = false, onPick?: (n: string) => void) => {
-          const sorted = [...rows].filter((r) => Math.round(r.total) >= 1).sort((a, b) => b.total - a.total).slice(0, 8);
-          const max = Math.max(1, ...sorted.map((r) => r.total));
+          const mval = (r: TeamRow) => bdMetric === "billable" ? r.billable : bdMetric === "nonbill" ? r.non_billable : r.total;
+          const sorted = [...rows].filter((r) => Math.round(mval(r)) >= 1).sort((a, b) => mval(b) - mval(a)).slice(0, 8);
+          const max = Math.max(1, ...sorted.map((r) => mval(r)));
+          const mlbl = bdMetric === "billable" ? "billable" : bdMetric === "nonbill" ? "non-billable" : "hours";
           return (
             <div className={"panel" + (vertical ? " vfill" : "")}>
-              <div className="ph"><h3>{title} <span className="hl">hours · util% · bill% · top {sorted.length}{onPick ? " · click to drill" : ""}</span></h3></div>
+              <div className="ph">
+                <h3>{title} <span className="hl">{mlbl} · top {sorted.length}{onPick ? " · click to drill" : ""}</span></h3>
+                <div className="bd-tabs" role="group" aria-label="Metric">
+                  {([["total", "Total"], ["billable", "Billable"], ["nonbill", "Non-bill"]] as const).map(([k, lbl]) => (
+                    <button key={k} type="button" className={bdMetric === k ? "on" : ""} onClick={() => setBdMetric(k)}>{lbl}</button>
+                  ))}
+                </div>
+              </div>
               {!sorted.length ? <div className="empty-s">No data in scope</div>
                 : vertical ? (
                   <div className="vbar-chart">
                     {sorted.map((r, i) => {
                       const bp = r.total ? Math.round((r.billable / r.total) * 100) : 0;
                       return (
-                      <div className={`vbar-col${onPick ? " click" : ""}`} key={r.team} title={`${r.team}: ${n0(r.total)}h · ${n0(r.utilization)}% util · ${bp}% billable`} onClick={onPick ? () => onPick(r.team) : undefined}>
-                        <span className="vbar-v num">{fk(r.total)}</span>
-                        <div className="vbar-track"><div className="vbar-fill" style={{ height: `${Math.max(4, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></div>
+                      <div className={`vbar-col${onPick ? " click" : ""}`} key={r.team} title={`${r.team}: ${n0(mval(r))}h ${mlbl} · ${n0(r.utilization)}% util · ${bp}% billable`} onClick={onPick ? () => onPick(r.team) : undefined}>
+                        <span className="vbar-v num">{fk(mval(r))}</span>
+                        <div className="vbar-track" style={bdMetric === "total" ? { flexDirection: "column", justifyContent: "flex-end" } : undefined}>
+                          {bdMetric === "total" ? (<>
+                            <div className="vbar-fill" style={{ height: `${(r.non_billable / max) * 100}%`, background: "#d9a23a", borderRadius: "4px 4px 0 0", width: "100%" }} />
+                            <div className="vbar-fill" style={{ height: `${(r.billable / max) * 100}%`, background: "#1f8a5b", borderRadius: 0, width: "100%" }} />
+                          </>) : (
+                            <div className="vbar-fill" style={{ height: `${Math.max(4, (mval(r) / max) * 100)}%`, background: colors[i % colors.length] }} />
+                          )}
+                        </div>
                         <span className="vbar-x">{r.team}</span>
                         <span className="vbar-sub num">{n0(r.utilization)}% · {bp}%</span>
                       </div>
@@ -1301,16 +1438,26 @@ export default function CommandCenter({
                       return (
                       <div className={`hbar-row${onPick ? " click" : ""}`} key={r.team} onClick={onPick ? () => onPick(r.team) : undefined}>
                         <span className="hbar-lbl" title={r.team}>{r.team}</span>
-                        <span className="hbar-track"><span className="hbar-fill" style={{ width: `${Math.max(2, (r.total / max) * 100)}%`, background: colors[i % colors.length] }} /></span>
+                        <span className="hbar-track" style={bdMetric === "total" ? { display: "flex" } : undefined}>
+                          {bdMetric === "total" ? (<>
+                            <span className="hbar-fill" style={{ width: `${(r.billable / max) * 100}%`, background: "#1f8a5b", borderRadius: 0 }} />
+                            <span className="hbar-fill" style={{ width: `${(r.non_billable / max) * 100}%`, background: "#d9a23a", borderRadius: 0 }} />
+                          </>) : (
+                            <span className="hbar-fill" style={{ width: `${Math.max(2, (mval(r) / max) * 100)}%`, background: colors[i % colors.length] }} />
+                          )}
+                        </span>
                         <span className="hbar-v">
-                          <b className="num">{n0(r.total)}h</b>
-                          <i className="hbar-sub num">{n0(r.utilization)}% util · {bp}% bill</i>
+                          <b className="num">{n0(mval(r))}h</b>
+                          <i className="hbar-sub num">{bdMetric === "total" ? `${n0(r.billable)}h bill · ${n0(r.non_billable)}h non-bill` : `${n0(r.utilization)}% util · ${bp}% bill`}</i>
                         </span>
                       </div>
                       );
                     })}
                   </div>
                 )}
+              {bdMetric === "total" && sorted.length > 0 && (
+                <div className="bd-legend"><span><i style={{ background: "#1f8a5b" }} />Billable</span><span><i style={{ background: "#d9a23a" }} />Non-billable</span></div>
+              )}
             </div>
           );
         };
@@ -1320,11 +1467,56 @@ export default function CommandCenter({
         // filtered — the contributors behind that bar. By Department drills by setting
         // the department filter, as before.
         const drillDept = (name: string) => { const next = { ...draft, department: name }; setDraft(next); apply(next); };
+        const cliReal = (data.clients_summary || []).filter((c) => c.client && c.client !== "Unassigned");
+        const topBill = [...data.employees].filter((e) => e.billable > 0).sort((a, b) => b.billable - a.billable)[0];
+        const topNon = [...data.employees].filter((e) => e.non_billable > 0).sort((a, b) => b.non_billable - a.non_billable)[0];
+        const topCliBill = [...cliReal].filter((c) => c.billable > 0).sort((a, b) => b.billable - a.billable)[0];
+        const topCliNon = [...cliReal].filter((c) => c.non_billable > 0).sort((a, b) => b.non_billable - a.non_billable)[0];
         return (
-          <div className="row2" style={{ marginBottom: 14 }}>
-            {hpanel("By Department", data.departments || [], true, drillDept)}
-            {hpanel("By Team", data.teams || [], false, openTeam)}
-          </div>
+          <>
+            {(topBill || topNon || topCliBill || topCliNon) && (
+              <div className="lead-row" style={{ marginBottom: 14 }}>
+                <div className="lead-card">
+                  <div className="lead-h">Top contributors <span className="hl">by hours</span>
+                    <button className="lead-more" onClick={() => setLeadersModal("emp")}>Show more →</button>
+                  </div>
+                  <div className="lead-body">
+                    <button className="lead-item" disabled={!topBill} onClick={() => topBill && openEmployee(topBill.name)}>
+                      <span className="lead-tag bill">Billable</span>
+                      <span className="lead-nm">{topBill ? topBill.name : "—"}</span>
+                      <span className="lead-v num">{topBill ? n0(topBill.billable) + "h" : "—"}</span>
+                    </button>
+                    <button className="lead-item" disabled={!topNon} onClick={() => topNon && openEmployee(topNon.name)}>
+                      <span className="lead-tag nb">Non-billable</span>
+                      <span className="lead-nm">{topNon ? topNon.name : "—"}</span>
+                      <span className="lead-v num">{topNon ? n0(topNon.non_billable) + "h" : "—"}</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="lead-card">
+                  <div className="lead-h">Top clients <span className="hl">by hours</span>
+                    <button className="lead-more" onClick={() => setLeadersModal("client")}>Show more →</button>
+                  </div>
+                  <div className="lead-body">
+                    <button className="lead-item" disabled={!topCliBill} onClick={() => topCliBill && setField("client", topCliBill.client)}>
+                      <span className="lead-tag bill">Billable</span>
+                      <span className="lead-nm">{topCliBill ? topCliBill.client : "—"}</span>
+                      <span className="lead-v num">{topCliBill ? n0(topCliBill.billable) + "h" : "—"}</span>
+                    </button>
+                    <button className="lead-item" disabled={!topCliNon} onClick={() => topCliNon && setField("client", topCliNon.client)}>
+                      <span className="lead-tag nb">Non-billable</span>
+                      <span className="lead-nm">{topCliNon ? topCliNon.client : "—"}</span>
+                      <span className="lead-v num">{topCliNon ? n0(topCliNon.non_billable) + "h" : "—"}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="row2" style={{ marginBottom: 14 }}>
+              {hpanel("By Department", data.departments || [], true, drillDept)}
+              {hpanel("By Team", data.teams || [], false, openTeam)}
+            </div>
+          </>
         );
       })()}
 
@@ -1333,7 +1525,9 @@ export default function CommandCenter({
       {showCard("workforce") && workforce && (workforce.has_keka || workforce.total_tracked_h > 0) && (
         <div className="row2" style={{ marginBottom: 14 }}>
           <div className="panel">
-            <div className="ph"><h3>Workforce <span className="hl">attendance &amp; effort, this period</span></h3></div>
+            <div className="ph"><h3>Workforce <span className="hl">attendance &amp; effort, this period</span></h3>
+              <button className="wf-info" onClick={() => setWfInfo(true)} title="How is this calculated?"><Info size={15} /></button>
+            </div>
             <div className="wf-tiles">
               <div className="wf-tile"><b className="num">{workforce.has_keka ? n0(workforce.attendance_pct) + "%" : "—"}</b><span>Attendance</span><i className="wf-sub">present ÷ scheduled days</i></div>
               <div className="wf-tile"><b className="num" style={{ color: "#e8930c" }}>{workforce.has_keka ? n0(workforce.overtime_h) + "h" : "—"}</b><span>Overtime</span><i className="wf-sub">worked beyond shift</i></div>
@@ -1342,7 +1536,9 @@ export default function CommandCenter({
             {workforce.has_keka && <div className="wf-note">{n0(workforce.present_days)} present · {n0(workforce.off_days)} leave/absent days · {n0(workforce.late_days)} late arrivals</div>}
           </div>
           <div className="panel">
-            <div className="ph"><h3>Office → Tracked → Billable <span className="hl">where the time goes</span></h3></div>
+            <div className="ph"><h3>Office → Tracked → Billable <span className="hl">where the time goes</span></h3>
+              <button className="wf-info" onClick={() => setWfInfo(true)} title="How is this calculated?"><Info size={15} /></button>
+            </div>
             {!workforce.has_keka ? <div className="empty-s" style={{ padding: 30 }}>Upload Keka attendance to see office hours.</div> : (() => {
               const fn = workforce.funnel; const max = Math.max(1, fn.office_h);
               const stages: [string, number, string][] = [["Office hours", fn.office_h, "#2f6fbf"], ["Tracked", fn.tracked_h, "#0d9488"], ["Billable", fn.billable_h, "#16a34a"]];
@@ -2570,38 +2766,382 @@ export default function CommandCenter({
         </div>
       )}
 
+      {/* TOP CONTRIBUTORS / CLIENTS — ranked billable & non-billable (Show more) */}
+      {leadersModal && data && (() => {
+        const isEmp = leadersModal === "emp";
+        const src = isEmp
+          ? data.employees.map((e) => ({ name: e.name, billable: e.billable, non_billable: e.non_billable }))
+          : (data.clients_summary || []).filter((c) => c.client && c.client !== "Unassigned").map((c) => ({ name: c.client, billable: c.billable, non_billable: c.non_billable }));
+        const byBill = [...src].filter((x) => x.billable > 0).sort((a, b) => b.billable - a.billable).slice(0, 15);
+        const byNon = [...src].filter((x) => x.non_billable > 0).sort((a, b) => b.non_billable - a.non_billable).slice(0, 15);
+        const pick = (n: string) => { if (isEmp) openEmployee(n); else setField("client", n); setLeadersModal(null); };
+        const col = (rows: { name: string; billable: number; non_billable: number }[], key: "billable" | "non_billable", label: string, cls: string) => (
+          <div>
+            <div className="ds-block-h"><span className={`lead-tag ${cls}`} style={{ marginRight: 6 }}>{label}</span></div>
+            {rows.length === 0 ? <div className="empty-s" style={{ padding: 18 }}>None</div> : rows.map((x, i) => (
+              <button className="lead-rank" key={x.name} onClick={() => pick(x.name)}>
+                <span className="lr-i">{i + 1}</span>
+                <span className="lr-n">{x.name}</span>
+                <span className="lr-v num">{n0(x[key])}h</span>
+              </button>
+            ))}
+          </div>
+        );
+        return (
+          <div className="modal-bg" onClick={() => setLeadersModal(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 700 }}>
+              <div className="modal-h">
+                <div>
+                  <h3><Users size={15} style={{ verticalAlign: -2 }} /> {isEmp ? "Top contributors" : "Top clients"}</h3>
+                  <div className="sub">ranked by hours · this period · click to open</div>
+                </div>
+                <div className="modal-x" onClick={() => setLeadersModal(null)}><X size={16} /></div>
+              </div>
+              <div className="modal-b">
+                <div className="lead-cols">
+                  {col(byBill, "billable", "Billable", "bill")}
+                  {col(byNon, "non_billable", "Non-billable", "nb")}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* WORKFORCE / FUNNEL — calculation · by day · by person */}
+      {wfInfo && workforce && (() => {
+        const fn = workforce.funnel;
+        const k = workforce.has_keka;
+        const present = workforce.present_days, off = workforce.off_days;
+        const sched = present + off;
+        const net = Math.max(0, fn.office_h - workforce.overtime_h);   // capacity minus OT = net shift portion
+        const util = fn.office_h ? Math.round(fn.tracked_h / fn.office_h * 100) : 0;
+        const billPct = fn.tracked_h ? Math.round(fn.billable_h / fn.tracked_h * 100) : 0;
+        const bbar = fn.office_h ? Math.round(fn.billable_h / fn.office_h * 100) : 0;
+        const period = draft.date_from && draft.date_to ? `${shortDate(draft.date_from)} – ${shortDate(draft.date_to)}` : "all time";
+        const uColor = (u: number) => u >= 85 ? "#1f8a5b" : u < 50 ? "#ef4444" : "#e8930c";
+        return (
+        <div className="modal-bg" onClick={() => setWfInfo(false)}>
+          <div className="modal calc-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 680 }}>
+            <div className="modal-h">
+              <div>
+                <h3><Info size={15} style={{ verticalAlign: -2 }} /> Office → Tracked → Billable</h3>
+                <div className="sub">How it&apos;s calculated · {period}</div>
+              </div>
+              <div className="modal-x" onClick={() => setWfInfo(false)}><X size={16} /></div>
+            </div>
+
+            <div className="calc-sum">
+              <div className="calc-sumi"><b>{n0(fn.office_h)}<i>h</i></b><span>Office</span></div>
+              <span className="calc-sumc">{util}%<em>→</em></span>
+              <div className="calc-sumi"><b>{n0(fn.tracked_h)}<i>h</i></b><span>Tracked</span></div>
+              <span className="calc-sumc">{billPct}%<em>→</em></span>
+              <div className="calc-sumi"><b>{n0(fn.billable_h)}<i>h</i></b><span>Billable</span></div>
+            </div>
+
+            <div className="seg">
+              <button className={wfView === "calc" ? "on" : ""} onClick={() => setWfView("calc")}>Calculation</button>
+              <button className={wfView === "day" ? "on" : ""} onClick={() => setWfView("day")}>By day</button>
+              <button className={wfView === "person" ? "on" : ""} onClick={() => setWfView("person")}>By person</button>
+            </div>
+
+            <div className="modal-b calc-b">
+              {wfView === "calc" && (<>
+                <div className="calc-sec">
+                  <div className="calc-shead"><span>Attendance &amp; effort</span><span className="calc-chip"><i />Keka</span></div>
+                  <div className="calc-item">
+                    <div className="calc-il"><span className="calc-iname">Attendance</span><span className="calc-idesc">present ÷ scheduled days (weekly-offs excluded)</span></div>
+                    <div className="calc-ir">{k ? <><b>{n0(workforce.attendance_pct)}%</b><span className="calc-iform">{n0(present)} ÷ {n0(sched)} days</span></> : <span className="calc-na">needs Keka</span>}</div>
+                  </div>
+                  <div className="calc-item">
+                    <div className="calc-il"><span className="calc-iname">Overtime</span><span className="calc-idesc">time logged beyond the shift</span></div>
+                    <div className="calc-ir">{k ? <><b style={{ color: "#e8930c" }}>{n0(workforce.overtime_h)}h</b><span className="calc-iform">sum of beyond-shift</span></> : <span className="calc-na">needs Keka</span>}</div>
+                  </div>
+                  <div className="calc-item">
+                    <div className="calc-il"><span className="calc-iname">Short hours</span><span className="calc-idesc">time logged below the shift on a present day</span></div>
+                    <div className="calc-ir">{k ? <><b style={{ color: "#ef4444" }}>{n0(workforce.short_h)}h</b><span className="calc-iform">sum of below-shift</span></> : <span className="calc-na">needs Keka</span>}</div>
+                  </div>
+                </div>
+
+                <div className="calc-sec">
+                  <div className="calc-shead"><span>Office → Tracked → Billable</span><span className="calc-chip"><i style={{ background: "#5b9bd5" }} />Keka + Hubstaff</span></div>
+                  <div className="calc-item">
+                    <div className="calc-il">
+                      <span className="calc-iname">Office hours <span className="calc-tag">capacity</span></span>
+                      <span className="calc-idesc">net shift (8h) per present day + approved overtime</span>
+                      <div className="calc-bar"><i style={{ width: "100%", background: "#2f6fbf" }} /></div>
+                    </div>
+                    <div className="calc-ir"><b>{n0(fn.office_h)}h</b><span className="calc-iform">{k ? `${n0(net)} net + ${n0(workforce.overtime_h)} OT` : "working-days × 8h"}</span></div>
+                  </div>
+                  <div className="calc-item">
+                    <div className="calc-il">
+                      <span className="calc-iname">Tracked <span className="calc-pct" style={{ color: uColor(util) }}>{util}% util</span></span>
+                      <span className="calc-idesc">actual time tracked in Hubstaff</span>
+                      <div className="calc-bar"><i style={{ width: `${util}%`, background: "#0d9488" }} /></div>
+                    </div>
+                    <div className="calc-ir"><b>{n0(fn.tracked_h)}h</b><span className="calc-iform">{n0(fn.tracked_h)} ÷ {n0(fn.office_h)}</span></div>
+                  </div>
+                  <div className="calc-item">
+                    <div className="calc-il">
+                      <span className="calc-iname">Billable <span className="calc-pct" style={{ color: "#1f8a5b" }}>{billPct}% of tracked</span></span>
+                      <span className="calc-idesc">client work — HR · Admin · Marketing · Archived are non-billable</span>
+                      <div className="calc-bar"><i style={{ width: `${bbar}%`, background: "#16a34a" }} /></div>
+                    </div>
+                    <div className="calc-ir"><b style={{ color: "#1f8a5b" }}>{n0(fn.billable_h)}h</b><span className="calc-iform">{n0(fn.billable_h)} ÷ {n0(fn.tracked_h)}</span></div>
+                  </div>
+                </div>
+
+                <div className="calc-foot"><b>By day</b> &amp; <b>By person</b> tabs show the rows that add up to each number. All figures respect the active filters &amp; date range.</div>
+              </>)}
+
+              {wfView === "day" && (() => {
+                const days = (wfDaily && wfDaily !== "err") ? wfDaily.filter((d) => d.office_h > 0 || d.tracked_h > 0) : null;
+                const tot = days ? days.reduce((a, d) => ({ o: a.o + d.office_h, t: a.t + d.tracked_h, b: a.b + d.billable_h }), { o: 0, t: 0, b: 0 }) : null;
+                return wfDaily === null ? <div className="empty-s" style={{ padding: 28 }}>Loading day-by-day…</div>
+                  : wfDaily === "err" ? <div className="empty-s" style={{ padding: 28 }}>Couldn&apos;t load the daily breakdown. Reopen to retry.</div>
+                  : !days || days.length === 0 ? <div className="empty-s" style={{ padding: 28 }}>No daily data for this period.</div>
+                  : (
+                    <div className="calc-tblwrap">
+                      <table className="calc-tbl">
+                        <thead><tr><th>Day</th><th className="r">Office</th><th className="r">Tracked</th><th className="r">Billable</th><th className="r">Util</th></tr></thead>
+                        <tbody>{days.map((d, i) => (
+                          <tr key={i}>
+                            <td><span className="calc-dow">{d.dow}</span> {shortDate(d.date)}</td>
+                            <td className="r">{n1(d.office_h)}</td>
+                            <td className="r str">{n1(d.tracked_h)}</td>
+                            <td className="r" style={{ color: "#1f8a5b" }}>{n1(d.billable_h)}</td>
+                            <td className="r" style={{ color: d.office_h ? uColor(d.util) : undefined }}>{d.office_h ? d.util + "%" : "—"}</td>
+                          </tr>))}</tbody>
+                        <tfoot><tr><td>Total · {days.length} days</td><td className="r">{n0(tot!.o)}</td><td className="r str">{n0(tot!.t)}</td><td className="r" style={{ color: "#1f8a5b" }}>{n0(tot!.b)}</td><td className="r">{tot!.o ? Math.round(tot!.t / tot!.o * 100) : 0}%</td></tr></tfoot>
+                      </table>
+                    </div>
+                  );
+              })()}
+
+              {wfView === "person" && (() => {
+                const det = (wfDetail && wfDetail !== "err") ? wfDetail.rows.filter((r) => r.office_h > 0 || r.tracked_h > 0).sort((a, b) => b.office_h - a.office_h) : null;
+                return wfDetail === null ? <div className="empty-s" style={{ padding: 28 }}>Loading per-person…</div>
+                  : wfDetail === "err" ? <div className="empty-s" style={{ padding: 28 }}>Couldn&apos;t load the per-person breakdown. Reopen to retry.</div>
+                  : !det || det.length === 0 ? <div className="empty-s" style={{ padding: 28 }}>No data for this scope.</div>
+                  : (
+                    <div className="calc-tblwrap">
+                      <table className="calc-tbl">
+                        <thead><tr><th>Employee</th><th>Dept</th><th className="r">Office</th><th className="r">Tracked</th><th className="r">Bill</th><th className="r">Util</th></tr></thead>
+                        <tbody>{det.map((r, i) => (
+                          <tr key={i}><td>{r.name}</td><td className="mut">{r.department}</td>
+                            <td className="r">{n1(r.office_h)}</td>
+                            <td className="r str">{n1(r.tracked_h)}</td>
+                            <td className="r" style={{ color: "#1f8a5b" }}>{n1(r.billable_h)}</td>
+                            <td className="r" style={{ color: r.office_h ? uColor(r.util) : undefined }}>{r.office_h ? r.util + "%" : "—"}</td></tr>))}</tbody>
+                        <tfoot><tr><td colSpan={2}>Total · {det.length} people</td><td className="r">{n0(fn.office_h)}</td><td className="r str">{n0(fn.tracked_h)}</td><td className="r" style={{ color: "#1f8a5b" }}>{n0(fn.billable_h)}</td><td className="r">{util}%</td></tr></tfoot>
+                      </table>
+                    </div>
+                  );
+              })()}
+            </div>
+          </div>
+        </div>
+        );
+      })()}
+
       {/* USERS & ACCESS (owner) — invite, resend, enable/disable */}
+      {shareModal && (
+        <div className="modal-bg" onClick={() => setShareModal(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 560 }}>
+            <div className="modal-h">
+              <div>
+                <h3><Send size={15} style={{ verticalAlign: -2 }} /> Share report</h3>
+                <div className="sub">{shareModal.client} · read-only public link · 30-day expiry</div>
+              </div>
+              <div className="modal-x" onClick={() => setShareModal(null)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              <div className="share-intro">
+                <span className="share-intro-ic"><ShieldCheck size={16} /></span>
+                <div>A read-only link the client can open without signing in. They see <b>only this client&apos;s</b> hours, billable split, budget usage, delivery and a 6-month trend — never other clients, employees, pay or margins. Links expire in 30 days and can be revoked anytime.</div>
+              </div>
+
+              {shareModal.newLink && (
+                <div className="share-new">
+                  <div className="share-new-t"><Check size={13} /> Link created — share it with the client</div>
+                  <div className="usr-link">
+                    <input readOnly value={shareModal.newLink} onFocus={(e) => e.target.select()} />
+                    <button onClick={() => { try { navigator.clipboard.writeText(shareModal.newLink!); } catch { /* */ } }}>Copy</button>
+                    <a className="share-open" href={shareModal.newLink} target="_blank" rel="noopener noreferrer">Open ↗</a>
+                  </div>
+                </div>
+              )}
+
+              <div className="share-head">
+                <span>Active &amp; past links</span>
+                <button className="usr-add" onClick={() => doCreateLink(shareModal.client)}><Send size={13} style={{ verticalAlign: -2, marginRight: 5 }} />Create link</button>
+              </div>
+              <div className="share-list">
+                {shareModal.links.length === 0 ? <div className="empty-s" style={{ padding: 24 }}>No links yet — create one to share with the client.</div> : (
+                  shareModal.links.map((l) => {
+                    const st = l.revoked ? "revoked" : l.expired ? "expired" : "active";
+                    return (
+                      <div className={`share-row${l.revoked || l.expired ? " off" : ""}`} key={l.token}>
+                        <span className={`share-st ${st}`}>{st}</span>
+                        <span className="share-meta">created {l.created}<br /><i>expires {l.expires || "—"}</i></span>
+                        <span className="share-acts">
+                          {!l.revoked && !l.expired && (<>
+                            <a href={window.location.origin + l.link} target="_blank" rel="noopener noreferrer">Open ↗</a>
+                            <button onClick={() => { try { navigator.clipboard.writeText(window.location.origin + l.link); } catch { /* */ } }}>Copy</button>
+                            <button className="danger" onClick={() => doRevokeLink(l.token, shareModal.client)}>Revoke</button>
+                          </>)}
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {financialsModal && (
+        <div className="modal-bg" onClick={() => setFinancialsModal(false)}>
+          <div className="modal wide" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-h">
+              <div>
+                <h3><Receipt size={15} style={{ verticalAlign: -2 }} /> Financials</h3>
+                <div className="sub">invoicing, collections &amp; cash · {draft.date_from && draft.date_to ? `${shortDate(draft.date_from)} – ${shortDate(draft.date_to)}` : "all time"}</div>
+              </div>
+              <div className="modal-x" onClick={() => setFinancialsModal(false)}><X size={16} /></div>
+            </div>
+            <div className="modal-b">
+              {!financials ? (
+                <div className="loading" style={{ height: 160 }}><span className="spin" /> Loading…</div>
+              ) : !financials.has_data ? (
+                <div className="empty-s" style={{ padding: 44 }}>No finance data in this period.<br /><span style={{ fontSize: 11.5 }}>try a wider date range</span></div>
+              ) : (() => {
+                const fmtM = (n: number) => n >= 1e6 ? "$" + (n / 1e6).toFixed(1) + "M" : n >= 1e3 ? "$" + Math.round(n / 1e3) + "K" : "$" + Math.round(n);
+                const f = financials;
+                const ag = f.aging || { current: 0, d1_30: 0, d31_60: 0, d60p: 0 };
+                const agTot = Math.max(1, ag.current + ag.d1_30 + ag.d31_60 + ag.d60p);
+                const agSeg: [string, number, string][] = [
+                  ["Current", ag.current, "#15936f"], ["1–30 days", ag.d1_30, "#caa53d"],
+                  ["31–60 days", ag.d31_60, "#d9822b"], ["60+ days", ag.d60p, "#cf4b52"],
+                ];
+                return (
+                  <>
+                    <div className="fin-cards">
+                      <div className="fin-card navy"><div className="fc-v">{fmtM(f.invoiced)}</div><div className="fc-l">Invoiced</div><div className="fc-s">{f.invoices} invoices · avg {f.avg_invoice != null ? fmtM(f.avg_invoice) : "—"}</div></div>
+                      <div className="fin-card green"><div className="fc-v">{fmtM(f.collected)}</div><div className="fc-l">Collected</div><div className="fc-s">{f.collection_rate != null ? f.collection_rate + "% collection rate" : "—"}</div></div>
+                      <div className="fin-card amber"><div className="fc-v">{fmtM(f.outstanding)}</div><div className="fc-l">Outstanding</div><div className="fc-s">awaiting payment</div></div>
+                      <div className="fin-card red"><div className="fc-v">{fmtM(f.overdue_amt)}</div><div className="fc-l">Overdue A/R</div><div className="fc-s">{f.overdue_n} invoices past due</div></div>
+                    </div>
+
+                    <div className="ds-block-h">Accounts receivable · aging</div>
+                    <div className="fin-aging-bar">
+                      {agSeg.map(([lbl, v, c]) => v > 0 ? <span key={lbl} style={{ width: `${(v / agTot) * 100}%`, background: c }} title={`${lbl}: ${fmtM(v)}`} /> : null)}
+                    </div>
+                    <div className="fin-aging-legend">
+                      {agSeg.map(([lbl, v, c]) => (
+                        <span key={lbl} className="fin-ag-item"><i style={{ background: c }} />{lbl}<b>{fmtM(v)}</b></span>
+                      ))}
+                    </div>
+
+                    <div className="fin-grid">
+                      <div>
+                        <div className="ds-block-h">Cash collected · last 12 months</div>
+                        {f.trend.length ? <BarList items={f.trend.map((t) => ({ label: t.month, value: t.collected }))} money color="#16a34a" /> : <div className="empty-s">No invoices in range</div>}
+                      </div>
+                      <div>
+                        <div className="ds-block-h">Top clients by revenue</div>
+                        {f.top_clients.length ? <BarList items={f.top_clients.map((c) => ({ label: c.client, value: c.paid }))} money /> : <div className="empty-s">No client revenue in range</div>}
+                      </div>
+                    </div>
+
+                    <div className="fin-foot">Stripe card payments this period: <b>{fmtM(f.stripe_processed)}</b> processed · {fmtM(f.stripe_net)} net · {fmtM(f.stripe_fees)} fees{f.stripe_refunds ? ` · ${fmtM(f.stripe_refunds)} refunded` : ""} ({f.stripe_charges} charges). KPIs are scoped to the selected period; the trend &amp; A/R aging are point-in-time. Company-wide — finance contacts aren&apos;t linked to client folders.</div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
       {sourcesModal && (() => {
-        const SRC: Record<string, string> = { hub: "Hubstaff", cu: "ClickUp", keka: "Keka", int: "Internal" };
+        const SRC: Record<string, string> = { hub: "Hubstaff", cu: "ClickUp", keka: "Keka", missive: "Missive", xero: "Xero", stripe: "Stripe", int: "Internal" };
         const tag = (s: string) => <span className={`ds-tag ${s}`} key={s}>{SRC[s]}</span>;
         const groups: { title: string; icon: React.ReactNode; rows: { field: string; how: string; src: string[] }[] }[] = [
           { title: "Time & activity", icon: <Clock size={14} />, rows: [
-            { field: "Tracked hours", how: "Time tracked in Hubstaff (per activity)", src: ["hub"] },
-            { field: "Activity %", how: "Keyboard + mouse activity ÷ tracked time", src: ["hub"] },
-            { field: "Billable / Non-billable", how: "Hubstaff task marked “NB” = non-billable, else billable", src: ["hub"] },
+            { field: "Tracked hours", how: "Time tracked in Hubstaff (per activity), converted to hours", src: ["hub"] },
+            { field: "Active hours", how: "Hubstaff “overall” time that had real keyboard + mouse activity", src: ["hub"] },
+            { field: "Billable / Non-billable", how: "Non-billable if the department is internal (HR / Admin / Marketing) or the task name has an “NB” tag", src: ["hub", "cu"] },
+          ] },
+          { title: "Capacity & utilization", icon: <Gauge size={14} />, rows: [
+            { field: "Office hours (capacity)", how: "Keka — present days only, each day = net shift (shift − break) plus that day’s approved overtime", src: ["keka"] },
+            { field: "Utilization %", how: "Tracked hours ÷ Office hours", src: ["hub", "keka"] },
+            { field: "Productivity %", how: "Billable share of tracked time (Billable ÷ Tracked)", src: ["hub"] },
           ] },
           { title: "Tasks & delivery", icon: <Check size={14} />, rows: [
             { field: "Task", how: "ClickUp task name; falls back to the Hubstaff task summary", src: ["cu", "hub"] },
             { field: "Estimate (Est)", how: "ClickUp “time estimate” on the task", src: ["cu"] },
-            { field: "Status · Due · Priority", how: "Directly from the ClickUp task", src: ["cu"] },
-            { field: "Completion", how: "ClickUp status (done/closed) or done-date", src: ["cu"] },
+            { field: "Efficiency %", how: "Estimate ÷ Tracked — ≥100% means delivered at or under estimate", src: ["cu", "hub"] },
+            { field: "On-estimate %", how: "Tasks finished within estimate ÷ tasks that have an estimate", src: ["cu", "hub"] },
+            { field: "Status · Due · Priority · Done", how: "Directly from the ClickUp task (done = closed/done status or a done-date)", src: ["cu"] },
           ] },
           { title: "Team · client · project", icon: <Network size={14} />, rows: [
             { field: "Team", how: "ClickUp space; fallback = project name before the “ / ”", src: ["cu", "hub"] },
             { field: "Client", how: "ClickUp folder; fallback = project name after the “ / ”", src: ["cu", "hub"] },
             { field: "Project", how: "Hubstaff project name, formatted “Team / Client”", src: ["hub"] },
           ] },
-          { title: "Budget", icon: <Briefcase size={14} />, rows: [
+          { title: "Budget & revenue", icon: <Briefcase size={14} />, rows: [
             { field: "Client budget", how: "Set by admin in Client budgets (monthly hours)", src: ["int"] },
-            { field: "Budget used %", how: "Tracked hours ÷ client budget (period-scaled)", src: ["int"] },
+            { field: "Budget used %", how: "Tracked hours ÷ client budget, scaled to the selected period", src: ["int", "hub"] },
+            { field: "Revenue", how: "Billable hours × pay rate (Hubstaff member; defaults to $40 when missing)", src: ["hub", "int"] },
+            { field: "Invoices · Payments", how: "Xero invoices and Stripe charges, by date", src: ["xero", "stripe"] },
           ] },
-          { title: "People & capacity", icon: <Users size={14} />, rows: [
-            { field: "Office hours / capacity", how: "Keka attendance — present days only, capped at shift − break", src: ["keka"] },
-            { field: "Attendance · Overtime · Late", how: "Keka daily Performance Report", src: ["keka"] },
+          { title: "People & attendance", icon: <Users size={14} />, rows: [
+            { field: "Attendance %", how: "Present days ÷ scheduled days (Keka)", src: ["keka"] },
+            { field: "Overtime · Late · Short hours", how: "Keka daily Performance Report", src: ["keka"] },
             { field: "Department · Team · Transfers", how: "Employee mapping + dated team history", src: ["int"] },
-            { field: "Revenue", how: "Billable hours × pay rate (Hubstaff member)", src: ["hub", "int"] },
+          ] },
+          { title: "Client comms & sentiment", icon: <Send size={14} />, rows: [
+            { field: "Messages", how: "Missive conversations, matched to a client by label = client folder name", src: ["missive"] },
+            { field: "Sentiment %", how: "Positive / Neutral / Concerned messages ÷ total messages", src: ["missive"] },
+            { field: "Complaints · Follow-ups", how: "Messages flagged from their Missive content", src: ["missive"] },
           ] },
         ];
+        const PCTS: { k: string; f: string }[] = [
+          { k: "Utilization %", f: "Tracked hrs ÷ Office hrs × 100" },
+          { k: "Activity %", f: "Active hrs ÷ Tracked hrs × 100" },
+          { k: "Productivity %", f: "Billable hrs ÷ Tracked hrs × 100" },
+          { k: "Billable %", f: "Billable hrs ÷ Tracked hrs × 100" },
+          { k: "Efficiency %", f: "Estimate ÷ Tracked × 100" },
+          { k: "On-estimate %", f: "Tasks within estimate ÷ tasks with estimate × 100" },
+          { k: "Budget used %", f: "Tracked hrs ÷ Budget hrs × 100" },
+          { k: "Attendance %", f: "Present days ÷ Scheduled days × 100" },
+          { k: "Sentiment %", f: "Positive msgs ÷ Total msgs × 100" },
+          { k: "Task variance %", f: "(Tracked − Estimate) ÷ Estimate × 100" },
+        ];
+        const SOURCES: { key: string; name: string; provides: string; noLive?: boolean }[] = [
+          { key: "hub", name: "Hubstaff", provides: "Time tracking · activity · billable hours" },
+          { key: "cu", name: "ClickUp", provides: "Tasks · estimates · status · team & client" },
+          { key: "keka", name: "Keka", provides: "Attendance · office hours · overtime" },
+          { key: "missive", name: "Missive", provides: "Client messages · sentiment" },
+          { key: "xero", name: "Xero", provides: "Invoices" },
+          { key: "stripe", name: "Stripe", provides: "Payments" },
+          { key: "int", name: "Internal", provides: "Budgets · employee mapping · team history", noLive: true },
+        ];
+        const dh = dataHealth || [];
+        const liveBy = (name: string) => dh.find((x) => x.source === name) || null;
+        const tdy = new Date().toISOString().slice(0, 10);
+        const dAgo = (d: string | null) => d ? Math.round((Date.parse(tdy) - Date.parse(d)) / 86400000) : null;
+        const fr = (last: string | null, rows: number) => { const a = dAgo(last); return rows === 0 || a == null ? "none" : a <= 7 ? "ok" : a <= 30 ? "warn" : "stale"; };
+        const compact = (n: number) => n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e3 ? Math.round(n / 1e3) + "K" : String(n);
+        const liveSrc = SOURCES.filter((s) => !s.noLive);
+        const connected = liveSrc.filter((s) => (liveBy(s.name)?.rows || 0) > 0).length;
+        const totalRows = dh.reduce((a, x) => a + (x.rows || 0), 0);
+        const latest = dh.map((x) => x.last).filter(Boolean).sort().slice(-1)[0] || null;
+        const ageingN = dh.filter((x) => fr(x.last, x.rows) === "warn").length;
+        const staleN = dh.filter((x) => ["stale", "none"].includes(fr(x.last, x.rows))).length;
+        const freshLbl = staleN ? `${staleN} stale` : ageingN ? `${ageingN} ageing` : "All current";
+        const statusLbl: Record<string, string> = { ok: "current", warn: "ageing", stale: "stale", none: "no data" };
         return (
           <div className="modal-bg" onClick={() => setSourcesModal(false)}>
             <div className="modal wide" onClick={(e) => e.stopPropagation()}>
@@ -2613,19 +3153,41 @@ export default function CommandCenter({
                 <div className="modal-x" onClick={() => setSourcesModal(false)}><X size={16} /></div>
               </div>
               <div className="modal-b">
-                <div className="ds-flow">
-                  <span className="ds-sys hub">Hubstaff</span>
-                  <span className="ds-plus">+</span>
-                  <span className="ds-sys cu">ClickUp</span>
-                  <span className="ds-plus">+</span>
-                  <span className="ds-sys keka">Keka</span>
-                  <ArrowRight size={16} className="ds-arrow" />
-                  <span className="ds-sys app">Finovate Insight</span>
+                <div className="ds-strip">
+                  <div className="ds-stat"><div className="v">{connected}<span className="u"> / {liveSrc.length}</span></div><div className="l">Sources connected</div></div>
+                  <div className="ds-stat"><div className="v">{dh.length ? compact(totalRows) : "—"}</div><div className="l">Records ingested</div></div>
+                  <div className="ds-stat"><div className="v">{latest ? shortDate(latest) : "—"}</div><div className="l">Latest data</div></div>
+                  <div className="ds-stat"><div className="v">{dh.length ? freshLbl : "—"}</div><div className="l">Freshness</div></div>
                 </div>
+
+                <div className="ds-block-h">Connected sources</div>
+                <table className="hd-table ds-srctable">
+                  <thead><tr><th className="l">Source</th><th className="l">Provides</th><th>Records</th><th>Last synced</th><th>Status</th></tr></thead>
+                  <tbody>
+                    {SOURCES.map((s) => {
+                      const lv = s.noLive ? null : liveBy(s.name);
+                      const cls = s.noLive ? "int" : fr(lv?.last ?? null, lv?.rows ?? 0);
+                      return (
+                        <tr key={s.key}>
+                          <td className="l"><span className={`ds-dot ${s.key}`} /><b>{s.name}</b></td>
+                          <td className="l ds-prov">{s.provides}</td>
+                          <td className="num">{s.noLive ? "—" : (lv?.rows ? compact(lv.rows) : "0")}</td>
+                          <td className="num">{s.noLive ? "—" : (lv?.last ? shortDate(lv.last) : "no data")}</td>
+                          <td className="num">{s.noLive ? <span className="ds-badge int">internal</span> : <span className={`ds-badge ${cls}`}>{statusLbl[cls]}</span>}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+
+                <div className="ds-block-h">How the systems connect</div>
                 <div className="ds-bridges">
                   <div className="ds-bridge"><b>Hubstaff task ↔ ClickUp task</b><span>linked by <code>remote_id = task_id</code></span></div>
                   <div className="ds-bridge"><b>Employee ↔ ClickUp / Keka</b><span>matched via Employee mapping (name &amp; IDs)</span></div>
+                  <div className="ds-bridge"><b>Missive ↔ Client</b><span>matched by <code>label = client folder</code></span></div>
                 </div>
+
+                <div className="ds-block-h">Metric reference</div>
                 {groups.map((g) => (
                   <div className="ds-group" key={g.title}>
                     <div className="ds-group-h">{g.icon}{g.title}</div>
@@ -2640,7 +3202,18 @@ export default function CommandCenter({
                     </div>
                   </div>
                 ))}
-                <div className="ds-note">Static reference · nothing here changes your data. Updated whenever Hubstaff, ClickUp or Keka sync.</div>
+                <div className="ds-block-h">How the percentages are calculated</div>
+                <div className="ds-group">
+                  <div className="ds-pcts">
+                    {PCTS.map((p) => (
+                      <div className="ds-pct" key={p.k}>
+                        <span className="ds-pct-k">{p.k}</span>
+                        <span className="ds-pct-f">{p.f}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="ds-note">Static reference · nothing here changes your data. Updated whenever a connected source (Hubstaff, ClickUp, Keka, Missive, Xero, Stripe) syncs.</div>
               </div>
             </div>
           </div>
@@ -2666,6 +3239,22 @@ export default function CommandCenter({
             </div>
             <div className="modal-b">
             {usersTab === "users" && (<>
+              {usersData && (() => {
+                const us = usersData.users;
+                const active = us.filter((u) => u.status === "active").length;
+                const pending = us.filter((u) => u.status === "invited").length;
+                const disabled = us.filter((u) => u.status === "disabled").length;
+                const privileged = us.filter((u) => u.role === "owner" || u.role === "manager").length;
+                return (
+                  <div className="ds-strip" style={{ marginBottom: 16 }}>
+                    <div className="ds-stat"><div className="v">{us.length}</div><div className="l">Accounts</div></div>
+                    <div className="ds-stat"><div className="v">{active}</div><div className="l">Active</div></div>
+                    <div className="ds-stat"><div className="v">{pending}</div><div className="l">Pending invite</div></div>
+                    <div className="ds-stat"><div className="v">{disabled}</div><div className="l">Disabled</div></div>
+                    <div className="ds-stat"><div className="v">{privileged}</div><div className="l">Admins</div></div>
+                  </div>
+                );
+              })()}
               {/* create form */}
               <div className="usr-create">
                 <div className="usr-create-row">
@@ -2702,34 +3291,63 @@ export default function CommandCenter({
                 )}
               </div>
               {/* list */}
-              {!usersData ? <div className="loading" style={{ height: 120 }}><span className="spin" /> Loading…</div> : (
-                <div className="scrollwrap" style={{ maxHeight: 380 }}>
-                  <table className="hd-table">
-                    <thead><tr><th className="l">User</th><th className="l">Role</th><th className="l">Status</th><th className="l">Last login</th><th>Actions</th></tr></thead>
-                    <tbody>
-                      {usersData.users.map((u) => (
-                        <tr key={u.id}>
-                          <td className="l"><div className="usr-cell"><b>{u.full_name || u.email}</b><i>{u.email}{u.scope_team ? ` · ${u.scope_team}` : ""}</i></div></td>
-                          <td className="l"><span className={`urole ${u.role}`}>{u.role}</span></td>
-                          <td className="l"><span className={`ustat ${u.status}`}>{u.status}</span></td>
-                          <td className="l" style={{ color: "var(--muted)" }}>{u.last_login || "—"}</td>
-                          <td className="num">
-                            {u.role !== "owner" && (
-                              <div className="usr-acts">
-                                {u.status !== "active" && <button onClick={() => doResend(u.id)} title="Resend invite">Resend</button>}
-                                {u.status === "active" && <button onClick={() => doReset(u.id)} title="Issue a password-reset link">Reset password</button>}
-                                {u.status === "disabled"
-                                  ? <button onClick={() => toggleUser(u.id, true)} title="Enable">Enable</button>
-                                  : <button className="danger" onClick={() => toggleUser(u.id, false)} title="Disable">Disable</button>}
-                              </div>
-                            )}
-                          </td>
-                        </tr>
+              {!usersData ? <div className="loading" style={{ height: 120 }}><span className="spin" /> Loading…</div> : (() => {
+                const RR: Record<string, number> = { owner: 0, manager: 1, lead: 2, employee: 3 };
+                const SR: Record<string, number> = { active: 0, invited: 1, disabled: 2 };
+                const q = usrQuery.trim().toLowerCase();
+                const list = usersData.users
+                  .filter((u) => usrFilter === "all" || u.status === usrFilter)
+                  .filter((u) => usrRole === "all" || u.role === usrRole)
+                  .filter((u) => !q || (u.full_name || "").toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || (u.scope_team || "").toLowerCase().includes(q))
+                  .sort((a, b) => (SR[a.status] ?? 9) - (SR[b.status] ?? 9) || (RR[a.role] ?? 9) - (RR[b.role] ?? 9) || (a.full_name || a.email).localeCompare(b.full_name || b.email));
+                const exportCsv = () => {
+                  const head = ["Name", "Email", "Role", "Status", "Scope", "Last login"];
+                  const rows = list.map((u) => [u.full_name || "", u.email, u.role, u.status, u.scope_team || "", u.last_login || ""].map((c) => `"${String(c).replace(/"/g, '""')}"`).join(","));
+                  const blob = new Blob([[head.join(","), ...rows].join("\n")], { type: "text/csv" });
+                  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "users.csv"; a.click();
+                };
+                return (<>
+                  <div className="usr-toolbar">
+                    <div className="usr-search"><Search size={13} /><input placeholder="Search name, email, team…" value={usrQuery} onChange={(e) => setUsrQuery(e.target.value)} /></div>
+                    <div className="bseg usr-seg" role="group">
+                      {(["all", "active", "invited", "disabled"] as const).map((s) => (
+                        <button key={s} type="button" className={usrFilter === s ? "on" : ""} onClick={() => setUsrFilter(s)}>{s === "all" ? "All" : s[0].toUpperCase() + s.slice(1)}</button>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
+                    </div>
+                    <select className="usr-in usr-rolef" value={usrRole} onChange={(e) => setUsrRole(e.target.value)}>
+                      <option value="all">All roles</option><option value="owner">Owner</option><option value="manager">Manager</option><option value="lead">Lead</option><option value="employee">Employee</option>
+                    </select>
+                    <button className="usr-export" onClick={exportCsv} title="Export to CSV"><Download size={13} />CSV</button>
+                  </div>
+                  <div className="usr-count">Showing <b>{list.length}</b> of {usersData.users.length}</div>
+                  <div className="scrollwrap" style={{ maxHeight: 360 }}>
+                    <table className="hd-table">
+                      <thead><tr><th className="l">User</th><th className="l">Role</th><th className="l">Status</th><th className="l">Last login</th><th>Actions</th></tr></thead>
+                      <tbody>
+                        {list.length === 0 ? <tr><td colSpan={5}><div className="empty-s" style={{ padding: 28 }}>No users match.</div></td></tr> : list.map((u) => (
+                          <tr key={u.id}>
+                            <td className="l"><div className="usr-cell2"><span className={`usr-av ${u.role}`}>{initials(u.full_name || u.email)}</span><div className="usr-cn"><b>{u.full_name || u.email}</b><i>{u.email}{u.scope_team ? ` · ${u.scope_team}` : ""}</i></div></div></td>
+                            <td className="l"><span className={`urole ${u.role}`}>{u.role}</span></td>
+                            <td className="l"><span className={`ustat ${u.status}`}>{u.status}</span></td>
+                            <td className="l" style={{ color: "var(--muted)" }}>{u.last_login || "—"}</td>
+                            <td className="num">
+                              {u.role !== "owner" && (
+                                <div className="usr-acts">
+                                  {u.status !== "active" && <button onClick={() => doResend(u.id)} title="Resend invite">Resend</button>}
+                                  {u.status === "active" && <button onClick={() => doReset(u.id)} title="Issue a password-reset link">Reset password</button>}
+                                  {u.status === "disabled"
+                                    ? <button onClick={() => toggleUser(u.id, true)} title="Enable">Enable</button>
+                                    : <button className="danger" onClick={() => toggleUser(u.id, false)} title="Disable">Disable</button>}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>);
+              })()}
             </>)}
             {usersTab === "email" && (
               <div className="email-cfg">

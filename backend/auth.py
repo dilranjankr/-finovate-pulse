@@ -128,25 +128,35 @@ def smtp_configured() -> bool:
 def _invite_html(name: str, owner: str, link: str) -> str:
     greeting = f"Hi {name}," if name else "Hi,"
     return f"""\
-<!doctype html><html><body style="margin:0;background:#f4f6f8;padding:32px 0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+<!doctype html><html><body style="margin:0;background:#eef1f5;padding:40px 0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
-    <table role="presentation" width="520" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e6e9ee;">
-      <tr><td style="padding:26px 32px 18px;border-bottom:1px solid #eef1f4;">
-        <span style="font-size:18px;font-weight:800;letter-spacing:.04em;color:#0f2742;">FINOVATE</span>
-        <span style="font-size:13px;color:#7a8699;font-weight:600;"> &nbsp;Insight</span>
+    <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:560px;max-width:92%;background:#ffffff;border:1px solid #dfe3ea;border-radius:4px;">
+      <tr><td style="height:3px;background:#0f2742;font-size:0;line-height:0;">&nbsp;</td></tr>
+      <tr><td style="padding:30px 40px 0;">
+        <div style="font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#9aa4b2;">Finovate</div>
+        <div style="font-size:21px;font-weight:700;letter-spacing:-.01em;color:#0f2742;margin-top:2px;">Insight</div>
       </td></tr>
-      <tr><td style="padding:28px 32px 8px;color:#1d2735;font-size:14px;line-height:1.6;">
-        <p style="margin:0 0 14px;">{greeting}</p>
-        <p style="margin:0 0 14px;">{owner} has created an account for you on <strong>Finovate Insight</strong>, our operations dashboard.</p>
-        <p style="margin:0 0 22px;">To get started, set your password and sign in:</p>
-        <p style="margin:0 0 24px;">
-          <a href="{link}" style="display:inline-block;background:#0f2742;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 26px;border-radius:8px;">Set your password &rarr;</a>
-        </p>
-        <p style="margin:0 0 6px;color:#6b7686;font-size:12.5px;">This link is valid for {INVITE_HOURS} hours and can be used once. If it expires, ask {owner} to send a new invite.</p>
-        <p style="margin:0;color:#6b7686;font-size:12.5px;">Didn't expect this email? You can safely ignore it.</p>
+      <tr><td style="padding:26px 40px 0;color:#1d2735;font-size:15px;line-height:1.65;">
+        <p style="margin:0 0 16px;">{greeting}</p>
+        <p style="margin:0 0 16px;">{owner} has set up an account for you on <strong style="font-weight:600;">Finovate Insight</strong> — the team&rsquo;s operations dashboard.</p>
+        <p style="margin:0 0 26px;">Set your password to activate your account and sign in.</p>
       </td></tr>
-      <tr><td style="padding:18px 32px 26px;border-top:1px solid #eef1f4;color:#9aa4b2;font-size:11.5px;">
-        Finovate Insight &middot; Confidential — for internal use only.
+      <tr><td style="padding:0 40px 26px;">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="background:#0f2742;border-radius:4px;">
+          <a href="{link}" style="display:inline-block;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:13px 30px;">Set your password</a>
+        </td></tr></table>
+      </td></tr>
+      <tr><td style="padding:0 40px 28px;">
+        <p style="margin:0 0 8px;color:#6b7686;font-size:12.5px;line-height:1.6;">Or paste this link into your browser:</p>
+        <p style="margin:0;font-size:12px;color:#3a6ea5;word-break:break-all;line-height:1.5;">{link}</p>
+      </td></tr>
+      <tr><td style="padding:0 40px 30px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td style="border-top:1px solid #eef1f4;padding-top:18px;color:#8a94a4;font-size:12px;line-height:1.6;">
+          This link is valid for {INVITE_HOURS} hours and can be used once. If it expires, ask {owner} for a new invite. If you weren&rsquo;t expecting this email, you can safely ignore it.
+        </td></tr></table>
+      </td></tr>
+      <tr><td style="padding:16px 40px;background:#f7f8fa;border-top:1px solid #eef1f4;color:#9aa4b2;font-size:11px;border-radius:0 0 4px 4px;">
+        Finovate Insight &middot; Confidential — for internal use only
       </td></tr>
     </table>
   </td></tr></table>

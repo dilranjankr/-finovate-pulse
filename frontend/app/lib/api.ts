@@ -59,7 +59,7 @@ export interface TopEmp {
   utilization: number; activity: number; active_tasks: number; task_status: string;
 }
 export interface ClientRow {
-  client: string; hours: number; active: boolean; category: string;
+  client: string; hours: number; billable: number; non_billable: number; active: boolean; category: string;
   active_tasks: number; total_tasks: number;
 }
 
@@ -386,10 +386,68 @@ export async function getFocus(kind: string, name: string, f: Filters, client?: 
   return r.json();
 }
 
+export async function refreshData(): Promise<{ ok: boolean; last?: string | null; error?: string }> {
+  const r = await authedFetch(`${API}/api/refresh`, { method: "POST" });
+  if (!r.ok) throw new Error("refresh failed");
+  return r.json();
+}
 export interface DataHealth { sources: { source: string; last: string | null; rows: number }[] }
 export async function getDataHealth(): Promise<DataHealth> {
   const r = await authedFetch(`${API}/api/data_health`, { cache: "no-store" });
   if (!r.ok) throw new Error("data_health failed");
+  return r.json();
+}
+
+export interface Financials {
+  has_data: boolean;
+  invoiced: number; collected: number; outstanding: number; invoices: number;
+  collection_rate: number | null; avg_invoice: number | null;
+  overdue_amt: number; overdue_n: number;
+  aging: { current: number; d1_30: number; d31_60: number; d60p: number };
+  stripe_processed: number; stripe_net: number; stripe_fees: number; stripe_refunds: number; stripe_charges: number;
+  trend: { month: string; invoiced: number; collected: number }[];
+  top_clients: { client: string; paid: number; billed: number }[];
+  error?: string;
+}
+export async function getFinancials(f: Filters): Promise<Financials> {
+  const qs = new URLSearchParams();
+  if (f.date_from) qs.set("date_from", f.date_from);
+  if (f.date_to) qs.set("date_to", f.date_to);
+  const r = await authedFetch(`${API}/api/financials?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("financials failed");
+  return r.json();
+}
+
+export interface ReportLink { token: string; link: string; created: string; expires: string | null; revoked: boolean; expired: boolean; }
+export async function createReportLink(client: string, date_from?: string, date_to?: string): Promise<{ token: string; link: string }> {
+  const r = await authedFetch(`${API}/api/report_links`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client, date_from, date_to }) });
+  if (!r.ok) throw new Error("create link failed");
+  return r.json();
+}
+export async function listReportLinks(client: string): Promise<{ links: ReportLink[] }> {
+  const r = await authedFetch(`${API}/api/report_links?client=${encodeURIComponent(client)}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("list links failed");
+  return r.json();
+}
+export async function revokeReportLink(token: string): Promise<{ ok: boolean }> {
+  const r = await authedFetch(`${API}/api/report_links/${token}/revoke`, { method: "POST" });
+  if (!r.ok) throw new Error("revoke failed");
+  return r.json();
+}
+export interface PublicReport {
+  found: boolean; client?: string; period?: string | null; as_of?: string | null; range?: string;
+  hours?: number; billable?: number; billable_pct?: number | null; hours_delta?: number | null; people?: number;
+  active_days?: number; avg_per_day?: number | null; weekly?: { week: string; hours: number }[];
+  budget?: number | null; used_pct?: number | null; status?: "over" | "under" | "on_track";
+  tasks_total?: number; tasks_done?: number; delivery_pct?: number | null; est_hours?: number;
+  status_mix?: { done: number; in_progress: number; review: number; overdue: number };
+  trend?: { month: string; hours: number }[];
+  top_tasks?: { task: string; status: string; hours: number }[];
+  error?: string;
+}
+export async function getPublicReport(token: string): Promise<PublicReport> {
+  const r = await fetch(`${API}/api/public/report/${encodeURIComponent(token)}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("report failed");
   return r.json();
 }
 
@@ -552,6 +610,30 @@ export interface WorkforceData {
   overtime_h: number; short_h: number; late_days: number;
   cross_team_pct: number; cross_team_h: number; total_tracked_h: number;
   funnel: { office_h: number; tracked_h: number; billable_h: number };
+}
+export interface WorkforceDetailRow {
+  name: string; department: string; present_days: number | null;
+  overtime_h: number; net_h: number; short_h: number;
+  office_h: number; tracked_h: number; billable_h: number; util: number;
+}
+export interface WorkforceDetail {
+  rows: WorkforceDetailRow[];
+  totals: { office_h: number; tracked_h: number; billable_h: number };
+}
+export async function getWorkforceDetail(f: Filters): Promise<WorkforceDetail> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await authedFetch(`${API}/api/workforce/detail?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("workforce detail failed");
+  return r.json();
+}
+export interface WorkforceDay { date: string; dow: string; office_h: number; tracked_h: number; billable_h: number; util: number; }
+export async function getWorkforceDaily(f: Filters): Promise<{ days: WorkforceDay[] }> {
+  const qs = new URLSearchParams();
+  Object.entries(f).forEach(([k, v]) => { if (v) qs.set(k, v); });
+  const r = await authedFetch(`${API}/api/workforce/daily?${qs.toString()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error("workforce daily failed");
+  return r.json();
 }
 export async function getWorkforce(f: Filters): Promise<WorkforceData> {
   const qs = new URLSearchParams();

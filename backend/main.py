@@ -115,6 +115,7 @@ def _auth_startup():
         _ensure_app_settings()
         _ensure_keka()
         _ensure_audit()
+        _ensure_report_links()
         _bootstrap_owner()
         print(f"[auth] ready. owner = {auth.owner_email()}")
     except Exception as e:  # noqa
@@ -122,6 +123,7 @@ def _auth_startup():
     # Warm the heavy data cache in the background so the FIRST dashboard request
     # after a (re)deploy is fast instead of waiting ~30-50s for the aggregation.
     import threading
+    import time as _time
 
     def _warm():
         try:
@@ -129,7 +131,32 @@ def _auth_startup():
             print("[warm] data cache ready")
         except Exception as e:  # noqa
             print(f"[warm] skipped: {str(e)[:120]}")
+
+    # Auto-refresh: the aggregated dataset is held in memory (lru_cache), so on a
+    # long-running server NEW rows synced to the DB would not appear until a restart.
+    # This reloads fresh data in the background on an interval (default 30 min) so the
+    # dashboard stays current without a redeploy. Tune via DATA_REFRESH_MIN; 0 disables.
+    _refresh_min = int(os.environ.get("DATA_REFRESH_MIN", "30") or 30)
+
+    def _auto_refresh():
+        if _refresh_min <= 0:
+            return
+        while True:
+            _time.sleep(max(5, _refresh_min) * 60)
+            try:
+                load.cache_clear()
+                try:
+                    keka_effective_hours.cache_clear()
+                except Exception:  # noqa
+                    pass
+                load()                 # recompute fresh in the background
+                _clear_resp_cache()    # drop stale per-request responses
+                print(f"[refresh] data reloaded (interval {_refresh_min} min)")
+            except Exception as e:  # noqa
+                print(f"[refresh] failed: {str(e)[:120]}")
+
     threading.Thread(target=_warm, daemon=True).start()
+    threading.Thread(target=_auto_refresh, daemon=True).start()
 
 
 # Per-request data scope (set of allowed hubstaff_user_ids; None = all). Set by
@@ -152,6 +179,20 @@ def _ensure_audit():
             detail TEXT
         )""")
     db.execute("CREATE INDEX IF NOT EXISTS audit_ts_idx ON audit_log(ts DESC)")
+
+
+def _ensure_report_links():
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS client_report_links (
+            token TEXT PRIMARY KEY,
+            client TEXT NOT NULL,
+            created_by TEXT,
+            created_at TIMESTAMPTZ DEFAULT now(),
+            expires_at TIMESTAMPTZ,
+            revoked BOOLEAN DEFAULT false
+        )""")
+    for col in ("date_from", "date_to"):
+        db.execute(f"ALTER TABLE client_report_links ADD COLUMN IF NOT EXISTS {col} TEXT")
 
 
 def _audit(action: str, target: str = "", detail: str = "", actor: dict | None = None):
@@ -361,7 +402,8 @@ class AuthScopeMiddleware:
             return await self.app(scope, receive, send)
         path = scope.get("path", ""); method = scope.get("method", "")
         if (method == "OPTIONS" or not _auth_enabled() or path in _AUTH_OPEN
-                or path.startswith("/api/auth/") or not path.startswith("/api")):
+                or path.startswith("/api/auth/") or path.startswith("/api/public/")
+                or not path.startswith("/api")):
             return await self.app(scope, receive, send)
         headers = {k.decode().lower(): v.decode() for k, v in scope.get("headers", [])}
         authz = headers.get("authorization", "")
@@ -1026,6 +1068,155 @@ def workforce(date_from: Optional[str] = None, date_to: Optional[str] = None,
     return clean(out)
 
 
+@app.get("/api/workforce/detail")
+@_memo
+def workforce_detail(date_from: Optional[str] = None, date_to: Optional[str] = None,
+                     department: Optional[str] = None, atl: Optional[str] = None,
+                     employee: Optional[str] = None, client: Optional[str] = None,
+                     client_type: Optional[str] = None, billable: Optional[str] = None,
+                     status: Optional[str] = None):
+    """Per-employee breakdown behind the Office / Tracked / Billable funnel — the rows
+    that ADD UP to each headline number. Loaded ON DEMAND when a user clicks a number,
+    so it is fully decoupled from the /api/workforce section render (a failure here can
+    never hide the section)."""
+    members, g = load()
+    f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
+         "employee": employee, "client": client, "client_type": client_type,
+         "billable": billable, "status": status}
+    _, d = apply_filters(members, g, f)
+    if d.empty:
+        return {"rows": [], "totals": {"office_h": 0, "tracked_h": 0, "billable_h": 0}}
+    df_, dt_ = str(d["date_s"].min()), str(d["date_s"].max())
+    uids = {str(u) for u in d["user_id"].unique()}
+    name_map_s = {str(k): v for k, v in zip(members["user_id"], members["name"])}
+    _home, dept_map = _hr_team_dept_maps(date_to or date_from)
+    d2 = d.copy(); d2["uid_s"] = d2["user_id"].astype(str)
+    tb = d2.groupby("uid_s").agg(tracked=("tracked_h", "sum"),
+                                 billable=("billable_h", "sum")).to_dict("index")
+    cap_s = {str(k): float(v) for k, v in _user_cap_hours(d).items()}
+    # one grouped Keka query → per-employee present / overtime / short
+    att, uid2nm = {}, {}
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
+                        "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
+                        "AND coalesce(hr_full_name,'')<>''")
+        names = sorted({str(x["nm"]) for _, x in hm.iterrows() if str(x["uid"]) in uids and x["nm"]})
+        if names:
+            for _, x in hm.iterrows():
+                if str(x["uid"]) in uids and x["nm"]:
+                    uid2nm[str(x["uid"])] = str(x["nm"])
+            krg = db.q_write("""
+                SELECT lower(trim(emp_name)) nm,
+                       round(sum(overtime_min)/60.0,1) ot,
+                       round(sum(short_eff_min) FILTER (WHERE effective_min>0)/60.0,1) sh,
+                       count(*) FILTER (WHERE effective_min>0) present
+                FROM keka_attendance
+                WHERE lower(trim(emp_name)) = ANY(:names) AND work_date BETWEEN :df AND :dt
+                GROUP BY 1
+            """, {"names": names, "df": df_, "dt": dt_})
+            att = {str(r["nm"]): r for _, r in krg.iterrows()}
+    except Exception:  # noqa
+        pass
+    def _f0(x):                            # float, with NaN/None coerced to 0.0 (JSON-safe)
+        try:
+            v = float(x)
+            return v if v == v else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+    rows = []
+    for u in uids:
+        office = _f0(cap_s.get(u, 0.0))
+        tr = _f0(tb.get(u, {}).get("tracked", 0.0))
+        bi = _f0(tb.get(u, {}).get("billable", 0.0))
+        a = att.get(uid2nm.get(u, "")); has_a = a is not None
+        ot = round(_f0(a["ot"]), 1) if has_a else 0
+        rows.append({
+            "name": name_map_s.get(u) or f"User {u}",
+            "department": dept_map.get(u) or "—",
+            "present_days": int(_f0(a["present"])) if has_a else None,
+            "overtime_h": ot, "net_h": round(max(0.0, office - ot), 1),
+            "short_h": round(_f0(a["sh"]), 1) if has_a else 0,
+            "office_h": round(office, 1), "tracked_h": round(tr, 1), "billable_h": round(bi, 1),
+            "util": round(tr / office * 100) if office else 0,
+        })
+    rows.sort(key=lambda r: r["office_h"], reverse=True)
+    totals = {"office_h": round(sum(r["office_h"] for r in rows)),
+              "tracked_h": round(sum(r["tracked_h"] for r in rows)),
+              "billable_h": round(sum(r["billable_h"] for r in rows))}
+    return clean({"rows": rows, "totals": totals})
+
+
+@app.get("/api/workforce/daily")
+@_memo
+def workforce_daily(date_from: Optional[str] = None, date_to: Optional[str] = None,
+                    department: Optional[str] = None, atl: Optional[str] = None,
+                    employee: Optional[str] = None, client: Optional[str] = None,
+                    client_type: Optional[str] = None, billable: Optional[str] = None,
+                    status: Optional[str] = None):
+    """Day-by-day office / tracked / billable for the selected period — same headline
+    numbers, split across the days that make them up. Loaded ON DEMAND from the calc
+    modal, fully decoupled from the /api/workforce section render."""
+    members, g = load()
+    f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
+         "employee": employee, "client": client, "client_type": client_type,
+         "billable": billable, "status": status}
+    _, d = apply_filters(members, g, f)
+    if d.empty:
+        return {"days": []}
+    daily = d.groupby("date_s").agg(tracked=("tracked_h", "sum"),
+                                    billable=("billable_h", "sum")).reset_index()
+    trk = {str(k): float(v) for k, v in zip(daily["date_s"], daily["tracked"])}
+    bil = {str(k): float(v) for k, v in zip(daily["date_s"], daily["billable"])}
+    # office hours per day from Keka for the filtered users (same policy as the funnel)
+    uids = {str(u) for u in d["user_id"].unique()}
+    office_by_day = {}
+    try:
+        hm = db.q_write("SELECT hubstaff_user_id uid, lower(trim(hr_full_name)) nm "
+                        "FROM employee_mapping WHERE coalesce(hubstaff_user_id,'')<>'' "
+                        "AND coalesce(hr_full_name,'')<>''")
+        names = sorted({str(x["nm"]) for _, x in hm.iterrows() if str(x["uid"]) in uids and x["nm"]})
+        if names:
+            oexpr = _office_expr("effective_min", "work_date")
+            kr = db.q_write(f"""
+                SELECT to_char(work_date,'YYYY-MM-DD') ds,
+                       sum({oexpr} + COALESCE(overtime_min,0))/60.0 office
+                FROM keka_attendance
+                WHERE lower(trim(emp_name)) = ANY(:names) AND work_date BETWEEN :df AND :dt
+                GROUP BY 1
+            """, {"names": names, "df": str(d["date_s"].min()), "dt": str(d["date_s"].max())})
+            office_by_day = {str(r["ds"]): float(r["office"] or 0) for _, r in kr.iterrows()}
+    except Exception:  # noqa
+        pass
+    # The funnel office adds an 8h/working-day fallback for staff WITHOUT Keka. That
+    # fallback isn't tied to specific punch days, so spread the difference (funnel
+    # office − Keka office) across days proportional to tracked activity — this makes
+    # the day-by-day office total reconcile EXACTLY to the headline office hours.
+    try:
+        funnel_office = sum(_user_cap_hours(d).values())
+        keka_total = sum(office_by_day.values())
+        fb = funnel_office - keka_total
+        tot_trk = sum(trk.values())
+        if fb > 0 and tot_trk > 0:
+            for ds, t in trk.items():
+                office_by_day[ds] = office_by_day.get(ds, 0.0) + fb * (t / tot_trk)
+    except Exception:  # noqa
+        pass
+    all_days = sorted(set(trk) | set(office_by_day))
+    days = []
+    for ds in all_days:
+        off_h = office_by_day.get(ds, 0.0)
+        tr = trk.get(ds, 0.0); bi = bil.get(ds, 0.0)
+        try:
+            dow = _dt.date.fromisoformat(ds).strftime("%a")
+        except Exception:
+            dow = ""
+        days.append({"date": ds, "dow": dow,
+                     "office_h": round(off_h, 1), "tracked_h": round(tr, 1),
+                     "billable_h": round(bi, 1),
+                     "util": round(tr / off_h * 100) if off_h else 0})
+    return clean({"days": days})
+
+
 @app.get("/api/keka/status")
 def keka_status(authorization: Optional[str] = Header(None)):
     _require(authorization, "owner")
@@ -1062,8 +1253,12 @@ def clean(o):
     if isinstance(o, (list, tuple)):
         return [clean(v) for v in o]
     if isinstance(o, np.generic):
-        return o.item()
+        o = o.item()                       # unwrap numpy scalar, then sanitize below
     if isinstance(o, float):
+        # NaN / ±inf are NOT JSON-compliant — json.dumps raises and the endpoint 500s.
+        # This must run BEFORE the round() so a NaN can never slip through as a float.
+        if o != o or o == float("inf") or o == float("-inf"):
+            return None
         return round(o, 2)
     if pd.isna(o) if np.isscalar(o) else False:
         return None
@@ -1483,7 +1678,8 @@ def load_from_db():
           SUM(COALESCE(a.overall,0) * 100) AS prod_w,
           SUM(CASE WHEN trim(COALESCE(ht.summary,'')) ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
                      OR trim(COALESCE(p.name,'')) ~* '(^|[^a-z0-9])nb([^a-z0-9]|$)'
-                   THEN COALESCE(a.tracked,0) ELSE 0 END) AS nb_sec
+                   THEN COALESCE(a.tracked,0) ELSE 0 END) AS nb_sec,
+          MAX(COALESCE(a.user_name,'')) AS user_name
         FROM hubstaff_activities a
         LEFT JOIN hubstaff_projects p ON p.id = a.project_id
         LEFT JOIN hubstaff_tasks ht ON ht.id = a.task_id
@@ -1586,15 +1782,17 @@ def load_from_db():
     last = g.groupby("user_id")["date_s"].max()
     gmax_d = pd.to_datetime(g["date_s"].max())
     name_map = dict(zip(mem["user_id"], mem["name"]))
-    # hubstaff_members.name is empty in this project — fall back to the denormalized
-    # activities.user_name so employees show real names instead of "User <id>".
+    # hubstaff_members.name is empty in this project — real names come from the
+    # denormalized activities.user_name, now carried IN `g` (the main query). Building
+    # the map from g (in-memory) means a transient DB hiccup can never blank everyone
+    # to "User <id>" — as long as the dashboard has data, it has names.
     try:
-        _nm = db.q("select user_id::text uid, max(user_name) un from hubstaff_activities "
-                   "where coalesce(user_name,'')<>'' group by 1")
-        for _u, _n in zip(_nm["uid"], _nm["un"]):
-            if not name_map.get(_u):
-                name_map[_u] = _n
-    except Exception:
+        if "user_name" in g.columns:
+            gnm = g.groupby("user_id")["user_name"].max().to_dict()
+            for _u, _n in gnm.items():
+                if not name_map.get(_u) and _n:
+                    name_map[_u] = str(_n)
+    except Exception:  # noqa
         pass
     rate_map = dict(zip(mem["user_id"], pd.to_numeric(mem["pay_rate"], errors="coerce")))
     role_map = dict(zip(mem["user_id"], mem["role"]))
@@ -1747,7 +1945,7 @@ def trend_pct(arr):
         return 0.0
     h = n // 2
     a, b = sum(arr[:h]), sum(arr[h:])
-    return round((b - a) / a * 100, 1) if a else 0.0
+    return round(min((b - a) / a * 100, 100.0), 1) if a else 0.0
 
 
 def spark(arr, k=24):
@@ -1833,12 +2031,17 @@ def _capacity_policies():
     return tuple(pols)
 
 
-def _day_office(p, eff="effective_min"):
-    """SQL: office minutes for ONE day under policy p — cap at shift, then deduct a
-    tiered break (short if worked <= threshold, else long), floored at 0."""
+def _day_office(p, eff="effective_min", status_col="status"):
+    """SQL: office minutes for ONE day under policy p.
+    Office (punch machine): effective includes the in-office break, so cap at the
+    shift then deduct a tiered break → net (~8h). WFH (Keka web clock-in): the logged
+    time is ALREADY net 8h work (break excluded), so do NOT deduct a break again —
+    just cap at the net shift. Detected via the Keka status containing 'WFH'."""
     g = f"LEAST({eff},{p['shift_min']})"
     brk = f"CASE WHEN {g} <= {p['threshold_min']} THEN {p['short_break_min']} ELSE {p['long_break_min']} END"
-    return f"GREATEST(0, {g} - ({brk}))"
+    office = f"GREATEST(0, {g} - ({brk}))"
+    wfh = f"LEAST({eff},{p['net_min']})"
+    return f"(CASE WHEN COALESCE({status_col},'') ILIKE '%WFH%' THEN {wfh} ELSE {office} END)"
 
 
 def _office_expr(eff="effective_min", col="work_date"):
@@ -2298,7 +2501,9 @@ def command(
         pv = prev.get(key, 0) or 0
         if pv == 0:
             return 100.0 if curv > 0 else 0.0
-        return round((curv - pv) / pv * 100, 1)
+        # Cap at +100%: a tiny previous base can blow the % up to thousands, which
+        # reads as noise. Downside is naturally bounded at -100% (values never < 0).
+        return round(min((curv - pv) / pv * 100, 100.0), 1)
 
     bill_pct = float(bill / total * 100) if total else 0.0
     avg_hpe = float(total / people) if people else 0.0
@@ -2441,6 +2646,8 @@ def command(
     # touch), not just the few that carry primary-mapped Hubstaff hours.
     cdim = clickup_intel()["clients"]
     hrs_by = d.groupby("client")["tracked_h"].sum().to_dict() if not empty else {}
+    bill_by = d.groupby("client")["billable_h"].sum().to_dict() if not empty else {}
+    nonb_by = d.groupby("client")["non_billable_h"].sum().to_dict() if not empty else {}
     scope_clients = set()
     if "client_set" in m.columns and not m.empty:
         for cs in m["client_set"]:
@@ -2450,6 +2657,8 @@ def command(
     for cl in scope_clients:
         info = cdim.get(cl, {})
         clients_summary.append({"client": cl, "hours": round(float(hrs_by.get(cl, 0.0)), 1),
+                                "billable": round(float(bill_by.get(cl, 0.0)), 1),
+                                "non_billable": round(float(nonb_by.get(cl, 0.0)), 1),
                                 "active": bool(info.get("active", False)),
                                 "category": info.get("category", "Project"),
                                 "active_tasks": int(info.get("active_tasks", 0)),
@@ -2615,6 +2824,252 @@ def data_health():
         except Exception:  # noqa — source table may be absent
             out.append({"source": label, "last": None, "rows": 0})
     return {"sources": out}
+
+
+@app.post("/api/refresh")
+def refresh_data(authorization: Optional[str] = Header(None)):
+    """Force a fresh reload of the aggregated dataset from the DB (drops the in-memory
+    caches and recomputes), so the dashboard reflects the very latest synced rows
+    on-demand — works on a deployed, long-running server without a redeploy."""
+    actor = _require(authorization, "owner", "manager", "lead")
+    try:
+        load.cache_clear()
+        try:
+            keka_effective_hours.cache_clear()
+        except Exception:  # noqa
+            pass
+        load()                 # recompute now so the next request is already warm
+        _clear_resp_cache()
+        last = None
+        try:
+            last = str(db.q("SELECT to_char(max(date),'YYYY-MM-DD') d FROM hubstaff_activities").iloc[0]["d"])
+        except Exception:  # noqa
+            pass
+        _audit("data.refresh", "", "manual data refresh", actor=actor)
+        return {"ok": True, "last": last}
+    except Exception as e:  # noqa
+        return {"ok": False, "error": str(e)[:150]}
+
+
+@app.get("/api/financials")
+@_memo
+def financials(date_from: Optional[str] = None, date_to: Optional[str] = None,
+               authorization: Optional[str] = Header(None)):
+    """Company-level finance: Xero (invoicing & A/R) + Stripe (card payments).
+    Owner/manager only. KPIs are period-scoped by invoice/charge date; the trend is
+    a rolling 12-month view ending at the period end. Finance contacts do NOT map to
+    ClickUp client folders (0 exact matches of 355), so this is company-wide, never
+    forced per-client — keeps the numbers real instead of empty. Owner-only."""
+    _require(authorization, "owner")
+    out = {"has_data": False}
+    if not db.has_db():
+        return out
+    params = {"df": date_from, "dt": date_to}
+    xw, sw = [], []
+    if date_from:
+        xw.append("invoice_date >= :df"); sw.append("date >= :df")
+    if date_to:
+        xw.append("invoice_date <= :dt"); sw.append("date <= :dt")
+    xwhere = (" WHERE " + " AND ".join(xw)) if xw else ""
+    swhere = (" WHERE " + " AND ".join(sw)) if sw else ""
+    try:
+        x = db.q(f"""SELECT coalesce(sum(total_amount),0) invoiced,
+                     coalesce(sum(amount_paid),0) collected,
+                     coalesce(sum(amount_due),0) outstanding, count(*) invoices
+                     FROM xero_invoices{xwhere}""", params).iloc[0]
+        ar = db.q("""SELECT coalesce(sum(amount_due),0) amt, count(*) n FROM xero_invoices
+                     WHERE coalesce(overdue_by_days,0) > 0 AND coalesce(amount_due,0) > 0""").iloc[0]
+        ag = db.q("""SELECT
+                       coalesce(sum(amount_due) FILTER (WHERE coalesce(overdue_by_days,0) <= 0),0) cur,
+                       coalesce(sum(amount_due) FILTER (WHERE overdue_by_days BETWEEN 1 AND 30),0) d1_30,
+                       coalesce(sum(amount_due) FILTER (WHERE overdue_by_days BETWEEN 31 AND 60),0) d31_60,
+                       coalesce(sum(amount_due) FILTER (WHERE overdue_by_days > 60),0) d60p
+                     FROM xero_invoices WHERE coalesce(amount_due,0) > 0""").iloc[0]
+        s = db.q(f"""SELECT coalesce(sum(payment_amount),0) processed, coalesce(sum(net_amount),0) net,
+                     coalesce(sum(fee),0) fees, coalesce(sum(amount_refunded),0) refunds, count(*) charges
+                     FROM stripe_charges{swhere}""", params).iloc[0]
+        import datetime as _dt
+        tend = date_to
+        if not tend:
+            mx = db.q("SELECT to_char(max(invoice_date),'YYYY-MM-DD') d FROM xero_invoices").iloc[0]["d"]
+            tend = str(mx) if mx and not pd.isna(mx) else None
+        if tend:
+            tstart = (_dt.date.fromisoformat(tend) - _dt.timedelta(days=365)).isoformat()
+            tr = db.q("""SELECT to_char(date_trunc('month', invoice_date),'YYYY-MM') m,
+                         coalesce(sum(total_amount),0) invoiced, coalesce(sum(amount_paid),0) collected
+                         FROM xero_invoices WHERE invoice_date > :ts AND invoice_date <= :te
+                         GROUP BY 1 ORDER BY 1""", {"ts": tstart, "te": tend})
+        else:
+            tr = db.q("""SELECT to_char(date_trunc('month', invoice_date),'YYYY-MM') m,
+                         coalesce(sum(total_amount),0) invoiced, coalesce(sum(amount_paid),0) collected
+                         FROM xero_invoices GROUP BY 1 ORDER BY 1""")
+        tc = db.q(f"""SELECT business_name client, coalesce(sum(amount_paid),0) paid,
+                      coalesce(sum(total_amount),0) billed FROM xero_invoices{xwhere}
+                      {'AND' if xw else 'WHERE'} coalesce(business_name,'') <> ''
+                      GROUP BY 1 ORDER BY 2 DESC LIMIT 8""", params)
+        invoiced = float(x["invoiced"]); collected = float(x["collected"])
+        out = {
+            "has_data": bool(invoiced or collected or float(s["processed"])),
+            "invoiced": round(invoiced), "collected": round(collected),
+            "outstanding": round(float(x["outstanding"])), "invoices": int(x["invoices"]),
+            "collection_rate": round(collected / invoiced * 100) if invoiced else None,
+            "overdue_amt": round(float(ar["amt"])), "overdue_n": int(ar["n"]),
+            "avg_invoice": round(invoiced / int(x["invoices"])) if int(x["invoices"]) else None,
+            "aging": {"current": round(float(ag["cur"])), "d1_30": round(float(ag["d1_30"])),
+                      "d31_60": round(float(ag["d31_60"])), "d60p": round(float(ag["d60p"]))},
+            "stripe_processed": round(float(s["processed"])), "stripe_net": round(float(s["net"])),
+            "stripe_fees": round(float(s["fees"])), "stripe_refunds": round(float(s["refunds"])), "stripe_charges": int(s["charges"]),
+            "trend": [{"month": r["m"], "invoiced": round(float(r["invoiced"])), "collected": round(float(r["collected"]))}
+                      for _, r in tr.iterrows()],
+            "top_clients": [{"client": r["client"], "paid": round(float(r["paid"])), "billed": round(float(r["billed"]))}
+                            for _, r in tc.iterrows()],
+        }
+    except Exception as e:  # noqa
+        return {"has_data": False, "error": str(e)[:150]}
+    return clean(out)
+
+
+class ReportLinkReq(BaseModel):
+    client: str
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+
+
+@app.post("/api/report_links")
+def report_link_create(body: ReportLinkReq, authorization: Optional[str] = Header(None)):
+    """Owner issues a read-only public report link for one client (30-day expiry)."""
+    actor = _require(authorization, "owner")
+    cl = (body.client or "").strip()
+    if not cl:
+        raise HTTPException(status_code=400, detail="client required")
+    try:
+        _ensure_report_links()   # self-heal: create the table if startup missed it
+    except Exception:  # noqa
+        pass
+    token = auth.new_invite_token()
+    db.execute("INSERT INTO client_report_links(token, client, created_by, expires_at, date_from, date_to) "
+               "VALUES (:t, :c, :b, now() + interval '30 days', :df, :dt)",
+               {"t": token, "c": cl, "b": (actor.get("sub") or actor.get("email") or ""),
+                "df": (body.date_from or None), "dt": (body.date_to or None)})
+    _audit("report_link.create", cl, "", actor=actor)
+    return {"token": token, "link": f"/report/{token}"}
+
+
+@app.get("/api/report_links")
+def report_link_list(client: str, authorization: Optional[str] = Header(None)):
+    _require(authorization, "owner")
+    r = db.q_write("SELECT token, to_char(created_at,'YYYY-MM-DD') created, to_char(expires_at,'YYYY-MM-DD') expires, "
+                   "revoked, (expires_at IS NOT NULL AND expires_at < now()) expired "
+                   "FROM client_report_links WHERE client = :c ORDER BY created_at DESC", {"c": client})
+    return {"links": [{"token": x["token"], "link": f"/report/{x['token']}", "created": x["created"],
+                       "expires": x["expires"], "revoked": bool(x["revoked"]), "expired": bool(x["expired"])}
+                      for _, x in r.iterrows()]}
+
+
+@app.post("/api/report_links/{token}/revoke")
+def report_link_revoke(token: str, authorization: Optional[str] = Header(None)):
+    actor = _require(authorization, "owner")
+    db.execute("UPDATE client_report_links SET revoked = true WHERE token = :t", {"t": token})
+    _audit("report_link.revoke", token, "", actor=actor)
+    return {"ok": True}
+
+
+@app.get("/api/public/report/{token}")
+def public_report(token: str):
+    """PUBLIC (no auth) read-only client report behind a revocable token. Returns ONLY
+    the one client's hours, budget usage, delivery, team size and trend — never any
+    internal data. The reporting window is FIXED to the period the owner had selected
+    when the link was shared (stored on the link); falls back to the latest month."""
+    out = {"found": False}
+    if not db.has_db():
+        return out
+    try:
+        r = db.q_write("SELECT client, revoked, (expires_at IS NOT NULL AND expires_at < now()) expired, "
+                       "date_from, date_to FROM client_report_links WHERE token = :t", {"t": token})
+    except Exception:  # noqa
+        return out
+    if r.empty or bool(r.iloc[0]["revoked"]) or bool(r.iloc[0]["expired"]):
+        return out
+    row = r.iloc[0]; client = str(row["client"])
+    sdf = None if pd.isna(row["date_from"]) else (str(row["date_from"]) or None)
+    sdt = None if pd.isna(row["date_to"]) else (str(row["date_to"]) or None)
+    JOIN = ("FROM hubstaff_activities a JOIN hubstaff_tasks ht ON ht.id = a.task_id "
+            "JOIN clickup_tasks c ON c.task_id = ht.remote_id WHERE c.folder_name = :cl")
+    try:
+        import datetime as _dt, re as _re
+        mx = db.q(f"SELECT to_char(max(a.date),'YYYY-MM-DD') d {JOIN}", {"cl": client}).iloc[0]["d"]
+        anchor = str(mx) if mx and not pd.isna(mx) else None
+        hours = billable = prev_hours = 0.0
+        trend = []; weekly = []; top_tasks = []; period = None; people = 0; span_days = 0; active_days = 0
+        if anchor:
+            ad = _dt.date.fromisoformat(anchor)
+            if sdf and sdt:
+                mfrom_d = _dt.date.fromisoformat(sdf); mto_d = _dt.date.fromisoformat(sdt)
+            else:
+                mfrom_d = ad.replace(day=1); mto_d = ad
+            mfrom, mto = mfrom_d.isoformat(), mto_d.isoformat()
+            full_month = (mfrom_d.day == 1 and mfrom_d.year == mto_d.year and mfrom_d.month == mto_d.month
+                          and (mto_d + _dt.timedelta(days=1)).month != mto_d.month)
+            if full_month:
+                period = mfrom_d.strftime("%B %Y")
+            else:
+                period = f"{mfrom_d.strftime('%d %b')} – {mto_d.strftime('%d %b %Y')}"
+            span = (mto_d - mfrom_d).days + 1; span_days = span
+            pto_d = mfrom_d - _dt.timedelta(days=1); pfrom_d = pto_d - _dt.timedelta(days=span - 1)
+            pfrom, pto = pfrom_d.isoformat(), pto_d.isoformat()
+            base = {"cl": client, "mf": mfrom, "mt": mto}
+            hm = db.q(f"""SELECT coalesce(sum(a.tracked),0)/3600.0 hours,
+                          coalesce(sum(a.tracked) FILTER (WHERE coalesce(a.billable,0) > 0),0)/3600.0 billable,
+                          count(DISTINCT a.user_id) people {JOIN} AND a.date >= :mf AND a.date <= :mt""", base).iloc[0]
+            hours = float(hm["hours"]); billable = float(hm["billable"]); people = int(hm["people"])
+            active_days = int(db.q(f"SELECT count(DISTINCT a.date) d {JOIN} AND a.date >= :mf AND a.date <= :mt", base).iloc[0]["d"])
+            prev_hours = float(db.q(f"SELECT coalesce(sum(a.tracked),0)/3600.0 h {JOIN} AND a.date >= :pf AND a.date <= :pt",
+                                    {"cl": client, "pf": pfrom, "pt": pto}).iloc[0]["h"])
+            wk = db.q(f"""SELECT to_char(date_trunc('week', a.date),'DD Mon') w, sum(a.tracked)/3600.0 hours
+                          {JOIN} AND a.date >= :mf AND a.date <= :mt GROUP BY date_trunc('week', a.date) ORDER BY date_trunc('week', a.date)""", base)
+            weekly = [{"week": x["w"], "hours": round(float(x["hours"]), 1)} for _, x in wk.iterrows()][-12:]
+            tr = db.q(f"""SELECT to_char(date_trunc('month', a.date),'YYYY-MM') m, sum(a.tracked)/3600.0 hours
+                          {JOIN} AND a.date > :start AND a.date <= :end GROUP BY 1 ORDER BY 1""",
+                      {"cl": client, "start": (ad - _dt.timedelta(days=185)).isoformat(), "end": anchor})
+            trend = [{"month": x["m"], "hours": round(float(x["hours"]), 1)} for _, x in tr.iterrows()]
+            tt = db.q(f"""SELECT coalesce(nullif(ht.summary,''),'(task)') task, max(coalesce(c.status,'')) status,
+                          sum(a.tracked)/3600.0 hrs {JOIN} AND a.date >= :mf AND a.date <= :mt
+                          GROUP BY 1 ORDER BY 3 DESC LIMIT 8""", base)
+            top_tasks = [{"task": str(x["task"])[:70], "status": str(x["status"] or "").title(), "hours": round(float(x["hrs"]), 1)} for _, x in tt.iterrows()]
+        bud = float(db.q("SELECT coalesce(sum(monthly_budget),0) b FROM client_budgets "
+                         r"WHERE lower(regexp_replace(trim(client),'\s*\([fh]\)\s*$','','i')) = "
+                         r"lower(regexp_replace(trim(:cl),'\s*\([fh]\)\s*$','','i'))", {"cl": client}).iloc[0]["b"])
+        # task status mix (current state, all tasks for the client)
+        sb = db.q("""SELECT
+                       count(*) total,
+                       count(*) FILTER (WHERE lower(coalesce(status,'')) ~ 'complete|done|closed|finished|published') done,
+                       count(*) FILTER (WHERE lower(coalesce(status,'')) ~ 'review') review,
+                       count(*) FILTER (WHERE lower(coalesce(status,'')) ~ 'overdue|blocked') overdue,
+                       coalesce(sum(time_estimate_hrs),0) est
+                     FROM clickup_tasks WHERE folder_name = :cl""", {"cl": client}).iloc[0]
+        total_t = int(sb["total"]); done_t = int(sb["done"]); review_t = int(sb["review"]); overdue_t = int(sb["overdue"])
+        in_prog = max(0, total_t - done_t - review_t - overdue_t)
+        disp = _re.sub(r"\s*\([fh]\)\s*$", "", client, flags=_re.I).strip()
+        # monthly budget scaled to the selected window length
+        months = (span_days / 30.0) if span_days else 1.0
+        budget = round(bud * months) if bud else None
+        used_pct = round(hours / budget * 100) if budget else None
+        delta = round((hours - prev_hours) / prev_hours * 100) if prev_hours > 0 else None
+        status = ("over" if used_pct and used_pct > 100 else "under" if used_pct is not None and used_pct < 60 else "on_track")
+        return clean({
+            "found": True, "client": disp, "period": period, "as_of": anchor,
+            "hours": round(hours, 1), "billable": round(billable, 1),
+            "billable_pct": round(billable / hours * 100) if hours else None,
+            "hours_delta": delta, "people": people, "active_days": active_days,
+            "avg_per_day": round(hours / active_days, 1) if active_days else None, "weekly": weekly,
+            "budget": budget, "used_pct": used_pct, "status": status,
+            "tasks_total": total_t, "tasks_done": done_t,
+            "delivery_pct": round(done_t / total_t * 100) if total_t else None,
+            "status_mix": {"done": done_t, "in_progress": in_prog, "review": review_t, "overdue": overdue_t},
+            "est_hours": round(float(sb["est"]), 1), "trend": trend, "top_tasks": top_tasks,
+        })
+    except Exception as e:  # noqa
+        return {"found": True, "client": client, "error": str(e)[:150], "trend": []}
 
 
 @app.get("/api/breakdown")

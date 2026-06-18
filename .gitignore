@@ -28,3 +28,7 @@ venv/
 # ---- OS ----
 .DS_Store
 Thumbs.db
+
+# never commit env files or backups (contain DB credentials)
+backend/.env
+backend/.env.*

@@ -44,16 +44,32 @@ def has_write() -> bool:
     return bool(_RAW_WRITE)
 
 
+# TCP keepalives keep pooled connections alive so they aren't silently dropped by
+# the Supabase pooler / network — that avoids the slow "reconnect on next query"
+# stalls. pool_pre_ping still guards against any dead connection; pool_recycle is
+# kept under the pooler's idle timeout so we proactively refresh.
+# prepare_threshold=None disables psycopg3 server-side prepared statements — REQUIRED
+# for Supabase's transaction-mode pooler (port 6543) and harmless on session mode.
+# Transaction mode multiplexes connections, so the session-mode "max 15 clients"
+# limit (and its exhaustion stalls) no longer applies.
+_CONNECT_ARGS = {"prepare_threshold": None, "keepalives": 1, "keepalives_idle": 30,
+                 "keepalives_interval": 10, "keepalives_count": 5}
+
+
 @lru_cache(maxsize=1)
 def _engine():
     from sqlalchemy import create_engine
-    return create_engine(database_url(), pool_pre_ping=True, pool_recycle=300)
+    return create_engine(database_url(), pool_pre_ping=True, pool_recycle=240,
+                         pool_size=3, max_overflow=2, pool_timeout=20,
+                         connect_args=_CONNECT_ARGS)
 
 
 @lru_cache(maxsize=1)
 def _engine_write():
     from sqlalchemy import create_engine
-    return create_engine(database_url_write(), pool_pre_ping=True, pool_recycle=300)
+    return create_engine(database_url_write(), pool_pre_ping=True, pool_recycle=240,
+                         pool_size=1, max_overflow=2, pool_timeout=20,
+                         connect_args=_CONNECT_ARGS)
 
 
 def q(sql: str, params: dict | None = None) -> pd.DataFrame:
