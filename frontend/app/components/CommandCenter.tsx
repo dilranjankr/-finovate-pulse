@@ -206,7 +206,9 @@ export default function CommandCenter({
   const [clientProf, setClientProf] = useState<{ name: string; data: import("../lib/api").FocusData | null } | null>(null);
   const [teamProf, setTeamProf] = useState<{ name: string; data: import("../lib/api").TeamProfile | null } | null>(null);
   const [tdList, setTdList] = useState<{ bucket: string; label: string; color: string; rows: TaskDeliveryItem[] | null } | null>(null);
+  const [tdExp, setTdExp] = useState<Set<number>>(new Set());   // rows with expanded assignees
   async function openTaskList(bucket: "on_time" | "late" | "open", label: string, color: string) {
+    setTdExp(new Set());
     setTdList({ bucket, label, color, rows: null });
     try { setTdList({ bucket, label, color, rows: (await getTaskDeliveryList(bucket, draft)).rows }); }
     catch { setTdList({ bucket, label, color, rows: [] }); }
@@ -215,6 +217,7 @@ export default function CommandCenter({
   async function openClientTasks(client: string) {
     setBudgetModal(false);
     const label = client; const color = "#2f6fbf";
+    setTdExp(new Set());
     setTdList({ bucket: "all", label, color, rows: null });
     try { setTdList({ bucket: "all", label, color, rows: (await getTaskDeliveryList("all", { ...draft, client })).rows }); }
     catch { setTdList({ bucket: "all", label, color, rows: [] }); }
@@ -2680,7 +2683,22 @@ export default function CommandCenter({
                           <tr key={i}>
                             <td className="l tname" title={r.task}>{r.task}</td>
                             {!oneClient && <td className="l">{r.client}</td>}
-                            <td className="l" style={{ fontSize: 11.5, color: "var(--ink-2)", maxWidth: 220 }} title={r.assignees || ""}>{r.assignees || "—"}</td>
+                            <td className="l td-asgcell" title={r.assignees || ""}>{(() => {
+                              const names = (r.assignees || "").split(",").map((s) => s.trim()).filter(Boolean);
+                              if (names.length === 0) return "—";
+                              const exp = tdExp.has(i);
+                              const shown = exp ? names : names.slice(0, 2);
+                              return (
+                                <span className="td-asg">
+                                  {shown.map((nm, j) => <span className="td-chip" key={j}>{nm}</span>)}
+                                  {names.length > 2 && (
+                                    <button className="td-more" onClick={() => setTdExp((p) => { const n = new Set(p); if (n.has(i)) n.delete(i); else n.add(i); return n; })}>
+                                      {exp ? "less" : `+${names.length - 2} more`}
+                                    </button>
+                                  )}
+                                </span>
+                              );
+                            })()}</td>
                             <td className="num" style={{ fontWeight: 700 }}>{r.tracked_h != null ? n1(r.tracked_h) + "h" : "—"}</td>
                             <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.due || "—"}</td>
                             <td className="num" style={{ fontSize: 11.5, color: "var(--muted)" }}>{r.completed || "—"}</td>

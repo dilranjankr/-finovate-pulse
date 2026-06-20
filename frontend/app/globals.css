@@ -2260,3 +2260,10 @@ button.sent-flag { border: none; font: inherit; }
 .seg button:hover { background: var(--chip); color: var(--ink); }
 .seg button.on { background: var(--navy); border-color: var(--navy); color: #fff; }
 .calc-dow { color: var(--muted); font-size: 11px; font-weight: 500; }
+
+/* Task Delivery drill — assignees as wrapping chips with +N more expand */
+.td-asgcell { vertical-align: middle; }
+.td-asg { display: inline-flex; flex-wrap: wrap; gap: 4px; align-items: center; max-width: 240px; }
+.td-chip { background: var(--chip, #f1f4f8); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+.td-more { border: 1px solid var(--line); background: var(--card); color: var(--navy); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 500; cursor: pointer; }
+.td-more:hover { background: var(--chip, #f1f4f8); }
