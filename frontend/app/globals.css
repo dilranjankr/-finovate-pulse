@@ -93,6 +93,13 @@ body { background: var(--bg); color: var(--ink);
 .fclear:hover { background: #fef2f2; }
 .fclear .fcnt { display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px; padding: 0 4px;
   font-size: 10px; font-weight: 800; color: #fff; background: var(--red); border-radius: 3px; }
+/* Keyboard accessibility — a clear focus ring on every filter control (mouse clicks
+   stay clean via :focus-visible). Professional apps are fully keyboard-navigable. */
+.ms-btn:focus-visible, .fpill select:focus-visible, .fbill button:focus-visible,
+.fpreset button:focus-visible, .bseg button:focus-visible, .fclear:focus-visible,
+.fdate input:focus-visible {
+  outline: none; box-shadow: inset 0 0 0 2px var(--navy); border-radius: 6px; }
+.fpill select:focus-visible { box-shadow: inset 0 0 0 2px var(--navy); }
 /* multi-select filter dropdown */
 .fpill.ms { padding: 0; cursor: default; }
 .ms-btn { display: flex; align-items: center; gap: 8px; height: 100%; width: 100%; padding: 0 15px; background: transparent;
@@ -100,18 +107,48 @@ body { background: var(--bg); color: var(--ink);
 .ms-btn .fpl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ms-btn > svg { flex-shrink: 0; opacity: .7; }
 .ms-btn > svg:last-child { margin-left: auto; opacity: .45; }
-.ms-menu { position: absolute; top: calc(100% + 1px); left: 0; z-index: 50; min-width: 230px; max-width: 290px;
-  background: #fff; border: 1px solid var(--line); border-radius: 7px; box-shadow: var(--shadow-md); padding: 6px; }
+.ms-menu { position: absolute; top: calc(100% + 5px); left: 0; z-index: 50; min-width: 230px; max-width: 290px;
+  background: #fff; border: 1px solid var(--line); border-radius: 9px; box-shadow: var(--shadow-md); padding: 6px;
+  transform-origin: top left; animation: popIn .15s cubic-bezier(.16,.84,.44,1); }
+@keyframes popIn { from { opacity: 0; transform: translateY(-6px) scale(.97); } to { opacity: 1; transform: none; } }
+/* chevron flips when its pill's popover is open */
+.fpill.open .ms-btn > svg:last-child { transform: rotate(180deg); }
+.ms-btn > svg:last-child { transition: transform .18s cubic-bezier(.16,.84,.44,1); }
+@media (prefers-reduced-motion: reduce) { .ms-menu { animation: none; } .ms-btn > svg:last-child { transition: none; } }
 .ms-search { display: flex; align-items: center; gap: 7px; padding: 7px 9px; border-bottom: 1px solid var(--line-2); margin-bottom: 4px; }
 .ms-search svg { color: var(--muted); flex-shrink: 0; }
 .ms-search input { border: none; outline: none; font-family: inherit; font-size: 12.5px; width: 100%; background: transparent; color: var(--ink); }
 .ms-opts { max-height: 264px; overflow-y: auto; display: flex; flex-direction: column; }
-.ms-opt { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 7px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
-.ms-opt:hover { background: var(--line-2); }
+.ms-opt { display: flex; align-items: center; gap: 9px; padding: 8px 9px; border-radius: 7px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; transition: background .12s ease, color .12s ease; }
+.ms-opt:hover { background: var(--line-2); color: var(--ink); }
 .ms-opt input { accent-color: var(--navy); width: 15px; height: 15px; cursor: pointer; flex-shrink: 0; margin: 0; }
 .ms-opt .ms-lbl { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
 .ms-opt.all { font-weight: 600; color: var(--navy); }
 .ms-opt.all.on { background: var(--accent-soft); }
+/* date-range pill + popover (presets | custom range) */
+.fpill.dr { padding: 0; max-width: 280px; }
+.dr-menu { display: flex; padding: 0; min-width: 388px; max-width: 440px; overflow: hidden; }
+.dr-presets { display: flex; flex-direction: column; gap: 2px; padding: 8px; min-width: 158px; background: #fafbfc; border-right: 1px solid var(--line-2); }
+.dr-preset { text-align: left; padding: 8px 11px; border: none; background: transparent; font-family: inherit; font-size: 12.5px; font-weight: 600;
+  color: var(--ink-2); border-radius: 6px; cursor: pointer; white-space: nowrap; transition: background .12s, color .12s; }
+.dr-preset:hover { background: #eef1f6; color: var(--ink); }
+.dr-preset.on { background: var(--accent-soft); color: var(--navy); font-weight: 700; }
+.dr-custom { display: flex; flex-direction: column; gap: 9px; padding: 12px 13px; min-width: 200px; flex: 1; }
+.dr-custom-h { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
+.dr-field { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
+.dr-field > span { color: var(--muted); }
+.dr-field input { font-family: inherit; font-size: 12.5px; font-weight: 600; color: var(--ink); border: 1px solid var(--line);
+  border-radius: 6px; padding: 6px 8px; outline: none; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.dr-field input:focus { border-color: var(--navy); box-shadow: 0 0 0 3px var(--accent-soft); }
+.dr-apply { margin-top: 3px; height: 34px; border: none; border-radius: 7px; background: var(--navy); color: #fff;
+  font-family: inherit; font-size: 12.5px; font-weight: 700; cursor: pointer; transition: filter .15s, opacity .15s; }
+.dr-apply:hover:not(:disabled) { filter: brightness(1.1); }
+.dr-apply:disabled { opacity: .45; cursor: default; }
+.load-pct b { font-weight: 800; color: var(--navy); margin-left: 2px; }
+@media (max-width: 560px) {
+  .dr-menu { flex-direction: column; min-width: 248px; }
+  .dr-presets { flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid var(--line-2); }
+}
 /* status dot (right side of employee options) */
 .ms-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
 .ms-dot.sd-on { background: #16a34a; }
@@ -389,23 +426,42 @@ body { background: var(--bg); color: var(--ink);
 .loadbar span { position: absolute; top: 0; left: 0; height: 100%; width: 40%; border-radius: 0 3px 3px 0;
   background: linear-gradient(90deg, #2f6fbf, #5b6fd6, #0d9488); animation: loadbar 1.05s ease-in-out infinite; }
 @keyframes loadbar { 0% { left: -42%; width: 42%; } 50% { width: 55%; } 100% { left: 100%; width: 42%; } }
-/* keep current data visible but subtly settle the dashboard while new data loads */
+.loadbar { height: 2.5px; }
+.loadbar.det span { animation: none; left: 0; width: 0; border-radius: 0; transition: width .28s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 0 8px rgba(47,111,191,.55); }
+.load-pct { position: fixed; top: 9px; right: 14px; z-index: 10000; font-size: 10.5px; font-weight: 700; letter-spacing: .02em;
+  color: #2f6fbf; background: var(--card, #fff); border: 1px solid var(--line); border-radius: 20px; padding: 2.5px 9px 2.5px 8px;
+  display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 2px 8px rgba(20,40,80,.10); }
+.load-pct::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #2f6fbf; animation: pulseDot 1s ease-in-out infinite; }
+@keyframes pulseDot { 0%,100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1); } }
+
+
+/* Estimate-modal: total tracked split (within-estimate vs no-estimate) in one row */
+.trk-split { margin-bottom: 14px; }
+.trk-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; background: #eef1f5; }
+.trk-bar i { display: block; height: 100%; }
+.trk-bar .trk-est { background: #2f6fbf; }
+.trk-bar .trk-no { background: #d9a23a; }
+.trk-leg { display: flex; align-items: center; gap: 18px; margin-top: 8px; font-size: 12px; color: var(--muted); flex-wrap: wrap; }
+.trk-leg b { color: var(--ink); font-weight: 700; }
+.trk-leg .d { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.trk-leg .d.est { background: #2f6fbf; }
+.trk-leg .d.no { background: #d9a23a; }
+.trk-leg .tot { margin-left: auto; color: var(--ink-2); }
+/* Stale-while-revalidate: keep the current dashboard visible and gently settle it while
+   the new data loads, then swap in — industry-standard, no skeleton flash on re-filter.
+   Content dims + locks to clicks; the period / filter bar above stays fully interactive. */
+.page.is-syncing { cursor: progress; }
 .page.is-syncing .kpi-grid, .page.is-syncing .donut-row, .page.is-syncing .row2, .page.is-syncing .sec,
-.page.is-syncing .fv-grid2, .page.is-syncing .panel, .page.is-syncing .tj-panel { transition: opacity .25s ease; opacity: .72; }
-.kpi-grid, .donut-row, .row2, .fv-grid2, .panel { transition: opacity .25s ease; }
-@keyframes fadeInUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-/* KPI tiles ease in (with a gentle stagger) every time a filter is applied */
-@keyframes kpiPop { from { opacity: 0; transform: translateY(9px) scale(.985); } to { opacity: 1; transform: none; } }
-.kpi-anim > * { animation: kpiPop .42s cubic-bezier(.22,.61,.36,1) both; }
-.kpi-anim > *:nth-child(1) { animation-delay: 0s; } .kpi-anim > *:nth-child(2) { animation-delay: .035s; }
-.kpi-anim > *:nth-child(3) { animation-delay: .07s; } .kpi-anim > *:nth-child(4) { animation-delay: .105s; }
-.kpi-anim > *:nth-child(5) { animation-delay: .14s; } .kpi-anim > *:nth-child(6) { animation-delay: .175s; }
-.kpi-anim > *:nth-child(7) { animation-delay: .21s; } .kpi-anim > *:nth-child(8) { animation-delay: .245s; }
-@media (prefers-reduced-motion: reduce) { .kpi-anim > * { animation: none; } }
+.page.is-syncing .fv-grid2, .page.is-syncing .panel, .page.is-syncing .tj-panel {
+  transition: opacity .28s cubic-bezier(.4,0,.2,1), filter .28s ease; opacity: .62; filter: saturate(.9) blur(.4px);
+  pointer-events: none; will-change: opacity; }
+@media (prefers-reduced-motion: reduce) {
+  .page.is-syncing .kpi-grid, .page.is-syncing .panel, .page.is-syncing .sec { transition: none; filter: opacity(.62); }
+}
+/* Entrance animations removed — content appears instantly (skeleton covers loading),
+   so applying a filter no longer re-animates / flashes the whole dashboard. */
 @keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(.98); } to { opacity: 1; transform: none; } }
-.kpi-row, .headline, .sec, .row2, .row3, .row3a, .tt-row, .ia-row, .vtabs { animation: fadeInUp .4s ease both; }
-.kpi-row > *, .modbar-fill, .ringchart, .rank-fill, .bl-fill, .pipe-bar, .gd-seg, .gx-seg { will-change: auto; }
-.page > .panel { animation: fadeInUp .4s ease both; }
 .modal { animation: modalIn .2s ease both; }
 .drawer { animation: drawerIn .26s cubic-bezier(.4,0,.2,1) both; }
 @keyframes drawerIn { from { transform: translateX(100%); } to { transform: none; } }
@@ -1828,7 +1884,7 @@ tbody tr:hover td { background: #f7f9fd; }
 .fv-flag.good { background: #dcfce7; color: #15803d; } .fv-flag.weak { background: #fee2e2; color: #b91c1c; } .fv-flag.mid { background: #eef1f6; color: var(--muted); }
 
 /* Focus metric drill modal (Est-vs-Actual / Budget) */
-.fm-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 14px; }
+.fm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 14px; }
 .fm-stat { border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
 .fm-stat b { display: block; font-size: 20px; font-weight: 750; color: var(--ink); letter-spacing: -.01em; }
 .fm-stat b.ok { color: #15803d; } .fm-stat b.warn { color: #c2410c; } .fm-stat b.bad { color: #dc2626; } .fm-stat b.acc { color: var(--accent); }
@@ -2115,6 +2171,11 @@ button.sent-flag { border: none; font: inherit; }
 
 /* Client scorecard drawer header right */
 .dh-right { display: flex; align-items: center; gap: 12px; }
+/* active-period chip shown in every scorecard modal header */
+.sc-period { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 11px; border-radius: 20px;
+  background: var(--accent-soft); border: 1px solid #d4e0f3; color: var(--navy); font-size: 11.5px; font-weight: 700;
+  white-space: nowrap; letter-spacing: .01em; }
+.sc-period svg { opacity: .8; flex-shrink: 0; }
 
 /* ---- Skeleton loading (perceived-fast first load; replaces the spinner) ---- */
 .skel { display: block; background: #eef1f5; border-radius: 7px; position: relative; overflow: hidden; }
@@ -2267,3 +2328,11 @@ button.sent-flag { border: none; font: inherit; }
 .td-chip { background: var(--chip, #f1f4f8); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 11px; color: var(--ink-2); white-space: nowrap; }
 .td-more { border: 1px solid var(--line); background: var(--card); color: var(--navy); border-radius: 4px; padding: 1px 6px; font-size: 11px; font-weight: 500; cursor: pointer; }
 .td-more:hover { background: var(--chip, #f1f4f8); }
+
+/* realtime % loader on the skeleton */
+.skel-prog { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+.cspin { width: 54px; height: 54px; border-radius: 50%; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; position: relative; background: conic-gradient(var(--navy) calc(var(--p, 0) * 1%), #e7ebf1 0); transition: background .18s linear; }
+.cspin::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: var(--card, #fff); }
+.cspin b { position: relative; font-size: 13px; font-weight: 700; color: var(--navy); }
+.skel-prog-t { font-size: 14px; font-weight: 600; color: var(--ink); display: flex; flex-direction: column; gap: 2px; }
+.skel-prog-t i { font-style: normal; font-size: 12px; font-weight: 400; color: var(--muted); }

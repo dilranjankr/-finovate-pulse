@@ -304,7 +304,7 @@ export async function initBudgets(): Promise<{ ok: boolean; rows?: number; detai
 
 export interface BudgetClient {
   client: string; type: string; team: string;
-  budget: number; actual: number; variance: number | null; over: boolean; pct: number | null;
+  budget: number | null; actual: number; variance: number | null; over: boolean; pct: number | null;
   tasks_total: number; tasks_open: number; tasks_done: number;
   billable_pct: number; health: string; health_score: number;
 }
@@ -313,7 +313,7 @@ export interface BudgetData {
   on_budget: number; over: number; count: number; budgeted?: number;
 }
 export interface ClientListRow {
-  client: string; type: string; hours: number; billable_pct: number;
+  client: string; type: string; hours: number; billable: number; non_billable: number; billable_pct: number;
   people: number; tasks_done: number; tasks_open: number;
 }
 export interface ClientsListData { clients: ClientListRow[]; count: number; total_hours: number; }
@@ -362,7 +362,7 @@ export interface FocusData {
   summary?: {
     total: number; billable: number; non_billable: number; billable_pct: number; activity_pct: number;
     utilization: number | null; grade: string | null; on_estimate_pct: number | null;
-    tasks: number; tasks_done: number; est_total: number; budget_total: number; actual_total: number;
+    tasks: number; tasks_done: number; tasks_with_est?: number; tasks_over?: number; est_total: number; budget_total: number; actual_total: number;
     clients: number; members: number; budget: number | null; used_pct: number | null; over: boolean | null;
     forecast?: number | null; forecast_pct?: number | null; last_worked?: string | null;
     health: number | null; health_grade: string | null; team: string; department: string;
@@ -374,13 +374,19 @@ export interface FocusData {
     current?: string | null; previous?: string | null;
   } | null;
   sentiment?: { comms: number; positive: number; neutral: number; concerned: number; complaints: number; followups: number; last: string | null; all_time?: boolean; client_keys?: string[] } | null;
-  rows?: { tasks: FocusTask[]; clients: FocusClientRow[]; members: FocusMemberRow[]; pairs?: { name: string; client: string; hours: number; billable_pct: number }[]; burnup?: { date: string; cum: number }[] };
+  rows?: { tasks: FocusTask[]; clients: FocusClientRow[]; members: FocusMemberRow[]; pairs?: { name: string; client: string; hours: number; billable: number; non_billable: number; billable_pct: number }[]; burnup?: { date: string; cum: number }[] };
 }
 export async function getFocus(kind: string, name: string, f: Filters, client?: string): Promise<FocusData> {
   const qs = new URLSearchParams({ kind, name });
   if (client) qs.set("client", client);
   if (f.date_from) qs.set("date_from", f.date_from);
   if (f.date_to) qs.set("date_to", f.date_to);
+  // Scope the focus to the active dashboard filter so drilling to an employee inside a
+  // team/dept/type shows only their work in THAT scope (not company-wide). For a focus
+  // whose kind already IS that dimension this is a harmless no-op on the backend.
+  if (kind !== "team" && f.atl) qs.set("atl", f.atl);
+  if (kind !== "department" && f.department) qs.set("department", f.department);
+  if (kind !== "type" && f.client_type) qs.set("client_type", f.client_type);
   const r = await authedFetch(`${API}/api/focus?${qs.toString()}`, { cache: "no-store" });
   if (!r.ok) throw new Error("focus failed");
   return r.json();

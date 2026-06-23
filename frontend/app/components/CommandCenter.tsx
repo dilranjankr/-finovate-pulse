@@ -23,6 +23,7 @@ import { TrendLines, HoursTrend, Donut, Bubble, BarList, SkillRadar, EffScatter,
 
 const n0 = (v: number) => Math.round(v).toLocaleString("en-US");
 const n1 = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 1 });
+const SHOW_SENTIMENT: boolean = false;   // client sentiment panel toggle (hidden for now)
 const MONTHS_S = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const shortDate = (s?: string | null) => {
   if (!s) return "—";
@@ -169,6 +170,8 @@ export default function CommandCenter({
   const [draft, setDraft] = useState<Filters>(initialOpts ? currentMonth(initialOpts) : {});
   const [data, setData] = useState<CommandData | null>(initialData);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);   // realtime load progress 0–100
+  const applySeq = useRef(0);                     // guards against out-of-order filter loads
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [dataHealth, setDataHealth] = useState<import("../lib/api").DataHealth["sources"] | null>(null);
   const [financials, setFinancials] = useState<Financials | null>(null);
@@ -196,7 +199,6 @@ export default function CommandCenter({
   async function doRevokeLink(token: string, client: string) {
     try { await revokeReportLink(token); const l = await listReportLinks(client); setShareModal((s) => (s ? { ...s, links: l.links } : s)); } catch { /* */ }
   }
-  const [dataVer, setDataVer] = useState(0);   // bumps on every data refresh → re-fires the KPI entrance animation
   const [showFilters, setShowFilters] = useState(true);
   const [detail, setDetail] = useState<null | { label: string; color: string; calc: string; get: (e: EmployeeRow) => number; fmt: (v: number) => string; dayKey?: "utilization" | "activity" | "productivity" }>(null);
   const [cmpDim, setCmpDim] = useState<"department" | "team">("department");
@@ -240,11 +242,11 @@ export default function CommandCenter({
   const [focusData, setFocusData] = useState<import("../lib/api").FocusData | null>(null);
   const [focusTab, setFocusTab] = useState<"all" | "open" | "done" | "over" | "overdue" | "duesoon">("all");
   const [priFilter, setPriFilter] = useState<string | null>(null);
-  const [focusMetric, setFocusMetric] = useState<"est" | "budget" | null>(null);
+  const [focusMetric, setFocusMetric] = useState<"est" | "budget" | "over" | null>(null);
   function showCard(card: string): boolean {
     if (!ctx) return true;   // company / multi → unchanged
     const hide: Record<string, string[]> = {
-      byteam: ["team", "employee", "employee-client", "client", "type"], // By Dept + By Team
+      byteam: ["employee", "employee-client", "client", "type"], // By Dept + By Team + leader cards (shown in team view too)
       burnPerf: ["employee", "employee-client", "client"],            // Budget Burn-up + Performers (client uses focus burn-up)
       matrix: ["employee-client", "client"],                          // keep the Hours Trend for employee; hide bubble matrix elsewhere
       empclients: ["employee", "employee-client"],                   // Employees & Clients
@@ -464,7 +466,8 @@ export default function CommandCenter({
   const [hoursSearch, setHoursSearch] = useState("");
   const [gradeModal, setGradeModal] = useState(false);
   const [cmpTrend, setCmpTrend] = useState<CompareTrendData | null>(null);
-  const [clientCmp, setClientCmp] = useState<{ name: string; data: import("../lib/api").FocusData }[] | null>(null);
+  const [clientCmp, setClientCmp] = useState<{ name: string; data: import("../lib/api").FocusData; kpis: import("../lib/api").CommandData["kpis"] }[] | null>(null);
+  const [empCmp, setEmpCmp] = useState<{ name: string; est_total: number; actual_total: number; on_estimate_pct: number | null; tasks: number; tasks_done: number }[] | null>(null);
   const [clientMsgs, setClientMsgs] = useState<{ title: string; filter?: string; rows: import("../lib/api").ClientMessage[] | null } | null>(null);
   async function openMessages(title: string, o: { client?: string; labels?: string[]; sentiment?: string; bucket?: string; filter?: string; allTime?: boolean }) {
     setClientMsgs({ title, filter: o.filter, rows: null });
@@ -577,12 +580,30 @@ export default function CommandCenter({
     const cls = (draft.client || "").split(",").map((s) => s.trim()).filter(Boolean);
     if (cls.length < 2) { setClientCmp(null); return; }
     let cancelled = false;
-    Promise.all(cls.slice(0, 4).map((nm) => getFocus("client", nm, draft).then((d) => ({ name: nm, data: d })).catch(() => null)))
-      .then((rs) => { if (!cancelled) setClientCmp(rs.filter((r): r is { name: string; data: import("../lib/api").FocusData } => !!r && !!r.data?.found)); });
+    // Fetch BOTH focus (budget / on-estimate / tasks / health) AND command (the same
+    // utilization / billable / activity / productivity KPIs the single-client view shows)
+    // per client, so the comparison mirrors the single-client KPIs exactly.
+    Promise.all(cls.slice(0, 4).map((nm) =>
+      Promise.all([getFocus("client", nm, draft), getCommand({ ...draft, client: nm })])
+        .then(([d, cmd]) => ({ name: nm, data: d, kpis: cmd.kpis })).catch(() => null)))
+      .then((rs) => { if (!cancelled) setClientCmp(rs.filter((r): r is { name: string; data: import("../lib/api").FocusData; kpis: import("../lib/api").CommandData["kpis"] } => !!r && !!r.data?.found)); });
     return () => { cancelled = true; };
   }, [draft.client, draft.date_from, draft.date_to]);
-  // Re-fire the KPI entrance animation whenever fresh data lands (filter applied).
-  useEffect(() => { setDataVer((v) => v + 1); }, [data]);
+  // Employee comparison — 2+ employees selected → fetch per-employee focus so the comparison
+  // can show the SAME task-estimate metrics (Est vs Actual, Tasks done) the single-employee
+  // view shows. data.employees alone has no est_total / actual_total.
+  useEffect(() => {
+    const emps = (draft.employee || "").split(",").map((s) => s.trim()).filter(Boolean);
+    if (emps.length < 2) { setEmpCmp(null); return; }
+    let cancelled = false;
+    Promise.all(emps.slice(0, 4).map((nm) =>
+      getFocus("employee", nm, draft).then((d) => ({ nm, s: d.summary })).catch(() => null)))
+      .then((rs) => { if (!cancelled) setEmpCmp(rs.filter(Boolean).map((r) => ({
+        name: r!.nm, est_total: r!.s?.est_total ?? 0, actual_total: r!.s?.actual_total ?? 0,
+        on_estimate_pct: r!.s?.on_estimate_pct ?? null, tasks: r!.s?.tasks ?? 0, tasks_done: r!.s?.tasks_done ?? 0,
+      }))); });
+    return () => { cancelled = true; };
+  }, [draft.employee, draft.date_from, draft.date_to]);
   function mapRole(r: AppRole): Role {
     return r === "owner" ? "owner" : r === "employee" ? "user" : "admin";
   }
@@ -700,6 +721,23 @@ export default function CommandCenter({
     })();
     return () => { cancelled = true; };
   }, [initialData, initialOpts]);
+  // Realtime load progress — ramps toward 90% while fetching, snaps to 100% when the
+  // data lands, then resets. Drives the percentage spinner + top progress bar.
+  useEffect(() => {
+    const busyNow = loading || !data;
+    if (busyNow) {
+      // jump to a visible head-start, then ease toward 90% (NProgress-style trickle) so
+      // the bar feels responsive immediately and never stalls at 0.
+      setProgress((p) => (p < 22 ? 22 : p));
+      const id = setInterval(() => {
+        setProgress((p) => (p >= 90 ? 90 : p + Math.max(1, Math.round((90 - p) * 0.16))));
+      }, 140);
+      return () => clearInterval(id);
+    }
+    setProgress(100);
+    const t = setTimeout(() => setProgress(0), 450);
+    return () => clearTimeout(t);
+  }, [loading, data]);
   // data-source freshness (production status strip)
   useEffect(() => {
     let off = false;
@@ -745,15 +783,28 @@ export default function CommandCenter({
     finally { setRefreshing(false); }
   }
   async function apply(f: Filters) {
+    // Sequence guard: if a newer filter is applied while this one is still loading,
+    // the older (slower) response is DROPPED so it can't overwrite the newer one.
+    const seq = ++applySeq.current;
     setLoading(true);
     // keep the dropdowns scoped to the active period + drill scope
     refetchOpts({ department: f.department, atl: f.atl, date_from: f.date_from, date_to: f.date_to, client: f.client, employee: f.employee });
-    getTaskDelivery(f).then(setTaskDel).catch(() => setTaskDel(null));
-    getBudget(f).then(setBudget).catch(() => setBudget(null));
-    getWorkforce(f).then(setWorkforce).catch(() => setWorkforce(null));
-    try { setData(await getCommand(f)); setLoadErr(null); }
-    catch { setLoadErr("Couldn't load dashboard data. Check your connection and retry."); }
-    finally { setLoading(false); }
+    try {
+      // Wait for the WHOLE filtered dataset (command + delivery + budget + workforce)
+      // before revealing — and only apply it if this is still the latest request.
+      const [cmd, td, bg, wf] = await Promise.all([
+        getCommand(f),
+        getTaskDelivery(f).catch(() => null),
+        getBudget(f).catch(() => null),
+        getWorkforce(f).catch(() => null),
+      ]);
+      if (seq !== applySeq.current) return;   // a newer filter won — discard these
+      setData(cmd); setTaskDel(td); setBudget(bg); setWorkforce(wf); setLoadErr(null);
+    } catch {
+      if (seq === applySeq.current) setLoadErr("Couldn't load dashboard data. Check your connection and retry.");
+    } finally {
+      if (seq === applySeq.current) setLoading(false);
+    }
   }
   // date range helpers (used by quick presets in the period bar)
   function setRange(from: string, to: string) { const next = { ...draft, date_from: from, date_to: to }; setDraft(next); apply(next); }
@@ -851,12 +902,15 @@ export default function CommandCenter({
           <button className="retry-btn" onClick={() => apply(draft)}><RotateCcw size={14} />Retry</button>
         </div>
       ) : (
-        <div className="dash-skel" aria-busy="true" aria-label="Loading dashboard">
-          <div className="skel-head"><span className="skel skel-title" /><span className="skel skel-pill" /></div>
-          <div className="skel-kpi">{Array.from({ length: 8 }).map((_, i) => <span key={i} className="skel skel-card" />)}</div>
-          <div className="skel-row"><span className="skel skel-panel" /><span className="skel skel-panel" /></div>
-          <span className="skel skel-panel tall" />
-        </div>
+        <>
+          <div className="loadbar det"><span style={{ width: progress + "%" }} /></div>
+          <div className="dash-skel" aria-busy="true" aria-label="Loading dashboard">
+            <div className="skel-head"><span className="skel skel-title" /><span className="skel skel-pill" /></div>
+            <div className="skel-kpi">{Array.from({ length: 8 }).map((_, i) => <span key={i} className="skel skel-card" />)}</div>
+            <div className="skel-row"><span className="skel skel-panel" /><span className="skel skel-panel" /></div>
+            <span className="skel skel-panel tall" />
+          </div>
+        </>
       )}
     </div>
   );
@@ -864,6 +918,11 @@ export default function CommandCenter({
   const live = data.source === "supabase";
   const sm = data.summary;
   const k = data.kpis;
+  // Active period — shown as a chip in every scorecard modal so it's clear the figures
+  // are scoped to the SAME range as the dashboard filter (not all-time).
+  const periodLabel = draft.date_from && draft.date_to ? `${shortDate(draft.date_from)} – ${shortDate(draft.date_to)}`
+    : draft.date_from ? `from ${shortDate(draft.date_from)}` : draft.date_to ? `until ${shortDate(draft.date_to)}` : "All time";
+  const PeriodChip = () => <span className="sc-period"><CalendarDays size={12} />{periodLabel}</span>;
 
   const total = Number(k.total_hours?.value || 0);
   const billable = Number(k.billable_hours?.value || 0);
@@ -874,6 +933,22 @@ export default function CommandCenter({
   const billablePct = total > 0 ? (billable / total) * 100 : 0;
   const activeStaff = (data.employees || []).filter((e) => e.hr_status === "ACTIVE").length;
   const onTimePct = taskDel ? taskDel.on_time_pct : 0;
+  // Multiple clients selected (a pure multi-client scope) → aggregate the per-client focus
+  // payloads so the SAME client KPIs the single-client view shows (Est vs Actual, Budget
+  // Used) appear, combined across the selected clients, instead of the generic company KPIs.
+  const multiClient = sp1(draft.client).length >= 2 && !fTeam && !fEmp && !fType;
+  const clientAgg = (multiClient && clientCmp && clientCmp.length >= 2) ? (() => {
+    const ss = clientCmp.map((c) => c.data.summary).filter(Boolean) as NonNullable<import("../lib/api").FocusData["summary"]>[];
+    const sum = (f: (s: typeof ss[number]) => number) => ss.reduce((a, s) => a + (Number(f(s)) || 0), 0);
+    const withEst = sum((s) => s.tasks_with_est ?? 0), over = sum((s) => s.tasks_over ?? 0);
+    const usedPct = (budget && budget.total_budget > 0) ? Math.round((budget.total_actual / budget.total_budget) * 100) : null;
+    return {
+      est_total: sum((s) => s.est_total), actual_total: sum((s) => s.actual_total),
+      on_estimate_pct: withEst > 0 ? Math.round(((withEst - over) / withEst) * 100) : null,
+      used_pct: usedPct, budget: budget && budget.total_budget > 0 ? budget.total_budget : null,
+      over: !!(budget && budget.over > 0),
+    };
+  })() : null;
   const kTone = (v: number, good: number, warn: number) => (v >= good ? "ok" : v >= warn ? "warn" : "bad");
   const gradeStr = String(k.avg_grade?.value ?? "—");
   const cmp = data.period?.comparable;
@@ -1061,7 +1136,8 @@ export default function CommandCenter({
 
   return (
     <div className={`page${loading ? " is-syncing" : ""}`}>
-      {loading && <div className="loadbar"><span /></div>}
+      {loading && <div className="loadbar det"><span style={{ width: progress + "%" }} /></div>}
+      {loading && <div className="load-pct">Updating <b>{progress}%</b></div>}
       {/* HEADER */}
       <div className="topbar">
         <div className="tb-l">
@@ -1112,7 +1188,8 @@ export default function CommandCenter({
               <RotateCcw size={14} />
             </button>
           )}
-          {authUser?.role === "owner" && (
+          {/* Financials button hidden for now (re-enable by restoring the role check) */}
+          {false && authUser?.role === "owner" && (
             <button className="fin-btn" onClick={() => setFinancialsModal(true)} title="Financials — revenue, collections & cash (this period)">
               <Receipt size={14} /><span>Financials</span>
             </button>
@@ -1169,12 +1246,7 @@ export default function CommandCenter({
         return (
           <div className="filterbar">
             <span className="fb-lead">FILTERS</span>
-            <label className="fdate">
-              <CalendarDays size={13} />
-              <input type="date" value={draft.date_from || ""} onChange={(e) => setField("date_from", e.target.value)} aria-label="From" />
-              <span className="dsep">–</span>
-              <input type="date" value={draft.date_to || ""} onChange={(e) => setField("date_to", e.target.value)} aria-label="To" />
-            </label>
+            <DateRange from={draft.date_from} to={draft.date_to} min={opts?.date_min} max={opts?.date_max} activePreset={activePreset} onPreset={presetDays} onRange={setRange} />
             <MultiSelect Icon={Building2} label="Department" value={draft.department} opts={opts?.departments} on={setDept} allLabel="All Departments" />
             <MultiSelect Icon={Network} label="Team" value={draft.atl} opts={opts?.atls} on={setAtl} allLabel="All Teams" />
             <MultiSelect Icon={Users} label="Employee" value={draft.employee} opts={opts?.employees} on={(v) => setField("employee", v)} allLabel="All Employees" status={opts?.employee_status} />
@@ -1184,11 +1256,6 @@ export default function CommandCenter({
             <div className="bseg" role="group" aria-label="Billable">
               {([["", "All"], ["Billable", "Billable"], ["Non-Billable", "Non-Bill"]] as const).map(([v, lbl]) => (
                 <button key={v || "all"} type="button" className={(draft.billable || "") === v ? "on" : ""} onClick={() => setField("billable", v)}>{lbl}</button>
-              ))}
-            </div>
-            <div className="fpreset" role="group" aria-label="Quick range">
-              {PRESETS.map(([lbl, n]) => (
-                <button key={lbl} type="button" className={activePreset === lbl ? "on" : ""} onClick={() => presetDays(n)}>{lbl}</button>
               ))}
             </div>
             {activeCount > 0 && (
@@ -1204,17 +1271,7 @@ export default function CommandCenter({
       {caps.self && (
         <div className="filterbar period">
           <span className="fb-lead">PERIOD</span>
-          <label className="fdate">
-            <CalendarDays size={13} />
-            <input type="date" value={draft.date_from || ""} onChange={(e) => setField("date_from", e.target.value)} aria-label="From" />
-            <span className="dsep">–</span>
-            <input type="date" value={draft.date_to || ""} onChange={(e) => setField("date_to", e.target.value)} aria-label="To" />
-          </label>
-          <div className="fpreset" role="group" aria-label="Quick range">
-            {PRESETS.map(([lbl, n]) => (
-              <button key={lbl} type="button" className={activePreset === lbl ? "on" : ""} onClick={() => presetDays(n)}>{lbl}</button>
-            ))}
-          </div>
+          <DateRange from={draft.date_from} to={draft.date_to} min={opts?.date_min} max={opts?.date_max} activePreset={activePreset} onPreset={presetDays} onRange={setRange} />
         </div>
       )}
 
@@ -1242,13 +1299,24 @@ export default function CommandCenter({
           )}
           {!caps.self && <span><b>{peopleN}</b> {peopleN === 1 ? "person" : "people"}</span>}
           <span><b>{n0(total)}</b>h tracked</span>
-          {loading && <span className="scope-sync"><span className="spin sm" /> updating…</span>}
+          {loading && <span className="scope-sync"><span className="spin sm" /> updating… {progress}%</span>}
         </div>
       </div>
       )}
 
+      {/* While (re)loading, swap the whole dashboard body for a skeleton instead of
+          dimming the stale numbers — so the cards never flash mismatched/old figures
+          mid-load. The header + filter bar above stay live so you can keep filtering. */}
+      {loading ? (
+        <div className="dash-skel" aria-busy="true" aria-label="Loading dashboard">
+          <div className="skel-kpi">{Array.from({ length: 8 }).map((_, i) => <span key={i} className="skel skel-card" />)}</div>
+          <div className="skel-row"><span className="skel skel-panel" /><span className="skel skel-panel" /></div>
+          <div className="skel-row"><span className="skel skel-panel" /><span className="skel skel-panel" /></div>
+          <span className="skel skel-panel tall" />
+        </div>
+      ) : (<>
       {/* KPI — 8 clean cards (label + big value + icon badge + delta) */}
-      <div className="kpi-grid kpi-anim" key={dataVer}>
+      <div className="kpi-grid">
         {kpiCard("k-util", "Utilization", n1(util) + "%", "purple", Gauge, "utilization",
           openMetric("Utilization", "#8b5cf6", "Tracked hours ÷ REAL office hours (Keka attendance; 8h/day if no attendance) × 100, capped at 100%. Target 80%.", (e) => e.utilization, (v) => n1(v) + "%", "utilization"), kTone(util, 80, 60), "of office hours")}
         {kpiCard("k-bill", "Billable", n0(billable) + "h", "green", Receipt, "billable_hours",
@@ -1264,19 +1332,23 @@ export default function CommandCenter({
         {isClientCtx && focusData?.found
           ? kpiCard("k-est", "Est vs Actual", `${n0(focusData.summary!.actual_total)}/${n0(focusData.summary!.est_total)}h`, "teal", Tag, undefined, () => setFocusMetric("est"),
               (focusData.summary!.on_estimate_pct ?? 100) < 60 ? "warn" : "ok", `${focusData.summary!.on_estimate_pct ?? "—"}% within estimate`)
-          : ctx === "employee" && focusData?.found
-          ? kpiCard("k-myclients", "Clients", n0(focusData.summary!.clients), "teal", Building2, undefined, undefined, undefined, "you work with")
+          : clientAgg
+          ? kpiCard("k-est", "Est vs Actual", `${n0(clientAgg.actual_total)}/${n0(clientAgg.est_total)}h`, "teal", Tag, undefined, undefined,
+              (clientAgg.on_estimate_pct ?? 100) < 60 ? "warn" : "ok", `${clientAgg.on_estimate_pct ?? "—"}% within estimate`)
+          : (ctx === "employee" || ctx === "team" || ctx === "type") && focusData?.found
+          ? kpiCard("k-myclients", "Clients", n0(focusData.summary!.clients), "teal", Building2, undefined, openClients, undefined, "worked this period · click to view")
           : kpiCard("k-clients", "Active Clients", n0(sm.clients), "teal", Building2, undefined, openClients, undefined, "worked this period")}
         {isClientCtx && focusData?.found
           ? kpiCard("k-used", "Budget Used", focusData.summary!.used_pct != null ? n0(focusData.summary!.used_pct) + "%" : "—", "purple", Briefcase, undefined, () => setFocusMetric("budget"),
               focusData.summary!.over ? "bad" : "ok", focusData.summary!.budget != null ? `of ${n0(focusData.summary!.budget)}h budget` : "no budget set")
+          : clientAgg
+          ? kpiCard("k-used", "Budget Used", clientAgg.used_pct != null ? n0(clientAgg.used_pct) + "%" : "—", "purple", Briefcase, undefined, () => setBudgetModal(true),
+              clientAgg.over ? "bad" : "ok", clientAgg.budget != null ? `of ${n0(clientAgg.budget)}h budget` : "no budget set")
           : ctx === "employee" && focusData?.found
           ? kpiCard("k-onest", "On-estimate", focusData.summary!.on_estimate_pct != null ? n0(focusData.summary!.on_estimate_pct) + "%" : "—", "purple", Tag, undefined, () => setFocusMetric("est"),
               (focusData.summary!.on_estimate_pct ?? 100) < 60 ? "warn" : "ok", "tasks within estimate")
           : kpiCard("k-cpe", "Clients / Employee", sm.employees ? n1(sm.clients / sm.employees) : "—", "purple", Network, undefined, undefined, undefined, "avg load ratio")}
-        {ctx === "employee" && focusData?.found
-          ? kpiCard("k-myest", "Est vs Actual", `${n0(focusData.summary!.actual_total)}/${n0(focusData.summary!.est_total)}h`, "rose", Tag, undefined, () => setFocusMetric("est"), undefined, "tracked vs estimate")
-          : budget && budget.count > 0
+        {budget && budget.count > 0
           ? kpiCard("k-budget", "Over Budget", `${budget.over} of ${budget.count}`, "rose", Briefcase, undefined,
               () => setBudgetModal(true),
               budget.over > budget.count * 0.5 ? "bad" : budget.over > budget.count * 0.25 ? "warn" : "ok",
@@ -1575,9 +1647,6 @@ export default function CommandCenter({
         const matchTab = (t: import("../lib/api").FocusTask) => focusTab === "all" ? true : focusTab === "open" ? !t.done : focusTab === "done" ? t.done : focusTab === "overdue" ? isOverdue(t) : focusTab === "duesoon" ? isDueSoon(t) : (t.variance != null && t.variance > 0);
         const tasks = all.filter((t) => matchTab(t) && (!priFilter || priOf(t) === priFilter));
         const counts = { all: all.length, open: all.filter((t) => !t.done).length, done: all.filter((t) => t.done).length, over: all.filter((t) => t.variance != null && t.variance > 0).length };
-        const dl = { overdue: all.filter(isOverdue).length, duesoon: all.filter(isDueSoon).length };
-        const priCounts: Record<string, number> = { urgent: 0, high: 0, normal: 0, low: 0 };
-        all.forEach((t) => { const p = priOf(t); if (p in priCounts && !t.done) priCounts[p]++; });
         const flag = (e: number | null) => e == null ? <span className="fv-flag mid">—</span> : <span className={"fv-flag " + (e >= 100 ? "good" : e >= 85 ? "mid" : "weak")}>{e >= 100 ? "Efficient" : e >= 85 ? "On track" : "Slow"}</span>;
         const showClients = (ctx === "team" || ctx === "employee" || ctx === "type") && rows.clients.length > 0;
         const showMembers = (ctx === "team" || ctx === "client" || ctx === "type") && rows.members.length > 0;
@@ -1847,7 +1916,8 @@ export default function CommandCenter({
               }
               return null;
             })()}
-            {ctx && focusData?.found && focusData.sentiment && focusData.sentiment.comms > 0 && (() => {
+            {/* Client sentiment panel hidden for now (re-enable: set SHOW_SENTIMENT = true) */}
+            {SHOW_SENTIMENT && ctx && focusData?.found && focusData.sentiment && focusData.sentiment.comms > 0 && (() => {
               const sn = focusData.sentiment!; const tot = sn.comms || 1; const risk = sn.concerned > 0 || sn.complaints > 0;
               const ttl = ctx === "client" ? "Client sentiment & comms" : ctx === "employee" ? "Client sentiment · their clients" : "Client sentiment · in-scope clients";
               const scopeNm = ctx === "client" ? fClient! : ctx === "employee" ? fEmp! : ctx === "team" ? fTeam! : (fType || "Clients");
@@ -1880,34 +1950,16 @@ export default function CommandCenter({
                 <div className="ph"><h3>Who handles which client <span className="hl">{rows.pairs!.length} employee → client pairs · by hours</span></h3></div>
                 <div className="scrollwrap" style={{ maxHeight: 320 }}>
                   <table className="ec-table">
-                    <thead><tr><th className="l">Employee</th><th className="l">Client</th><th>Hours</th><th>Bill%</th></tr></thead>
+                    <thead><tr><th className="l">Employee</th><th className="l">Client</th><th>Billable</th><th>Non-bill</th><th>Bill%</th></tr></thead>
                     <tbody>{rows.pairs!.map((p, i) => (
                       <tr key={p.name + p.client + i} className="click" onClick={() => openClient(p.client)}>
                         <td className="l"><span className="emp-c"><span className="avatar sm" style={{ background: avatarColor(p.name) }}>{initials(p.name)}</span><span className="tname">{p.name}</span></span></td>
                         <td className="l">{p.client}</td>
-                        <td className="num" style={{ fontWeight: 700 }}>{n1(p.hours)}h</td>
+                        <td className="num" style={{ fontWeight: 700, color: "#1f8a5b" }}>{n1(p.billable)}h</td>
+                        <td className="num" style={{ color: "#d9a23a" }}>{n1(p.non_billable)}h</td>
                         <td className="num">{n0(p.billable_pct)}%</td>
                       </tr>))}</tbody>
                   </table>
-                </div>
-              </div>
-            )}
-            {all.length > 0 && (
-              <div className="panel dlb-panel" style={{ marginBottom: 14 }}>
-                <div className="ph"><h3>Deadlines &amp; Priority <span className="hl">click a chip to filter the task list below</span></h3></div>
-                <div className="dlb-row">
-                  <button className={"dlb-seg od" + (focusTab === "overdue" ? " on" : "")} onClick={() => setFocusTab(focusTab === "overdue" ? "all" : "overdue")} title="Past due & not done">
-                    <b>{dl.overdue}</b><span>Overdue</span></button>
-                  <button className={"dlb-seg ds" + (focusTab === "duesoon" ? " on" : "")} onClick={() => setFocusTab(focusTab === "duesoon" ? "all" : "duesoon")} title="Due within 7 days">
-                    <b>{dl.duesoon}</b><span>Due this week</span></button>
-                  <span className="dlb-div" />
-                  {(["urgent", "high", "normal", "low"] as const).map((p) => (
-                    <button key={p} className={"dlb-seg pri-" + p + (priFilter === p ? " on" : "")} onClick={() => setPriFilter(priFilter === p ? null : p)} title={`${p} priority · open tasks`}>
-                      <b>{priCounts[p]}</b><span>{p}</span></button>
-                  ))}
-                  {(focusTab === "overdue" || focusTab === "duesoon" || priFilter) && (
-                    <button className="dlb-clear" onClick={() => { setFocusTab("all"); setPriFilter(null); }}>Clear</button>
-                  )}
                 </div>
               </div>
             )}
@@ -2129,21 +2181,39 @@ export default function CommandCenter({
                       );
                     })}
                     {([["Efficiency", (e: CmpEnt) => e.efficiency], ["On estimate %", (e: CmpEnt) => e.on_estimate]] as const).map(([label, sel]) => {
+                      // Always render the task-estimate rows (— for anyone with no estimated tasks) so
+                      // this section never disappears in the employee comparison, even when none of the
+                      // selected people happen to have estimates.
                       const present = compare!.ents.map(sel).filter((v): v is number => v != null);
-                      if (!present.length) return null;
                       let bi = -1, bv = -Infinity;
                       compare!.ents.forEach((e, i) => { const v = sel(e); if (v != null && v > bv) { bv = v; bi = i; } });
-                      const avg = Math.round(present.reduce((a, b) => a + b, 0) / present.length);
+                      const avg = present.length ? Math.round(present.reduce((a, b) => a + b, 0) / present.length) : null;
                       return (
                         <tr key={label}>
                           <td className="l cmp-mlbl">{label}</td>
                           {compare!.ents.map((e, i) => { const v = sel(e); return (
                             <td key={e.name + i} className={`num${i === bi && present.length > 1 ? " cmp-best" : ""}`}>{v == null ? "—" : v + "%"}{i === bi && present.length > 1 && <span className="cmp-win">▲</span>}</td>
                           ); })}
-                          <td className="num cmp-avg">{avg}%</td>
+                          <td className="num cmp-avg">{avg == null ? "—" : avg + "%"}</td>
                         </tr>
                       );
                     })}
+                    {/* Est vs Actual + Tasks done — the same task-estimate metrics the single-employee
+                        view shows, per employee (from per-employee focus). Only for employee comparison. */}
+                    {compare.kind === "employee" && empCmp && (() => {
+                      const get = (nm: string) => empCmp.find((x) => x.name === nm);
+                      const rows: { label: string; val: (nm: string) => string }[] = [
+                        { label: "Est vs Actual", val: (nm) => { const g = get(nm); return g && g.est_total > 0 ? `${n0(g.actual_total)}/${n0(g.est_total)}h` : "—"; } },
+                        { label: "Tasks done", val: (nm) => { const g = get(nm); return g ? `${g.tasks_done}/${g.tasks}` : "—"; } },
+                      ];
+                      return rows.map((row) => (
+                        <tr key={row.label}>
+                          <td className="l cmp-mlbl">{row.label}</td>
+                          {compare!.ents.map((e, i) => <td key={e.name + i} className="num">{row.val(e.name)}</td>)}
+                          <td className="num cmp-avg">—</td>
+                        </tr>
+                      ));
+                    })()}
                   </tbody>
                 </table>
               </div>
@@ -2155,28 +2225,42 @@ export default function CommandCenter({
       {/* CLIENT COMPARISON — 2+ clients selected, side by side */}
       {clientCmp && clientCmp.length >= 2 && (() => {
         type CS = NonNullable<import("../lib/api").FocusData["summary"]>;
-        const ents = clientCmp.map((c) => ({ name: c.name, s: c.data.summary as CS })).filter((e) => e.s);
+        // Source the 4 headline KPIs (utilization / billable / activity / productivity) from
+        // each client's COMMAND payload — the exact same numbers the single-client view shows —
+        // and keep focus (budget / on-estimate / tasks / health) for the rest. This makes the
+        // comparison mirror the single-client KPIs (focus has no utilization for a client).
+        const ents = clientCmp.map((c) => {
+          const kv = (key: string) => Number((c.kpis as Record<string, { value?: number | string }> | undefined)?.[key]?.value || 0);
+          const total = kv("total_hours"), billh = kv("billable_hours");
+          return { name: c.name, s: c.data.summary as CS,
+            k: { util: kv("utilization"), billable: billh, activity: kv("activity"), productivity: kv("productivity"),
+                 total, billable_pct: total > 0 ? (billh / total) * 100 : 0 } };
+        }).filter((e) => e.s);
         if (ents.length < 2) return null;
+        type Ent = typeof ents[number];
         const COL = CMP_COLORS;
         const maxTotal = Math.max(1, ...ents.map((e) => e.s.total));
-        const bestIdx = (sel: (s: CS) => number, high = true) => {
+        const bestIdx = (sel: (e: Ent) => number, high = true) => {
           let bi = 0, bv = high ? -Infinity : Infinity;
-          ents.forEach((e, i) => { const v = sel(e.s); if (high ? v > bv : v < bv) { bv = v; bi = i; } });
+          ents.forEach((e, i) => { const v = sel(e); if (high ? v > bv : v < bv) { bv = v; bi = i; } });
           return bi;
         };
-        const metrics: { label: string; sel: (s: CS) => number; fmt: (v: number) => string; high: boolean }[] = [
-          { label: "Total hours", sel: (s) => s.total, fmt: (v) => n0(v) + "h", high: true },
-          { label: "Billable %", sel: (s) => s.billable_pct, fmt: (v) => n0(v) + "%", high: true },
-          { label: "Budget used %", sel: (s) => s.used_pct ?? 0, fmt: (v) => v ? n0(v) + "%" : "—", high: false },
-          { label: "On estimate %", sel: (s) => s.on_estimate_pct ?? 0, fmt: (v) => v ? n0(v) + "%" : "—", high: true },
-          { label: "Tasks done", sel: (s) => s.tasks_done, fmt: (v) => n0(v), high: true },
+        const metrics: { label: string; sel: (e: Ent) => number; fmt: (v: number) => string; high: boolean }[] = [
+          { label: "Utilization %", sel: (e) => e.k.util, fmt: (v) => n0(v) + "%", high: true },
+          { label: "Billable hrs", sel: (e) => e.k.billable, fmt: (v) => n0(v) + "h", high: true },
+          { label: "Activity %", sel: (e) => e.k.activity, fmt: (v) => n0(v) + "%", high: true },
+          { label: "Productivity %", sel: (e) => e.k.productivity, fmt: (v) => n0(v) + "%", high: true },
+          { label: "Total hours", sel: (e) => e.s.total, fmt: (v) => n0(v) + "h", high: true },
+          { label: "Budget used %", sel: (e) => e.s.used_pct ?? 0, fmt: (v) => v ? n0(v) + "%" : "—", high: false },
+          { label: "On estimate %", sel: (e) => e.s.on_estimate_pct ?? 0, fmt: (v) => v ? n0(v) + "%" : "—", high: true },
+          { label: "Tasks done", sel: (e) => e.s.tasks_done, fmt: (v) => n0(v), high: true },
         ];
-        const cscore = (s: CS) => s.health ?? Math.round(0.5 * s.billable_pct + 0.5 * (s.on_estimate_pct ?? 70));
-        const scores = ents.map((e) => cscore(e.s));
+        const cscore = (e: Ent) => e.s.health ?? Math.round(0.5 * e.k.billable_pct + 0.5 * (e.s.on_estimate_pct ?? 70));
+        const scores = ents.map((e) => cscore(e));
         const leaderIdx = scores.indexOf(Math.max(...scores));
         const ranks = scores.map((sc) => 1 + scores.filter((o) => o > sc).length);
         const winsOf = (idx: number) => metrics.filter((mt) => bestIdx(mt.sel, mt.high) === idx).length;
-        const avgOf = (sel: (s: CS) => number) => ents.reduce((a, e) => a + sel(e.s), 0) / ents.length;
+        const avgOf = (sel: (e: Ent) => number) => ents.reduce((a, e) => a + sel(e), 0) / ents.length;
         const avgScore = Math.round(avgOf(cscore));
         return (
           <div className="panel cmp-panel cmp-zone" style={{ marginBottom: 14 }}>
@@ -2214,9 +2298,10 @@ export default function CommandCenter({
                       <span className={`cmp-dlt ${scores[i] >= avgScore ? "up" : "down"}`}>{scores[i] >= avgScore ? "+" : ""}{scores[i] - avgScore} vs avg</span>
                     </div>
                     <div className="cmp-kpis">
-                      <div className="cmp-kpi"><span className="ck-l">Billable</span><b className="ck-v num">{n0(s.billable_pct)}%</b></div>
-                      <div className="cmp-kpi"><span className="ck-l">On est.</span><b className="ck-v num">{s.on_estimate_pct != null ? s.on_estimate_pct + "%" : "—"}</b></div>
-                      <div className="cmp-kpi"><span className="ck-l">Tasks</span><b className="ck-v num">{s.tasks_done}/{s.tasks}</b></div>
+                      <div className="cmp-kpi"><span className="ck-l">Util</span><b className="ck-v num">{n0(e.k.util)}%</b></div>
+                      <div className="cmp-kpi"><span className="ck-l">Billable</span><b className="ck-v num">{n0(e.k.billable)}h</b></div>
+                      <div className="cmp-kpi"><span className="ck-l">Activity</span><b className="ck-v num">{n0(e.k.activity)}%</b></div>
+                      <div className="cmp-kpi"><span className="ck-l">Prod.</span><b className="ck-v num">{n0(e.k.productivity)}%</b></div>
                     </div>
                   </div>
                 );
@@ -2253,7 +2338,7 @@ export default function CommandCenter({
                         <td className="l cmp-mlbl">{mt.label}</td>
                         {ents.map((e, i) => (
                           <td key={e.name + i} className={`num${i === bi && ents.length > 1 ? " cmp-best" : ""}`}>
-                            {mt.fmt(mt.sel(e.s))}
+                            {mt.fmt(mt.sel(e))}
                             {i === bi && ents.length > 1 && <span className="cmp-win">▲</span>}
                           </td>
                         ))}
@@ -2419,6 +2504,7 @@ export default function CommandCenter({
       )}
 
       <div className="foot">Synced from Hubstaff · ClickUp — {live ? "Supabase (Live)" : "CSV (Demo)"} · capacity 8h/day · Non-billable = tasks/projects marked “NB”</div>
+      </>)}
 
 
       {/* KPI DETAIL — per-employee breakdown of the clicked metric */}
@@ -2496,7 +2582,7 @@ export default function CommandCenter({
                         <span className="avatar lg" style={{ background: avatarColor(p.name) }}>{initials(p.name)}</span>
                         <div><div className="nm">{p.name}</div><div className="tm">{p.team} · {p.department}{p.role ? ` · ${p.role}` : ""}</div></div>
                       </div>
-                      <div className="modal-x" onClick={() => setEmp(null)}><X size={16} /></div>
+                      <div className="dh-right"><PeriodChip /><div className="modal-x" onClick={() => setEmp(null)}><X size={16} /></div></div>
                     </div>
                     <div className="drawer-b">
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -2518,7 +2604,7 @@ export default function CommandCenter({
                         <table>
                           <thead><tr><th className="l">Task</th><th className="l">Client</th><th className="l">Status</th><th>Tracked</th></tr></thead>
                           <tbody>
-                            {tasks.slice(0, 50).map((t, i) => (
+                            {tasks.slice(0, 500).map((t, i) => (
                               <tr key={i}><td className="l tname">{String(t.task)}</td><td className="l" style={{ color: "var(--muted)" }}>{String(t.client || "—")}</td><td className="l" style={{ color: "var(--muted)" }}>{String(t.status || "—")}</td><td className="num">{n1(Number(t.tracked || 0))}h</td></tr>
                             ))}
                             {tasks.length === 0 && <tr><td colSpan={4} style={{ textAlign: "center", padding: 16, color: "var(--muted)" }}>No tasks</td></tr>}
@@ -2551,6 +2637,7 @@ export default function CommandCenter({
                         <div><div className="nm">{clientProf.name}</div><div className="tm">{s.team}{s.department ? ` · ${s.department}` : ""} · {s.members} people · {n0(s.total)}h{s.last_worked ? ` · last worked ${shortDate(s.last_worked)}` : ""}</div></div>
                       </div>
                       <div className="dh-right">
+                        <PeriodChip />
                         {s.health != null && <span className={`grade ${gradeCls(s.health_grade || "C")}`} title="Client health">{s.health_grade} · {s.health}</span>}
                         <div className="modal-x" onClick={() => setClientProf(null)}><X size={16} /></div>
                       </div>
@@ -2731,7 +2818,7 @@ export default function CommandCenter({
                         <span className="avatar lg" style={{ background: avatarColor(p.team) }}><Users size={20} /></span>
                         <div><div className="nm">{p.team}</div><div className="tm">{p.department} · {p.people} people · {p.clients} clients</div></div>
                       </div>
-                      <div className="modal-x" onClick={() => setTeamProf(null)}><X size={16} /></div>
+                      <div className="dh-right"><PeriodChip /><div className="modal-x" onClick={() => setTeamProf(null)}><X size={16} /></div></div>
                     </div>
                     <div className="drawer-b">
                       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
@@ -3649,23 +3736,30 @@ export default function CommandCenter({
       {/* FOCUS METRIC DRILL — Est-vs-Actual / Budget detail modal */}
       {focusMetric && focusData?.found && (() => {
         const s = focusData.summary!; const tasks = focusData.rows?.tasks || [];
-        const isEst = focusMetric === "est";
+        const isOver = focusMetric === "over";
+        const isEst = focusMetric === "est" || isOver;
         const withEst = tasks.filter((t) => t.est > 0).sort((a, b) => (b.variance ?? -999) - (a.variance ?? -999));
+        const noEst = tasks.filter((t) => !(t.est > 0)).sort((a, b) => b.actual - a.actual);
+        const estList = [...withEst, ...noEst];   // estimate tasks first, then the no-estimate ones
+        const overList = withEst.filter((t) => (t.variance ?? 0) > 0);   // tracked beyond estimate
+        const listRows = isOver ? overList : isEst ? estList : tasks;
+        const trkEst = withEst.reduce((a, t) => a + (t.actual || 0), 0);   // tracked on estimated tasks
+        const trkNo = noEst.reduce((a, t) => a + (t.actual || 0), 0);      // tracked on no-estimate tasks
         const remaining = s.budget != null ? Math.max(0, s.budget - s.total) : null;
         return (
           <div className="modal-bg" onClick={() => setFocusMetric(null)}>
             <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 820, width: "94vw" }}>
               <div className="modal-h">
-                <div><h3>{isEst ? "Estimate vs Actual" : "Budget"} <span className="hl">{focusData.name}{focusData.client ? ` · ${focusData.client}` : ""}</span></h3>
-                  <div className="sub">{isEst ? "ClickUp estimate vs Hubstaff tracked, per task" : "client budget consumption this period"}</div></div>
+                <div><h3>{isOver ? "Over budget" : isEst ? "Estimate vs Actual" : "Budget"} <span className="hl">{focusData.name}{focusData.client ? ` · ${focusData.client}` : ""}</span></h3>
+                  <div className="sub">{isOver ? "tasks tracked beyond their ClickUp estimate" : isEst ? "ClickUp estimate vs Hubstaff tracked, per task" : "client budget consumption this period"}</div></div>
                 <div className="modal-x" onClick={() => setFocusMetric(null)}><X size={16} /></div>
               </div>
               <div className="modal-b">
                 <div className="fm-stats">
                   {isEst ? <>
-                    <div className="fm-stat"><b>{n0(s.est_total)}h</b><span>Estimated</span></div>
-                    <div className="fm-stat"><b className="acc">{n0(s.actual_total)}h</b><span>Tracked</span></div>
-                    <div className="fm-stat"><b className={s.actual_total > s.est_total ? "bad" : "ok"}>{s.est_total ? (s.actual_total > s.est_total ? "+" : "") + n0(s.actual_total - s.est_total) + "h" : "—"}</b><span>Variance</span></div>
+                    <div className="fm-stat"><b>{n0(s.est_total)}h</b><span>Estimated · {withEst.length} tasks</span></div>
+                    <div className="fm-stat"><b className="acc">{n0(s.actual_total)}h</b><span>Tracked total</span></div>
+                    <div className="fm-stat"><b className={trkEst > s.est_total ? "bad" : "ok"}>{s.est_total ? (trkEst > s.est_total ? "+" : "") + n0(trkEst - s.est_total) + "h" : "—"}</b><span>Variance · est tasks</span></div>
                     <div className="fm-stat"><b className={(s.on_estimate_pct ?? 100) < 60 ? "warn" : "ok"}>{s.on_estimate_pct ?? "—"}%</b><span>Within estimate</span></div>
                   </> : <>
                     <div className="fm-stat"><b>{s.budget != null ? n0(s.budget) + "h" : "—"}</b><span>Budget</span></div>
@@ -3674,17 +3768,33 @@ export default function CommandCenter({
                     <div className="fm-stat"><b className={s.over ? "bad" : "ok"}>{s.used_pct != null ? n0(s.used_pct) + "%" : "—"}</b><span>Used</span></div>
                   </>}
                 </div>
+                {isEst && (trkEst + trkNo) > 0 && (() => {
+                  const tt = trkEst + trkNo;
+                  return (
+                    <div className="trk-split">
+                      <div className="trk-bar">
+                        <i className="trk-est" style={{ width: `${trkEst / tt * 100}%` }} />
+                        <i className="trk-no" style={{ width: `${trkNo / tt * 100}%` }} />
+                      </div>
+                      <div className="trk-leg">
+                        <span><i className="d est" />Within estimate <b>{n0(trkEst)}h</b> · {Math.round(trkEst / tt * 100)}%</span>
+                        <span><i className="d no" />No estimate <b>{n0(trkNo)}h</b> · {Math.round(trkNo / tt * 100)}%</span>
+                        <span className="tot">Total tracked <b>{n0(s.actual_total)}h</b></span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {!isEst && s.budget != null && (
                   <div className="cpf-bar" title={`${n0(s.used_pct ?? 0)}% used`}>
                     <div className={"cpf-bar-f" + (s.over ? " over" : "")} style={{ width: `${Math.min(100, s.used_pct ?? 0)}%` }} />
                   </div>
                 )}
-                <div className="drawer-sec" style={{ marginTop: 14 }}>{isEst ? `Tasks with an estimate (${withEst.length})` : `Where the hours went (${tasks.length} tasks)`}</div>
+                <div className="drawer-sec" style={{ marginTop: 14 }}>{isOver ? `${overList.length} tasks over estimate` : isEst ? `All tasks (${estList.length}) · ${withEst.length} with estimate, ${noEst.length} without` : `Where the hours went (${tasks.length} tasks)`}</div>
                 <div className="scrollwrap" style={{ maxHeight: 360 }}>
                   <table className="ec-table">
                     <thead><tr><th className="l">Task</th><th className="l">Top employee</th><th>Estimate</th><th>Tracked</th><th>{isEst ? "Variance" : "% of used"}</th></tr></thead>
                     <tbody>
-                      {(isEst ? withEst : tasks).map((t, i) => (
+                      {listRows.map((t, i) => (
                         <tr key={t.task + i}>
                           <td className="l tname"><span className={"fv-st " + (t.done ? "done" : "open")} />{t.task}</td>
                           <td className="l" style={{ color: "var(--ink-2)" }}>{t.worker}</td>
@@ -3695,7 +3805,7 @@ export default function CommandCenter({
                             : <span style={{ color: "var(--muted)" }}>{s.total ? n0(t.actual / s.total * 100) + "%" : "—"}</span>}</td>
                         </tr>
                       ))}
-                      {(isEst ? withEst : tasks).length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks.</td></tr>}
+                      {listRows.length === 0 && <tr><td colSpan={5} className="empty-s" style={{ textAlign: "center", padding: 18 }}>No tasks.</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -4112,7 +4222,7 @@ export default function CommandCenter({
                   return (
                     <div className="scrollwrap" style={{ maxHeight: 460 }}>
                       <table className="hd-table">
-                        <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Type</th><th>People</th><th className="l">Tasks (done / open)</th><th className="l">Hours</th><th>Bill %</th></tr></thead>
+                        <thead><tr><th className="l">#</th><th className="l">Client</th><th className="l">Type</th><th>People</th><th className="l">Tasks (done / open)</th><th className="l">Hours</th><th>Billable</th><th>Non-bill</th><th>Bill %</th></tr></thead>
                         <tbody>
                           {clientsData.clients.map((c, i) => {
                             const tt = c.tasks_done + c.tasks_open, dp = tt ? (c.tasks_done / tt) * 100 : 0;
@@ -4124,6 +4234,8 @@ export default function CommandCenter({
                                 <td className="num" style={{ color: "var(--ink-2)" }}>{c.people}</td>
                                 <td className="l">{tt ? <span className="tk-cell" title={`${c.tasks_done} closed · ${c.tasks_open} open`}><span className="tk-nums"><b style={{ color: "#16a34a" }}>{c.tasks_done}</b> / <b style={{ color: "#e8930c" }}>{c.tasks_open}</b></span><span className="tk-bar"><i style={{ width: `${dp}%` }} /></span></span> : <span style={{ color: "var(--faint)" }}>—</span>}</td>
                                 <td className="l"><span className="cl-hbar" title={`${n1(c.hours)}h`}><i style={{ width: `${(c.hours / maxH) * 100}%` }} /><em>{n0(c.hours)}h</em></span></td>
+                                <td className="num" style={{ color: "#1f8a5b", fontWeight: 600 }}>{n1(c.billable)}h</td>
+                                <td className="num" style={{ color: "#d9a23a" }}>{n1(c.non_billable)}h</td>
                                 <td className="num" style={{ color: "var(--ink-2)" }}>{n0(c.billable_pct)}%</td>
                               </tr>
                             );
@@ -4172,13 +4284,13 @@ export default function CommandCenter({
                     <tbody>
                       {rows.map((r) => {
                         const tt = (r.tasks_done + r.tasks_open) || 0;
-                        const noBudget = !(r.budget > 0);
+                        const noBudget = !((r.budget ?? 0) > 0);
                         const col = noBudget ? "var(--muted)" : (r.over ? "#ef4444" : "#16a34a");
                         return (
                           <tr key={r.client} className="click" onClick={() => { setBudgetModal(false); openClient(r.client); }}>
                             <td className="l"><div className="bvc-name"><span className="tname" style={{ fontWeight: 650 }}>{r.client}</span><span className="bvc-meta">{r.team} · {r.type}</span></div></td>
                             <td className="num" style={{ fontWeight: 750 }}>{n0(r.actual)}h</td>
-                            <td className="num" style={{ color: "var(--ink-2)" }}>{n0(r.budget)}h</td>
+                            <td className="num" style={{ color: "var(--ink-2)" }}>{noBudget ? "—" : n0(r.budget ?? 0) + "h"}</td>
                             <td className="num" style={{ fontWeight: 750, color: col }}>{noBudget ? "0h" : ((r.variance ?? 0) > 0 ? "+" : "") + n0(r.variance ?? 0) + "h"}</td>
                             <td className="l td-link" title="See this client's tasks" onClick={(e) => { e.stopPropagation(); openClientTasks(r.client); }}>{tt > 0 ? <span><b style={{ color: "#16a34a" }}>{r.tasks_done}</b> done · <b style={{ color: "#e8930c" }}>{r.tasks_open}</b> open</span> : <span style={{ color: "var(--accent)" }}>view tasks →</span>}</td>
                             <td className="num"><span className="bv-badge" style={{ color: col, background: noBudget ? "var(--chip)" : (r.over ? "#fef2f2" : "#f0fdf4") }}>{noBudget ? "No budget" : (r.over ? "Over" : "Within")}</span></td>
@@ -4621,7 +4733,7 @@ function MultiSelect({ Icon, label, value, opts, on, allLabel, status }: {
   }
   const display = !active ? label : selected.length === 1 ? selected[0] : `${label} · ${selected.length}`;
   return (
-    <div className={`fpill ms${active ? " on" : ""}`} ref={ref}>
+    <div className={`fpill ms${active ? " on" : ""}${open ? " open" : ""}`} ref={ref}>
       <button type="button" className="ms-btn" onClick={() => setOpen((o) => !o)} title={active ? `${label}: ${selected.join(", ")}` : label}>
         <Icon size={14} />
         <span className="fpl">{display}</span>
@@ -4650,6 +4762,73 @@ function MultiSelect({ Icon, label, value, opts, on, allLabel, status }: {
             {list.length === 0 && <div className="ms-empty">No matches</div>}
           </div>
           {active && <div className="ms-foot"><span>{selected.length} selected</span><button onClick={() => on("")}>Clear</button></div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Professional date-range control: a single pill showing the active range that opens a
+// popover with named quick presets + a custom From/To range (applied on "Apply", so it
+// never re-fetches mid-edit). Replaces the two bare native date inputs + preset row.
+const DR_PRESETS: [string, number | null, string][] = [
+  ["Last 7 days", 7, "7D"],
+  ["Last 30 days", 30, "30D"],
+  ["Last 90 days", 90, "90D"],
+  ["Last 12 months", 365, "1Y"],
+  ["All time", null, "All"],
+];
+
+function DateRange({ from, to, min, max, activePreset, onPreset, onRange }: {
+  from?: string; to?: string; min?: string; max?: string; activePreset: string;
+  onPreset: (n: number | null) => void; onRange: (from: string, to: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [cf, setCf] = useState(from || "");
+  const [ct, setCt] = useState(to || "");
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => { setCf(from || ""); setCt(to || ""); }, [from, to, open]);
+  useEffect(() => {
+    if (!open) return;
+    const h = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener("mousedown", h);
+    return () => document.removeEventListener("mousedown", h);
+  }, [open]);
+  const fmt = (s?: string) => s ? new Date(s + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "";
+  const presetName = DR_PRESETS.find((p) => p[2] === activePreset)?.[0];
+  const label = activePreset && presetName ? presetName
+    : (from && to ? `${fmt(from)} – ${fmt(to)}` : from ? `From ${fmt(from)}` : to ? `Until ${fmt(to)}` : "All time");
+  const monthRange = (back: number) => {
+    const base = new Date((max || new Date().toISOString().slice(0, 10)) + "T00:00:00Z");
+    const s = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - back, 1));
+    const e = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() - back + 1, 0));
+    return [s.toISOString().slice(0, 10), e.toISOString().slice(0, 10)] as const;
+  };
+  const applyRange = (s: string, e: string) => { onRange(s, e); setOpen(false); };
+  return (
+    <div className={`fpill dr${(from || to) ? " on" : ""}${open ? " open" : ""}`} ref={ref}>
+      <button type="button" className="ms-btn" onClick={() => setOpen((o) => !o)} title="Date range">
+        <CalendarDays size={14} />
+        <span className="fpl">{label}</span>
+        <ChevronDown size={13} />
+      </button>
+      {open && (
+        <div className="ms-menu dr-menu">
+          <div className="dr-presets">
+            {DR_PRESETS.map(([lbl, n, key]) => (
+              <button key={key} type="button" className={"dr-preset" + (activePreset === key ? " on" : "")} onClick={() => { onPreset(n); setOpen(false); }}>{lbl}</button>
+            ))}
+            <button type="button" className="dr-preset" onClick={() => { const [s, e] = monthRange(0); applyRange(s, e); }}>This month</button>
+            <button type="button" className="dr-preset" onClick={() => { const [s, e] = monthRange(1); applyRange(s, e); }}>Last month</button>
+          </div>
+          <div className="dr-custom">
+            <div className="dr-custom-h">Custom range</div>
+            <label className="dr-field"><span>From</span>
+              <input type="date" value={cf} min={min} max={ct || max} onChange={(e) => setCf(e.target.value)} /></label>
+            <label className="dr-field"><span>To</span>
+              <input type="date" value={ct} min={cf || min} max={max} onChange={(e) => setCt(e.target.value)} /></label>
+            <button type="button" className="dr-apply" disabled={!cf || !ct || (cf === (from || "") && ct === (to || ""))} onClick={() => applyRange(cf, ct)}>Apply range</button>
+          </div>
         </div>
       )}
     </div>

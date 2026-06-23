@@ -1506,6 +1506,20 @@ def real_clients(d):
     return d[(d["client_type"] != "Internal") & (~d["client"].isin(_NON_CLIENT))]
 
 
+def count_real_active_clients(d) -> int:
+    """Distinct REAL external clients with NON-TRIVIAL tracked time in `d`.
+    A client is only "active" if its tracked hours round to >0 (>= ~0.05h /
+    3 min) — the SAME floor the Over-Budget card uses (see /api/budget) — so a
+    stray few-seconds timer blip doesn't inflate the count. Keeping both the
+    Active Clients KPI and the Over-Budget denominator on this one helper is
+    what guarantees they always agree."""
+    rc = real_clients(d)
+    if rc is None or rc.empty:
+        return 0
+    by_client = rc.groupby("client")["tracked_h"].sum()
+    return int((by_client.round(1) > 0).sum())
+
+
 def _working_days(start: str, end: str) -> int:
     """Company rule: Mon-Fri working + FIRST Saturday of each month working;
     all other Saturdays + every Sunday = off. Counts working days in [start, end]."""
@@ -2193,7 +2207,8 @@ def build_tasks_db(uid, date_from=None, date_to=None):
               LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
               LEFT JOIN hubstaff_projects pr ON pr.id = a.project_id
               WHERE {where} AND a.task_id IS NOT NULL
-              GROUP BY h.id, task),
+              GROUP BY h.id, task
+              HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0),
             pj AS (        -- project-only tracked work (no task)
               SELECT 'p'||pr.id gid,
                      COALESCE(NULLIF(pr.name,''), 'Project '||pr.id::text) task,
@@ -2203,11 +2218,12 @@ def build_tasks_db(uid, date_from=None, date_to=None):
               FROM hubstaff_activities a
               JOIN hubstaff_projects pr ON pr.id = a.project_id
               WHERE {where} AND a.task_id IS NULL AND a.project_id IS NOT NULL
-              GROUP BY pr.id, pr.name)
+              GROUP BY pr.id, pr.name
+              HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0)
             SELECT task, client, estimated, round(tracked::numeric,1) tracked, status, due FROM tk
             UNION ALL
             SELECT task, client, estimated, round(tracked::numeric,1) tracked, status, due FROM pj
-            ORDER BY tracked DESC NULLS LAST LIMIT 80
+            ORDER BY tracked DESC NULLS LAST LIMIT 3000
         """, p)
         if t is None or t.empty:
             return []
@@ -2616,9 +2632,14 @@ def command(
     alerts = _alerts(emp, members, d, task_summary, live_activity, people)
     insights = _insights(d, emp)
     # real external clients only — exclude internal buckets (NB Tasks, Training,
-    # Accounting, "(no client)" …) so the count is meaningful and lines up with
-    # the budgeted-client list instead of inflating with non-client folders.
-    _n_clients = int(real_clients(d)["client"].nunique()) if not empty else 0
+    # Accounting, "(no client)" …) AND clients with only a few seconds of tracked
+    # time (rounds to 0.0h). Counted on the ACTIVITY scope (who ACTUALLY tracked time
+    # on the client), not the home-team scope `d` used for the other metrics — so the
+    # Active Clients KPI matches its own drill-down (/api/clients) and the Over-Budget
+    # card (/api/budget), which both use activity scope. With a team filter active the
+    # two scopes otherwise diverge because of cross-team helpers (KPI 28 vs modal 25).
+    _, _d_clients = apply_filters(members, g, f, scope="activity")
+    _n_clients = count_real_active_clients(_d_clients)
     summary = {
         "employees": people, "active_days": int(d["date_s"].nunique()) if not empty else 0,
         "departments": int(d["department"].nunique()) if not empty else 0,
@@ -3639,7 +3660,9 @@ def client_messages(client: Optional[str] = None, labels: Optional[str] = None,
 @app.get("/api/focus")
 @_memo
 def focus(kind: str, name: str, client: Optional[str] = None,
-          date_from: Optional[str] = None, date_to: Optional[str] = None):
+          date_from: Optional[str] = None, date_to: Optional[str] = None,
+          atl: Optional[str] = None, department: Optional[str] = None,
+          client_type: Optional[str] = None):
     """Context-aware focus data for ONE entity (client / team / employee), optionally
     drilled to a client within an employee. Returns a summary, per-task estimate /
     budget / actual, per-client and per-member efficiency, and an auto insight.
@@ -3665,6 +3688,18 @@ def focus(kind: str, name: str, client: Optional[str] = None,
             d = d[d["client"] == client]; folder = client
     else:
         return {"found": False}
+    # Extra scope from the active dashboard filter — so drilling to an employee WITHIN a
+    # team / department / type shows ONLY their work in THAT scope (matching the KPI cards
+    # that come from apply_filters), not their company-wide activity. A no-op when it just
+    # repeats the kind's own dimension (e.g. team focus + same team).
+    def _multi(v):
+        return [s.strip() for s in str(v).split(",") if s.strip()]
+    if atl:
+        d = d[d["atl"].isin(_multi(atl))]
+    if department:
+        d = d[d["department"].isin(_multi(department))]
+    if client_type:
+        d = d[d["client_type"].isin(_multi(client_type))]
     if d.empty:
         return {"found": False}
     tracked = float(d["tracked_h"].sum()); bill = float(d["billable_h"].sum())
@@ -3686,9 +3721,18 @@ def focus(kind: str, name: str, client: Optional[str] = None,
     tot_t = over_t = done_t = est_t = 0; est_total = budget_total = 0.0
     if db.has_db() and uids:
         try:
-            tw = ["a.user_id = ANY(:uids)", "a.task_id IS NOT NULL"]; tp = {"uids": uids}
+            tw = ["a.user_id = ANY(:uids)", "a.task_id IS NOT NULL", "COALESCE(a.tracked,0) > 0"]; tp = {"uids": uids}
             if folder:
                 tw.append("(c.folder_name = :f OR (c.task_id IS NULL AND split_part(p.name,' / ',2) = :f))"); tp["f"] = folder
+            # Team / type focus: restrict tasks to THIS scope's clients so a member's
+            # work on OTHER teams' clients isn't counted (tracked is already scoped).
+            # Restrict tasks to the scope's clients whenever the view is narrowed to a
+            # team / dept / type (including an employee drilled inside one) — so a person's
+            # work on OTHER teams' clients isn't counted. (tracked is already scoped via d.)
+            _scoped = kind in ("team", "type") or bool(atl or department or client_type)
+            scope_clis = sorted({str(c) for c in d["client"].unique() if str(c)}) if _scoped else None
+            if scope_clis:
+                tw.append("(c.folder_name = ANY(:clis) OR (c.task_id IS NULL AND split_part(p.name,' / ',2) = ANY(:clis)))"); tp["clis"] = scope_clis
             if date_from:
                 tw.append("a.date >= :df"); tp["df"] = date_from
             if date_to:
@@ -3710,13 +3754,18 @@ def focus(kind: str, name: str, client: Optional[str] = None,
                 SELECT task_id, task, max(cfolder) cfolder, max(pname) pname, max(status) status, max(est) est,
                        max(budget) budget, max(date_done) date_done, max(hcomp) hcomp, max(due) due, max(priority) priority,
                        round(sum(uh)::numeric,1) actual, (array_agg(uid ORDER BY uh DESC))[1] top_uid
-                FROM ta GROUP BY task_id, task ORDER BY actual DESC NULLS LAST LIMIT 200""", tp)
+                FROM ta GROUP BY task_id, task
+                HAVING round(sum(uh)::numeric,1) > 0
+                ORDER BY actual DESC NULLS LAST LIMIT 6000""", tp)
             for r in tq.itertuples():
                 est = 0.0 if (r.est is None or pd.isna(r.est)) else float(r.est)
                 budget = 0.0 if (r.budget is None or pd.isna(r.budget)) else float(r.budget)
                 act = 0.0 if (r.actual is None or pd.isna(r.actual)) else float(r.actual)
                 if r.status is not None and not pd.isna(r.status):    # ClickUp-linked → status is authoritative
-                    done = bool(r.date_done) or str(r.status).lower() in ("complete", "done", "closed", "completed")
+                    # NOTE: bool(NaT)/bool(nan) are BOTH True in Python — a missing date_done
+                    # must be checked with pd.isna(), else every task reads as "done".
+                    has_dd = r.date_done is not None and not pd.isna(r.date_done)
+                    done = has_dd or str(r.status).lower() in ("complete", "done", "closed", "completed")
                 else:                                                  # project-only task → use Hubstaff completion
                     done = (r.hcomp is not None and not pd.isna(r.hcomp))
                 cl = None
@@ -3752,22 +3801,59 @@ def focus(kind: str, name: str, client: Optional[str] = None,
                         ac["est"] += est; ac["act"] += act; ac["n"] += 1
                         if act > est * 1.05:
                             ac["over"] += 1
-            # Project-only work (time tracked against a Hubstaff project with NO task) —
-            # so people who track on projects (no ClickUp task) still appear in the list.
-            pw = ["a.user_id = ANY(:uids)", "a.task_id IS NULL", "a.project_id IS NOT NULL"]
+            # The task list above is capped (LIMIT 200) for display, so tot_t/done_t from
+            # that loop under-count big scopes. Recompute the TRUE worked-task totals with
+            # an uncapped count — same done-logic — so Tasks Done matches Task Delivery.
+            try:
+                cq = db.q(f"""
+                    WITH ta AS (
+                      SELECT h.id tid, max(c.status) status, max(c.date_done) date_done,
+                             max(h.completed_at) hcomp
+                      FROM hubstaff_activities a
+                      JOIN hubstaff_tasks h ON h.id = a.task_id
+                      LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id
+                      LEFT JOIN hubstaff_projects p ON p.id = a.project_id
+                      WHERE {' AND '.join(tw)}
+                      GROUP BY h.id
+                      HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0)
+                    SELECT count(*) total,
+                           count(*) FILTER (WHERE
+                             (status IS NOT NULL AND (date_done IS NOT NULL OR lower(status) IN ('complete','done','closed','completed')))
+                             OR (status IS NULL AND hcomp IS NOT NULL)) done
+                    FROM ta
+                """, tp)
+                if not cq.empty:
+                    tot_t = int(cq.iloc[0]["total"] or 0)
+                    done_t = int(cq.iloc[0]["done"] or 0)
+            except Exception:  # noqa
+                pass
+            # Project-only work (tracked on a Hubstaff project with NO ClickUp task) IS
+            # counted — some people track directly on a project. Added to the list AND the
+            # totals so "tracked work" is consistent everywhere.
+            pw = ["a.user_id = ANY(:uids)", "a.task_id IS NULL", "a.project_id IS NOT NULL", "COALESCE(a.tracked,0) > 0"]
             if folder:
                 pw.append("split_part(p.name,' / ',2) = :f")
+            if scope_clis:
+                pw.append("split_part(p.name,' / ',2) = ANY(:clis)")
             if date_from:
                 pw.append("a.date >= :df")
             if date_to:
                 pw.append("a.date <= :dt")
+            try:
+                pcnt = db.q(f"SELECT count(*) n FROM (SELECT a.project_id FROM hubstaff_activities a "
+                            f"JOIN hubstaff_projects p ON p.id = a.project_id WHERE {' AND '.join(pw)} "
+                            f"GROUP BY a.project_id HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0) x", tp)
+                tot_t += int(pcnt.iloc[0]['n'] or 0)
+            except Exception:  # noqa
+                pass
             pq = db.q(f"""
                 SELECT p.id pid, max(p.name) pname,
                        round(sum(a.tracked)/3600.0::numeric,1) actual,
                        (array_agg(a.user_id ORDER BY a.tracked DESC))[1] top_uid
                 FROM hubstaff_activities a JOIN hubstaff_projects p ON p.id = a.project_id
                 WHERE {' AND '.join(pw)}
-                GROUP BY p.id ORDER BY actual DESC NULLS LAST LIMIT 60""", tp)
+                GROUP BY p.id HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0
+                ORDER BY actual DESC NULLS LAST LIMIT 500""", tp)
             for r in pq.itertuples():
                 pn = str(r.pname) if (r.pname is not None and not pd.isna(r.pname)) else f"Project {r.pid}"
                 pcl = pn.split(" / ", 1)[1].strip() if " / " in pn else None
@@ -3812,11 +3898,23 @@ def focus(kind: str, name: str, client: Optional[str] = None,
     on_est = round((est_t - over_t) / est_t * 100) if est_t else None
     grade = grade_letter(0.5 * (util or 0) + 0.5 * billpct) if kind in ("team", "employee", "type") else None
 
+    # Clients = REAL external clients actually worked (tracked>0) — internal buckets
+    # (NB Tasks / Training / Accounting …) are NOT counted as clients, consistently
+    # everywhere (count, clients-handled, Over-Budget denominator).
+    _real_d = real_clients(d)
+    if _real_d is None or _real_d.empty:
+        _real_d = d
+    # only clients with REAL tracked time this period (displayed hours > 0)
+    _cli_h = _real_d.groupby("client")["tracked_h"].sum()
+    _cli_keep = set(c for c in _cli_h.index if round(float(_cli_h[c]), 1) > 0)
+    real_cli_n = len(_cli_keep)
     cli_rows = []
     if kind in ("team", "employee", "type") and not client:
-        cg = d.groupby("client").agg(h=("tracked_h", "sum"), b=("billable_h", "sum")).reset_index().sort_values("h", ascending=False)
+        cg = _real_d.groupby("client").agg(h=("tracked_h", "sum"), b=("billable_h", "sum")).reset_index().sort_values("h", ascending=False)
         buds = client_budgets()
         for r in cg.itertuples():
+            if round(float(r.h), 1) <= 0:
+                continue
             cl = str(r.client); ac = agg_by_client.get(cl, {})
             bb = buds.get(re.sub(r"\s*\([fh]\)\s*$", "", cl, flags=re.I).strip().lower())
             cbudget = (bb["budget"] * months) if bb else None
@@ -3856,7 +3954,10 @@ def focus(kind: str, name: str, client: Optional[str] = None,
               .reset_index().sort_values("h", ascending=False))
         for r in pg.head(80).itertuples():
             pairs.append({"name": name_map.get(r.user_id, f"User {r.user_id}"), "client": str(r.client),
-                          "hours": round(float(r.h), 1), "billable_pct": round(float(r.b) / float(r.h) * 100) if r.h else 0})
+                          "hours": round(float(r.h), 1),
+                          "billable": round(float(r.b), 1),
+                          "non_billable": round(float(r.h) - float(r.b), 1),
+                          "billable_pct": round(float(r.b) / float(r.h) * 100) if r.h else 0})
 
     # Daily cumulative tracked hours (burn-up) — client context only.
     burnup = []
@@ -3934,11 +4035,9 @@ def focus(kind: str, name: str, client: Optional[str] = None,
                 return agg
         return None
 
+    # Sentiment reflects ONLY the selected period — no all-time fallback. If there are
+    # no comms in the period, the panel simply doesn't show (frontend gates on comms>0).
     sentiment = _sent_from(_client_sentiment_map(date_from, date_to))
-    if sentiment is None:                       # no comms in the selected period → show all-time
-        alt = _sent_from(_client_sentiment_map(None, None))
-        if alt:
-            sentiment = {**alt, "all_time": True}
     if kind == "client" or client:
         cn = client or name
         bb = client_budgets().get(re.sub(r"\s*\([fh]\)\s*$", "", str(cn), flags=re.I).strip().lower())
@@ -3985,8 +4084,9 @@ def focus(kind: str, name: str, client: Optional[str] = None,
             "total": round(tracked, 1), "billable": round(bill, 1), "non_billable": round(nb, 1),
             "billable_pct": billpct, "activity_pct": actpct, "utilization": util, "grade": grade,
             "on_estimate_pct": on_est, "tasks": tot_t, "tasks_done": done_t,
+            "tasks_with_est": est_t, "tasks_over": over_t,
             "est_total": round(est_total, 1), "budget_total": round(budget_total, 1), "actual_total": round(tracked, 1),
-            "clients": int(d["client"].nunique()), "members": int(d["user_id"].nunique()),
+            "clients": real_cli_n, "members": int(d["user_id"].nunique()),
             "budget": budget, "used_pct": used_pct, "over": over_budget,
             "forecast": forecast, "forecast_pct": forecast_pct, "last_worked": last_worked,
             "health": health, "health_grade": health_grade,
@@ -4029,9 +4129,15 @@ def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[s
     ppl = [{"name": name_map.get(r.user_id, f"User {r.user_id}"), "hours": round(r.h, 1),
             "billable": round(r.billh, 1), "days": int(r.dd),
             "activity": round(r.ov / r.h * 100, 0) if r.h else 0} for r in pe.itertuples()]
-    cl = (d.groupby("client").agg(h=("tracked_h", "sum"), billh=("billable_h", "sum"))
-          .reset_index().sort_values("h", ascending=False).head(12))
-    clients = [{"client": r.client, "hours": round(r.h, 1), "billable": round(r.billh, 1)} for r in cl.itertuples()]
+    # Clients = REAL external clients actually tracked (>0h) — same definition as the
+    # Active Clients KPI / clients-handled / focus, so the scorecard count and its Top
+    # Clients list always agree with the dashboard (internal buckets and 0h rows excluded).
+    _rc = real_clients(d)
+    cl_all = (_rc.groupby("client").agg(h=("tracked_h", "sum"), billh=("billable_h", "sum"))
+              .reset_index()) if _rc is not None and not _rc.empty else pd.DataFrame(columns=["client", "h", "billh"])
+    cl_all = cl_all[cl_all["h"].round(1) > 0].sort_values("h", ascending=False)
+    real_cli_n = int(len(cl_all))
+    clients = [{"client": r.client, "hours": round(r.h, 1), "billable": round(r.billh, 1)} for r in cl_all.head(12).itertuples()]
     daily = (d.groupby("date_s").agg(h=("tracked_h", "sum"), b=("billable_h", "sum"))
              .reset_index().sort_values("date_s"))
     daily_rows = [{"date": r.date_s, "billable": round(r.b, 2), "non_billable": round(r.h - r.b, 2)}
@@ -4044,7 +4150,7 @@ def team_profile(name: str, date_from: Optional[str] = None, date_to: Optional[s
             "billable_pct": round(bill / tracked * 100, 0) if tracked else 0,
             "utilization": round(float(r0["utilization"]), 0), "activity": round(float(r0["activity"]), 0),
             "productivity": round(float(r0["productivity"]), 0), "grade": r0["grade"],
-            "clients": int(d["client"].nunique()), "days": int(d["date_s"].nunique()),
+            "clients": real_cli_n, "days": int(d["date_s"].nunique()),
         },
         "members": ppl, "clients": clients, "daily": daily_rows,
     })
@@ -4507,30 +4613,49 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
         # Client-precise: tasks WORKED in the period whose resolved client (ClickUp
         # folder, or the project name's "Team / Client" suffix) is this client — the
         # same attribution the focus view uses. Counts everyone who worked the client.
-        p = {"cli": client}
-        cw = ["a.task_id IS NOT NULL"]
+        # Supports MULTIPLE comma-separated clients (= ANY) so selecting 2+ clients
+        # AGGREGATES their task delivery instead of matching nothing (a 2-client filter
+        # used to send the literal "A,B" to an equality test and return 0 tasks).
+        cli_list = [c.strip() for c in str(client).split(",") if c.strip()]
+        p = {"clis": cli_list}
+        cw = ["a.task_id IS NOT NULL", "COALESCE(a.tracked,0) > 0"]
         if date_from:
             cw.append("a.date >= :df"); p["df"] = date_from
         if date_to:
             cw.append("a.date <= :dt"); p["dt"] = date_to
-        worked_cte = (f"SELECT DISTINCT a.task_id tid FROM hubstaff_activities a "
+        worked_cte = (f"SELECT a.task_id tid FROM hubstaff_activities a "
                       f"JOIN hubstaff_tasks h2 ON h2.id = a.task_id "
                       f"LEFT JOIN clickup_tasks c ON c.task_id = h2.remote_id "
                       f"LEFT JOIN hubstaff_projects pr ON pr.id = a.project_id "
                       f"WHERE {' AND '.join(cw)} AND "
-                      f"(c.folder_name = :cli OR (c.task_id IS NULL AND split_part(pr.name,' / ',2) = :cli))")
+                      f"(c.folder_name = ANY(:clis) OR (c.task_id IS NULL AND split_part(pr.name,' / ',2) = ANY(:clis))) "
+                      f"GROUP BY a.task_id HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0")
     else:
-        act, p = _td_worked_scope(date_from, date_to, department, atl, employee, client,
-                                  client_type, billable, status)
+        # team/type focus is activity-based (who tracked on the team) — match it so the
+        # Task Delivery total lines up with Tasks Done.
+        act, p, clis = _td_worked_scope(date_from, date_to, department, atl, employee, client,
+                                        client_type, billable, status,
+                                        scope=("activity" if (atl or client_type or department) else "home"))
         if act is None:
             return {"due": 0, "on_time": 0, "late": 0, "open": 0, "on_time_pct": 0.0}
-        worked_cte = f"SELECT DISTINCT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)}"
+        if clis:                       # team/dept/type → scope to that scope's clients
+            p["clis"] = clis
+            worked_cte = (f"SELECT a.task_id tid FROM hubstaff_activities a "
+                          f"JOIN hubstaff_tasks h2 ON h2.id = a.task_id "
+                          f"LEFT JOIN clickup_tasks c ON c.task_id = h2.remote_id "
+                          f"LEFT JOIN hubstaff_projects pr ON pr.id = a.project_id "
+                          f"WHERE {' AND '.join(act)} AND "
+                          f"(c.folder_name = ANY(:clis) OR (c.task_id IS NULL AND split_part(pr.name,' / ',2) = ANY(:clis))) "
+                          f"GROUP BY a.task_id HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0")
+        else:
+            worked_cte = (f"SELECT a.task_id tid FROM hubstaff_activities a WHERE {' AND '.join(act)} "
+                          f"GROUP BY a.task_id HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0")
     # Open = still NOT completed as of today (completed_at IS NULL). A task completed
     # later — even after the selected period — is NOT "open"; it's classified on-time
     # /late by its own due date vs when it was actually completed.
-    # Due-floor: drop tasks due BEFORE the period (old carry-over work) — keep this
-    # period's and future due dates (and tasks with no due date).
-    due_cond = "(h.due_at IS NULL OR h.due_at::date >= :df)" if date_from else "true"
+    # No due-floor: count EVERY task worked in the period so this figure matches the
+    # Tasks Done KPI and the Estimate-vs-Actual list (with + without estimate) everywhere.
+    due_cond = "true"
     sql = f"""
       WITH worked AS ({worked_cte})
       SELECT
@@ -4547,6 +4672,29 @@ def task_delivery(date_from: Optional[str] = None, date_to: Optional[str] = None
         r = db.q(sql, p).iloc[0]
         due = int(r["due"]) or 0
         ot = int(r["on_time"]); lt = int(r["late"]); op = int(r["open"])
+        # Project-only tracked work (no ClickUp task) is ALSO a work unit counted in Tasks
+        # Done — include it here too so Task Delivery == Tasks Done everywhere. Project work
+        # has no due date / completion, so it's classified "open". Mirrors focus's pcnt.
+        try:
+            pw = ["a.task_id IS NULL", "a.project_id IS NOT NULL", "COALESCE(a.tracked,0) > 0"]
+            pp = {}
+            if "df" in p:
+                pw.append("a.date >= :df"); pp["df"] = p["df"]
+            if "dt" in p:
+                pw.append("a.date <= :dt"); pp["dt"] = p["dt"]
+            if "uids" in p:
+                pw.append("a.user_id::text = ANY(:uids)"); pp["uids"] = p["uids"]
+            if client:
+                pw.append("split_part(pr.name,' / ',2) = :cli"); pp["cli"] = client
+            elif "clis" in p:
+                pw.append("split_part(pr.name,' / ',2) = ANY(:clis)"); pp["clis"] = p["clis"]
+            pc = db.q(f"SELECT count(*) n FROM (SELECT a.project_id FROM hubstaff_activities a "
+                      f"JOIN hubstaff_projects pr ON pr.id = a.project_id WHERE {' AND '.join(pw)} "
+                      f"GROUP BY a.project_id HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0) z", pp)
+            pn = int(pc.iloc[0]["n"] or 0)
+        except Exception:  # noqa
+            pn = 0
+        due += pn; op += pn
         return {"due": due, "on_time": ot, "late": lt, "open": op,
                 "on_time_pct": round(ot / due * 100, 1) if due else 0.0}
     except Exception as e:  # noqa
@@ -4559,24 +4707,37 @@ def _td_worked_scope(date_from, date_to, department, atl, employee, client,
     TRACKED in the period (optionally by the filtered people). Returns (clauses, params),
     or (None, _) when a filter resolves to nobody."""
     p = {}
-    act = ["a.task_id IS NOT NULL"]
+    act = ["a.task_id IS NOT NULL", "COALESCE(a.tracked,0) > 0"]
     if date_from:
         act.append("a.date >= :df"); p["df"] = date_from
     if date_to:
         act.append("a.date <= :dt"); p["dt"] = date_to
+    clis = None
     if any([department, atl, employee, client]):
         try:
             members, g = load()
             f = {"department": department, "atl": atl, "employee": employee, "client": client,
                  "client_type": client_type, "billable": billable, "status": status}
-            m, _ = apply_filters(members, g, f, scope=scope)
-            uids = [str(u) for u in m["user_id"].unique()]
+            m, dscope = apply_filters(members, g, f, scope=scope)
+            # apply_filters does NOT date-filter — do it here so uids/clients reflect the
+            # PERIOD only. uids from the filtered ACTIVITIES (who actually tracked in scope
+            # this period), not the all-time members list — matches the focus/panel exactly.
+            if date_from:
+                dscope = dscope[dscope["date_s"] >= date_from]
+            if date_to:
+                dscope = dscope[dscope["date_s"] <= date_to]
+            uids = [str(u) for u in dscope["user_id"].unique()]
             if not uids:
-                return None, p
+                return None, p, None
             act.append("a.user_id::text = ANY(:uids)"); p["uids"] = uids
+            # team / dept / type → restrict to the clients actually worked in this scope
+            # (matches the focus view, so Task Delivery == Tasks Done). Employee-only stays
+            # unscoped (their tasks already == their clients).
+            if (atl or department or client_type) and not client:
+                clis = sorted({str(c) for c in dscope["client"].unique() if str(c)})
         except Exception:  # noqa
             pass
-    return act, p
+    return act, p, clis
 
 
 @app.get("/api/task_delivery_list")
@@ -4590,9 +4751,9 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
     scope as /api/task_delivery — tasks WORKED in the period — for the click modal."""
     # A client drill-down (from Budget vs Actual) uses per-activity scope so it
     # accounts for the client's full "Used" hours (everyone who worked it).
-    act, p = _td_worked_scope(date_from, date_to, department, atl, employee, client,
-                              client_type, billable, status,
-                              scope=("activity" if client else "home"))
+    act, p, clis = _td_worked_scope(date_from, date_to, department, atl, employee, client,
+                                    client_type, billable, status,
+                                    scope=("activity" if (atl or client_type or department or client) else "home"))
     if act is None:
         return {"bucket": bucket, "rows": [], "count": 0}
     conds = {
@@ -4607,13 +4768,22 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
     if client:
         client_clause = " AND COALESCE(c.folder_name, c.list_name) = :clientf"
         p["clientf"] = client
-    # Due-floor (drop past-due) for the Task Delivery card. NOT for the per-client
-    # drill-down (opened from Budget vs Actual) — that should list every task worked
-    # so it accounts for the client's "Used" hours.
-    due_cond = "(h.due_at IS NULL OR h.due_at::date >= :df)" if (date_from and not client) else "true"
+    # No due-floor: list every task WORKED in the period (matches the gauge count, which
+    # also has no due-floor). A task tracked this period shows even if its due was earlier.
+    due_cond = "true"
+    if clis:                           # team/dept/type → scope to that scope's clients
+        p["clis"] = clis
+        worked_inner = (f"SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs "
+                        f"FROM hubstaff_activities a "
+                        f"JOIN hubstaff_tasks h2 ON h2.id = a.task_id "
+                        f"LEFT JOIN clickup_tasks c2 ON c2.task_id = h2.remote_id "
+                        f"LEFT JOIN hubstaff_projects pr ON pr.id = a.project_id "
+                        f"WHERE {' AND '.join(act)} AND (c2.folder_name = ANY(:clis) OR (c2.task_id IS NULL AND split_part(pr.name,' / ',2) = ANY(:clis))) "
+                        f"GROUP BY a.task_id HAVING round(SUM(COALESCE(a.tracked,0))/3600.0::numeric,1) > 0")
+    else:
+        worked_inner = f"SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs FROM hubstaff_activities a WHERE {' AND '.join(act)} GROUP BY a.task_id HAVING round(SUM(COALESCE(a.tracked,0))/3600.0::numeric,1) > 0"
     sql = f"""
-      WITH worked AS (SELECT a.task_id tid, SUM(COALESCE(a.tracked,0))/3600.0 hrs
-                      FROM hubstaff_activities a WHERE {' AND '.join(act)} GROUP BY a.task_id)
+      WITH worked AS ({worked_inner})
       SELECT COALESCE(NULLIF(c.parent_task_name,''), h.summary, '—') AS task,
              COALESCE(c.folder_name, c.list_name, '—') AS client,
              round(w.hrs::numeric, 1) AS tracked_h,
@@ -4624,7 +4794,7 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
       FROM worked w JOIN hubstaff_tasks h ON h.id = w.tid
       LEFT JOIN clickup_tasks c ON c.task_id = h.remote_id AND COALESCE(c.is_deleted,false)=false
       WHERE ({cond}){client_clause} AND ({due_cond})
-      ORDER BY w.hrs DESC NULLS LAST LIMIT 300
+      ORDER BY w.hrs DESC NULLS LAST LIMIT 3000
     """
     try:
         import json as _json
@@ -4655,6 +4825,39 @@ def task_delivery_list(bucket: str, date_from: Optional[str] = None, date_to: Op
             else:
                 r.pop("asg_ck", None)
             r["assignees"] = ", ".join(dict.fromkeys(names)) if names else "—"
+        # Project-only tracked work (no ClickUp task) — a work unit counted in Tasks Done
+        # and Task Delivery (no due date → "open"). Append to the open / all buckets so the
+        # modal list matches the gauge.
+        if bucket in ("open", "all", ""):
+            try:
+                pw = ["a.task_id IS NULL", "a.project_id IS NOT NULL", "COALESCE(a.tracked,0) > 0"]
+                pp = {}
+                if "df" in p:
+                    pw.append("a.date >= :df"); pp["df"] = p["df"]
+                if "dt" in p:
+                    pw.append("a.date <= :dt"); pp["dt"] = p["dt"]
+                if "uids" in p:
+                    pw.append("a.user_id::text = ANY(:uids)"); pp["uids"] = p["uids"]
+                if client:
+                    pw.append("split_part(pr.name,' / ',2) = :cli"); pp["cli"] = client
+                elif "clis" in p:
+                    pw.append("split_part(pr.name,' / ',2) = ANY(:clis)"); pp["clis"] = p["clis"]
+                prows = db.q(
+                    f"SELECT COALESCE(NULLIF(split_part(pr.name,' / ',1),''), pr.name, 'Project') AS task, "
+                    f"NULLIF(split_part(pr.name,' / ',2),'') AS client, "
+                    f"round(sum(a.tracked)/3600.0::numeric,1) AS tracked_h, "
+                    f"NULL AS due, NULL AS completed, '' AS status "
+                    f"FROM hubstaff_activities a JOIN hubstaff_projects pr ON pr.id = a.project_id "
+                    f"WHERE {' AND '.join(pw)} GROUP BY pr.id, pr.name "
+                    f"HAVING round(sum(a.tracked)/3600.0::numeric,1) > 0 "
+                    f"ORDER BY tracked_h DESC NULLS LAST", pp).fillna("").to_dict("records")
+                for pr_ in prows:
+                    pr_["client"] = pr_.get("client") or "—"
+                    pr_["assignees"] = "—"
+                    pr_["project_only"] = True
+                rows = rows + prows
+            except Exception:  # noqa
+                pass
         return {"bucket": bucket, "rows": rows, "count": len(rows)}
     except Exception as e:  # noqa
         return {"bucket": bucket, "rows": [], "count": 0, "error": str(e)[:150]}
@@ -4878,12 +5081,13 @@ def clients_list(date_from: Optional[str] = None, date_to: Optional[str] = None,
                  client_type: Optional[str] = None, billable: Optional[str] = None,
                  status: Optional[str] = None):
     """Real external clients worked in the scope/period — for the Active Clients
-    drill-down. Excludes internal buckets (NB Tasks, Training, Accounting …)."""
+    drill-down. Excludes internal buckets (NB Tasks, Training, Accounting …).
+    Uses ACTIVITY scope so the modal count matches the Active Clients KPI (focus)."""
     members, g = load()
     f = {"date_from": date_from, "date_to": date_to, "department": department, "atl": atl,
          "employee": employee, "client": client, "client_type": client_type,
          "billable": billable, "status": status}
-    _, d = apply_filters(members, g, f)
+    _, d = apply_filters(members, g, f, scope="activity")
     d = real_clients(d)
     if d is None or d.empty:
         return {"clients": [], "count": 0, "total_hours": 0}
@@ -4892,9 +5096,13 @@ def clients_list(date_from: Optional[str] = None, date_to: Optional[str] = None,
                                   people=("user_id", "nunique")).reset_index()
     rows = []
     for r in grp.itertuples():
+        if round(float(r.hours), 1) <= 0:     # only clients actually tracked this period
+            continue
         ci = tasks.get(r.client, {})
         rows.append({"client": r.client, "type": client_kind(r.client),
                      "hours": round(float(r.hours), 1),
+                     "billable": round(float(r.billable), 1),
+                     "non_billable": round(float(r.hours) - float(r.billable), 1),
                      "billable_pct": round(float(r.billable) / float(r.hours) * 100, 0) if r.hours else 0,
                      "people": int(r.people),
                      "tasks_done": int(ci.get("done", 0)), "tasks_open": int(ci.get("open", 0))})
@@ -4930,12 +5138,18 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
     bil_by = d.groupby("client")["billable_h"].sum().to_dict()
     # period-scoped task counts: tasks that had time logged in this window
     tasks = _client_period_tasks([str(x) for x in d["user_id"].unique()], date_from, date_to)
+    # only REAL external clients (drop internal buckets) so this count matches the
+    # Clients KPI everywhere; budget or no budget, a real client still shows.
+    _rcd = real_clients(d)
+    real_set = set(_rcd["client"]) if (_rcd is not None and not _rcd.empty) else set(actual.index)
     rows = []
     for cn, act in actual.items():
-        b = bud.get(_n(cn))
-        if not b:
+        if cn not in real_set or round(float(act), 1) <= 0:   # real + tracked>0 this period
             continue
-        pb = b["budget"] * months
+        b = bud.get(_n(cn))
+        # Include EVERY real client worked in the period — even those with no budget set —
+        # so the count matches the Clients KPI. No-budget clients just can't be "over".
+        pb = (b["budget"] * months) if b else 0.0
         has_b = pb > 0                 # a real budget is set (0 = not set yet)
         act = float(act); over = has_b and act > pb
         # task completion for this client in the period (closed vs open)
@@ -4948,8 +5162,8 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
         budget_score = 100.0 if (not has_b or not over) else max(0.0, 100.0 - ((act - pb) / pb * 100))
         task_score = (tdone / ttot * 100) if ttot else 70.0
         hscore = 0.5 * budget_score + 0.3 * task_score + 0.2 * bilpct
-        rows.append({"client": cn, "type": b["type"], "team": b["team"],
-                     "budget": round(pb, 1), "actual": round(act, 1),
+        rows.append({"client": cn, "type": (b["type"] if b else client_kind(cn)), "team": (b["team"] if b else ""),
+                     "budget": round(pb, 1) if has_b else None, "actual": round(act, 1),
                      "variance": round(act - pb, 1) if has_b else None, "over": over,
                      "pct": round(act / pb * 100, 0) if has_b else None,
                      "tasks_total": ttot, "tasks_open": topen, "tasks_done": tdone,
@@ -4958,7 +5172,7 @@ def budget(date_from: Optional[str] = None, date_to: Optional[str] = None,
     rows.sort(key=lambda x: -x["actual"])
     # Totals (used vs budget) only over clients with a REAL budget set, so the
     # headline stays comparable; the rows list still shows every client.
-    budgeted = [r for r in rows if r["budget"] > 0]
+    budgeted = [r for r in rows if (r["budget"] or 0) > 0]
     tb = sum(r["budget"] for r in budgeted); ta = sum(r["actual"] for r in budgeted)
     over = sum(1 for r in rows if r["over"])
     return {"clients": rows, "total_budget": round(tb, 0), "total_actual": round(ta, 0),
